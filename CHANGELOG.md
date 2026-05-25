@@ -77,6 +77,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   app Docker image target is configured with `push: true`.
 - Fixed native Docker pushes to use credentials stored by `docker login` when
   the Docker config stores credentials in the standard `auth` field.
+- Stopped generated Docker Compose and native Docker deploy artifacts from
+  hard-wiring `OPENROUTER_API_KEY` into app container environments.
+- Added root workspace `env_files` to generated Docker Compose app services
+  through Compose `env_file` entries.
 - Added `docker compose up --wait --wait-timeout 30` to Docker Compose deploys
   so deploy waits briefly for services to become healthy.
 - Changed Kubernetes manifest and Helm chart artifacts to reference external

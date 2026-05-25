@@ -160,7 +160,11 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 			path := targetOutput(outDir, targetSpec.Output, composePath)
 			result.Compose = path
 			result.Artifacts = append(result.Artifacts, path)
-			if err := maybeWriteFile(path, dockerComposeContent(name, image, authPath, appRuntime, loaded.Launch), 0o600, opts.DryRun, opts.Force, out); err != nil {
+			content, err := dockerComposeContent(loaded.Root, filepath.Dir(path), name, image, authPath, appRuntime, loaded.Launch)
+			if err != nil {
+				return AppBuildResult{}, err
+			}
+			if err := maybeWriteFile(path, content, 0o600, opts.DryRun, opts.Force, out); err != nil {
 				return AppBuildResult{}, err
 			}
 			result.TargetArtifacts = append(result.TargetArtifacts, BuildArtifact{Target: target.Name, Kind: kind, Path: path, Image: image})

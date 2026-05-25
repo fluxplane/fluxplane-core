@@ -235,7 +235,7 @@ distribution:
 kind: agent
 name: assistant
 `)
-	writeTestFile(t, app, ".env", "OPENROUTER_API_KEY=supersecret\n")
+	writeTestFile(t, app, ".env", "EXAMPLE_API_KEY=supersecret\n")
 	result, err := BuildApp(context.Background(), AppBuildOptions{
 		AppDir:  app,
 		Targets: []string{"chart"},

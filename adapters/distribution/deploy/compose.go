@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
@@ -248,7 +249,11 @@ func GenerateDockerCompose(ctx context.Context, opts ComposeOptions) (ComposeRes
 		Effort:   opts.Effort,
 		Profiles: selectedRuntimeProfiles(opts.Profile, opts.Profiles),
 	})
-	content := dockerComposeContent(loaded.Distribution.Spec.Name, image, defaultAuthPath, appRuntime, loaded.Launch)
+	composePath := filepath.Join(loaded.Root, "docker-compose.yaml")
+	content, err := dockerComposeContent(loaded.Root, filepath.Dir(composePath), loaded.Distribution.Spec.Name, image, defaultAuthPath, appRuntime, loaded.Launch)
+	if err != nil {
+		return ComposeResult{}, err
+	}
 	result := ComposeResult{
 		AppDir:  loaded.Root,
 		Image:   image,
@@ -293,19 +298,24 @@ func dockerComposeStackFor(ctx context.Context, appDir, profile string, profiles
 	}, nil
 }
 
-func dockerComposeContent(name, image, authPath string, appRuntime appRuntimeOptions, launch distribution.LaunchConfig) string {
+func dockerComposeContent(appRoot, composeDir, name, image, authPath string, appRuntime appRuntimeOptions, launch distribution.LaunchConfig) (string, error) {
 	service := strings.TrimSpace(name)
 	if service == "" {
 		service = "app"
 	}
 	appRuntime = appRuntime.withDefaults()
 	service = composeServiceName(service)
+	envFiles, err := composeEnvFiles(appRoot, composeDir, launch)
+	if err != nil {
+		return "", err
+	}
 
 	spec := composeFile{
 		Services: map[string]composeService{
 			service: {
 				Image:       image,
 				Command:     composeInlineStrings(appServeCommand(authPath, appRuntime)),
+				EnvFile:     envFiles,
 				Environment: composeEnv(appRuntime, launch),
 				DependsOn:   composeDependencyMap(launch),
 				Restart:     "unless-stopped",
@@ -325,14 +335,13 @@ func dockerComposeContent(name, image, authPath string, appRuntime appRuntimeOpt
 	var buffer bytes.Buffer
 	encoder := yaml.NewEncoder(&buffer)
 	encoder.SetIndent(2)
-	err := encoder.Encode(spec)
-	if err != nil {
-		return ""
+	if err := encoder.Encode(spec); err != nil {
+		return "", err
 	}
 	if err := encoder.Close(); err != nil {
-		return ""
+		return "", err
 	}
-	return buffer.String()
+	return buffer.String(), nil
 }
 
 type composeFile struct {
@@ -343,6 +352,7 @@ type composeFile struct {
 type composeService struct {
 	Image       string                      `yaml:"image"`
 	Command     composeInlineStrings        `yaml:"command,omitempty"`
+	EnvFile     []string                    `yaml:"env_file,omitempty"`
 	Environment map[string]string           `yaml:"environment,omitempty"`
 	DependsOn   map[string]composeDependsOn `yaml:"depends_on,omitempty"`
 	Restart     string                      `yaml:"restart,omitempty"`
@@ -371,12 +381,126 @@ func (values composeInlineStrings) MarshalYAML() (any, error) {
 	return node, nil
 }
 
-func composeEnv(appRuntime appRuntimeOptions, launch distribution.LaunchConfig) map[string]string {
-	env := map[string]string{}
-	appRuntime = appRuntime.withDefaults()
-	if strings.EqualFold(appRuntime.Provider, DefaultAppProvider) {
-		env[openRouterAPIKeyEnv] = "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}"
+func composeEnvFiles(appRoot, composeDir string, launch distribution.LaunchConfig) ([]string, error) {
+	return resolveComposeEnvFiles(appRoot, composeDir, launch.Workspace.EnvFiles)
+}
+
+func resolveComposeEnvFiles(appRoot, composeDir string, patterns []string) ([]string, error) {
+	patterns = cleanStrings(patterns)
+	if len(patterns) == 0 {
+		return nil, nil
 	}
+	root, err := filepath.Abs(firstNonEmpty(strings.TrimSpace(appRoot), "."))
+	if err != nil {
+		return nil, err
+	}
+	root = filepath.Clean(root)
+	base, err := filepath.Abs(firstNonEmpty(strings.TrimSpace(composeDir), root))
+	if err != nil {
+		return nil, err
+	}
+	base = filepath.Clean(base)
+	var out []string
+	seen := map[string]bool{}
+	for _, pattern := range patterns {
+		absPattern, err := composeEnvFilePattern(root, pattern)
+		if err != nil {
+			return nil, err
+		}
+		var matches []string
+		if strings.ContainsAny(absPattern, "*?[") {
+			matches, err = filepath.Glob(absPattern)
+			if err != nil {
+				return nil, fmt.Errorf("env file glob %q: %w", pattern, err)
+			}
+			sort.Strings(matches)
+		} else {
+			matches = []string{absPattern}
+		}
+		for _, match := range matches {
+			rel, ok, err := resolveComposeEnvFile(root, base, match)
+			if err != nil {
+				return nil, err
+			}
+			if !ok || seen[rel] {
+				continue
+			}
+			seen[rel] = true
+			out = append(out, rel)
+		}
+	}
+	return out, nil
+}
+
+func composeEnvFilePattern(root, pattern string) (string, error) {
+	if filepath.IsAbs(pattern) {
+		clean := filepath.Clean(pattern)
+		if err := composePathWithin(root, composeStaticPatternDir(clean)); err != nil {
+			return "", fmt.Errorf("env file %q escapes workspace root", pattern)
+		}
+		return clean, nil
+	}
+	clean := filepath.Clean(filepath.FromSlash(pattern))
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("env file %q escapes workspace root", pattern)
+	}
+	return filepath.Join(root, clean), nil
+}
+
+func composeStaticPatternDir(pattern string) string {
+	idx := strings.IndexAny(pattern, "*?[")
+	if idx < 0 {
+		return filepath.Dir(filepath.Clean(pattern))
+	}
+	prefix := pattern[:idx]
+	dir := filepath.Dir(prefix)
+	if dir == "." || dir == "" {
+		dir = string(os.PathSeparator)
+	}
+	return filepath.Clean(dir)
+}
+
+func resolveComposeEnvFile(root, base, filename string) (string, bool, error) {
+	info, err := os.Stat(filename)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("env file %q: %w", filename, err)
+	}
+	if info.IsDir() {
+		return "", false, fmt.Errorf("env file %q is a directory", filename)
+	}
+	real, err := filepath.EvalSymlinks(filename)
+	if err != nil {
+		return "", false, fmt.Errorf("env file %q: %w", filename, err)
+	}
+	if err := composePathWithin(root, real); err != nil {
+		return "", false, fmt.Errorf("env file %q escapes workspace root", filename)
+	}
+	rel, err := filepath.Rel(base, filename)
+	if err != nil {
+		return "", false, err
+	}
+	return filepath.ToSlash(rel), true, nil
+}
+
+func composePathWithin(root, candidate string) error {
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return err
+	}
+	if rel == "." || rel == "" {
+		return nil
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("path escapes workspace root")
+	}
+	return nil
+}
+
+func composeEnv(_ appRuntimeOptions, launch distribution.LaunchConfig) map[string]string {
+	env := map[string]string{}
 	if composeUsesMySQL(launch) {
 		name := strings.TrimSpace(launch.Data.Store.DSNEnv)
 		if name == "" {

@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -460,8 +459,7 @@ func TestDockerStackRuntimeServicesRequirePull(t *testing.T) {
 	}
 }
 
-func TestDockerStackContainersResolvesHostEnv(t *testing.T) {
-	t.Setenv(openRouterAPIKeyEnv, "host-secret")
+func TestDockerStackContainersDoesNotInjectProviderEnv(t *testing.T) {
 	containers, err := dockerStackContainers(dockerComposeStack{
 		Name:       "sample",
 		Image:      "sample:test",
@@ -477,20 +475,8 @@ func TestDockerStackContainersResolvesHostEnv(t *testing.T) {
 			break
 		}
 	}
-	if !slices.Contains(appEnv, openRouterAPIKeyEnv+"=host-secret") {
-		t.Fatalf("app env = %#v, want resolved host secret", appEnv)
-	}
-}
-
-func TestDockerStackContainersRequiresHostEnv(t *testing.T) {
-	t.Setenv(openRouterAPIKeyEnv, "")
-	_, err := dockerStackContainers(dockerComposeStack{
-		Name:       "sample",
-		Image:      "sample:test",
-		AppRuntime: appRuntimeOptions{Provider: DefaultAppProvider},
-	})
-	if err == nil || !strings.Contains(err.Error(), openRouterAPIKeyEnv+" is required") {
-		t.Fatalf("dockerStackContainers error = %v, want required env error", err)
+	if len(appEnv) != 0 {
+		t.Fatalf("app env = %#v, want no provider env injected", appEnv)
 	}
 }
 

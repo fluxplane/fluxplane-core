@@ -31,7 +31,7 @@ distribution:
 kind: agent
 name: assistant
 `)
-	writeTestFile(t, app, ".env", "OPENROUTER_API_KEY=secret-one\nSHARED=first\n")
+	writeTestFile(t, app, ".env", "EXAMPLE_API_KEY=secret-one\nSHARED=first\n")
 	writeTestFile(t, app, ".env.local", "SHARED=last\n")
 
 	result, err := GenerateKubernetesManifests(context.Background(), KubernetesManifestOptions{
@@ -362,7 +362,7 @@ distribution:
 kind: agent
 name: assistant
 `)
-	writeTestFile(t, app, ".env", "OPENROUTER_API_KEY=supersecret\n")
+	writeTestFile(t, app, ".env", "EXAMPLE_API_KEY=supersecret\n")
 	var out bytes.Buffer
 	result, err := DeployKubernetes(context.Background(), KubernetesOptions{
 		AppDir:  app,

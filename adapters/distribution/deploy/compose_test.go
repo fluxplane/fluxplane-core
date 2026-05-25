@@ -301,8 +301,6 @@ name: assistant
 		"  sample-app:",
 		"    image: sample:latest",
 		"    command: [serve, /app, --auth-path, /auth, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, medium]",
-		"    environment:",
-		"      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 	} {
 		if !strings.Contains(result.Content, want) {
 			t.Fatalf("compose missing %q:\n%s", want, result.Content)
@@ -310,6 +308,90 @@ name: assistant
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("dry-run output missing %q:\n%s", want, out.String())
 		}
+	}
+	if strings.Contains(result.Content, "environment:") {
+		t.Fatalf("compose includes unexpected app environment:\n%s", result.Content)
+	}
+}
+
+func TestGenerateDockerComposeIncludesRootEnvFiles(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+runtime:
+  workspace:
+    env_files: [.env, .env.local]
+    roots:
+      - name: tmp
+        path: tmp
+        env_files: [tmp.env]
+distribution:
+  build:
+    assets: [fluxplane.yaml]
+    docker:
+      image: sample
+      tags: [latest]
+---
+kind: agent
+name: assistant
+`)
+	writeTestFile(t, app, ".env", "OPENAI_API_KEY=one\n")
+	writeTestFile(t, app, ".env.local", "EXAMPLE_API_KEY=two\n")
+	writeTestFile(t, app, filepath.Join("tmp", "tmp.env"), "IGNORED=value\n")
+	result, err := GenerateDockerCompose(context.Background(), ComposeOptions{
+		AppDir: app,
+		DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateDockerCompose: %v", err)
+	}
+	for _, want := range []string{
+		"    env_file:",
+		"      - .env",
+		"      - .env.local",
+	} {
+		if !strings.Contains(result.Content, want) {
+			t.Fatalf("compose missing %q:\n%s", want, result.Content)
+		}
+	}
+	if strings.Contains(result.Content, "tmp.env") {
+		t.Fatalf("compose includes named root env file:\n%s", result.Content)
+	}
+}
+
+func TestGenerateDockerComposeExpandsRootEnvFileGlobs(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+runtime:
+  workspace:
+    env_files: [.env*]
+distribution:
+  build:
+    assets: [fluxplane.yaml]
+    docker:
+      image: sample
+      tags: [latest]
+---
+kind: agent
+name: assistant
+`)
+	writeTestFile(t, app, ".env", "BASE=1\n")
+	writeTestFile(t, app, ".env.local", "LOCAL=1\n")
+	result, err := GenerateDockerCompose(context.Background(), ComposeOptions{
+		AppDir: app,
+		DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateDockerCompose: %v", err)
+	}
+	want := strings.Join([]string{
+		"    env_file:",
+		"      - .env",
+		"      - .env.local",
+	}, "\n")
+	if !strings.Contains(result.Content, want) {
+		t.Fatalf("compose missing expanded env files %q:\n%s", want, result.Content)
 	}
 }
 
@@ -356,8 +438,8 @@ name: assistant
 			t.Fatalf("compose missing %q:\n%s", want, result.Content)
 		}
 	}
-	if strings.Contains(result.Content, "OPENROUTER_API_KEY") {
-		t.Fatalf("compose = %s, want no OpenRouter env for codex deploy override", result.Content)
+	if strings.Contains(result.Content, "environment:") {
+		t.Fatalf("compose includes unexpected app environment:\n%s", result.Content)
 	}
 }
 
@@ -392,11 +474,13 @@ name: assistant
 	}
 	for _, want := range []string{
 		"    command: [serve, /app, --auth-path, /auth, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, high]",
-		"      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 	} {
 		if !strings.Contains(result.Content, want) {
 			t.Fatalf("compose missing %q:\n%s", want, result.Content)
 		}
+	}
+	if strings.Contains(result.Content, "environment:") {
+		t.Fatalf("compose includes unexpected app environment:\n%s", result.Content)
 	}
 }
 
@@ -447,7 +531,6 @@ name: assistant
 		"    image: support-bot:test",
 		"      FLUXPLANE_DATASTORE_MYSQL_DSN: ${FLUXPLANE_DATASTORE_MYSQL_DSN:?FLUXPLANE_DATASTORE_MYSQL_DSN is required}",
 		"      FLUXPLANE_EVENTSTORE_NATS_DSN: ${FLUXPLANE_EVENTSTORE_NATS_DSN:?FLUXPLANE_EVENTSTORE_NATS_DSN is required}",
-		"      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 		"      mysql:",
 		"        condition: service_healthy",
 		"      nats:",

@@ -730,8 +730,9 @@ clusters or interim remote deployments, but it does not render credential
 values into the chart. Named root `env_files` are not supported by Kubernetes
 artifact generation until workspace roots are mounted there.
 
-Docker Compose artifacts use environment placeholders for local runtime
-backend credentials. `fluxplane deploy` creates
+Docker Compose artifacts pass root workspace `env_files` to the app service
+with Compose `env_file` entries and use environment placeholders for local
+runtime backend credentials. `fluxplane deploy` creates
 `.deploy/docker-compose.runtime.env` with random local MySQL credentials on
 first use and passes it to Docker Compose; `.deploy/` should remain ignored.
 

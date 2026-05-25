@@ -30,7 +30,6 @@ const (
 	defaultHealthAddr     = "127.0.0.1:18080"
 	defaultKubeHealthAddr = "0.0.0.0:18080"
 	defaultHealthURL      = "http://127.0.0.1:18080/control/status"
-	openRouterAPIKeyEnv   = "OPENROUTER_API_KEY"
 	defaultRegistryPort   = "5000"
 )
 
