@@ -629,4 +629,4 @@ session. One bug per iteration: find → reproduce → fix → commit.
 - **No regression test:** Same reasoning as iteration 25 — staging a
   >100 MiB response in a unit test is heavy and the fix is mechanical
   and mirrors the two prior iterations.
-- **Commit:** _pending_.
+- **Commit:** `2ae7358` — "fix: cap OpenRouter non-streaming fallback body at 100 MiB".
