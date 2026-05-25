@@ -5,6 +5,13 @@ import (
 	"strings"
 )
 
+const (
+	// DefaultMaxOutputTokens is the default output token budget for new models
+	// that do not specify one. It is used as a fallback in the model registry
+	// when constructing provider adapters.
+	DefaultMaxOutputTokens = 32768
+)
+
 // ProviderName identifies one LLM provider catalog.
 type ProviderName string
 

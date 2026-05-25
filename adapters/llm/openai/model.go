@@ -80,6 +80,10 @@ type Config struct {
 	// runtime already accepts multiple operation requests in one agent response.
 	ParallelToolCalls bool
 
+	// MaxOutputTokens sets the default output token budget. Zero or negative
+	// defaults to corellm.DefaultMaxOutputTokens.
+	MaxOutputTokens int
+
 	// Redactor controls which provider stream details may be exposed through
 	// runtime stream events.
 	Redactor adapterllm.Redactor
@@ -99,6 +103,7 @@ type Model struct {
 	provider          string
 	api               string
 	runtime           ResponsesRuntimeConfig
+	maxOutputTokens   int
 	pricing           []corellm.PricingSpec
 	reasoningEffort   string
 	reasoningSummary  string
@@ -128,12 +133,17 @@ func New(cfg Config) (*Model, error) {
 	if runtime.Continuation != ResponsesContinuationReplay {
 		store = true
 	}
+	maxOutputTokens := cfg.MaxOutputTokens
+	if maxOutputTokens <= 0 {
+		maxOutputTokens = corellm.DefaultMaxOutputTokens
+	}
 	return &Model{
 		client:            openai.NewClient(opts...),
 		model:             strings.TrimSpace(cfg.Model),
 		provider:          normalizeProvider(cfg.ProviderName),
 		api:               firstNonEmpty(strings.TrimSpace(cfg.APIName), "openai.responses"),
 		runtime:           runtime,
+		maxOutputTokens:   maxOutputTokens,
 		pricing:           append([]corellm.PricingSpec(nil), cfg.Pricing...),
 		reasoningEffort:   strings.TrimSpace(cfg.ReasoningEffort),
 		reasoningSummary:  firstNonEmpty(strings.TrimSpace(cfg.ReasoningSummary), string(shared.ReasoningSummaryAuto)),
@@ -435,6 +445,10 @@ func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParam
 	}
 	if req.Driver.Inference.MaxOutputTokens > 0 {
 		params.MaxOutputTokens = openai.Int(int64(req.Driver.Inference.MaxOutputTokens))
+	} else if req.Agent.Inference.MaxOutputTokens > 0 {
+		params.MaxOutputTokens = openai.Int(int64(req.Agent.Inference.MaxOutputTokens))
+	} else {
+		params.MaxOutputTokens = openai.Int(int64(m.maxOutputTokens))
 	}
 	if req.Driver.Inference.Temperature > 0 {
 		params.Temperature = openai.Float(req.Driver.Inference.Temperature)

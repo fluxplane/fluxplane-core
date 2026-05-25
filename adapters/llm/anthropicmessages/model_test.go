@@ -12,6 +12,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
+	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coretool "github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/core/usage"
@@ -93,7 +94,7 @@ func TestStreamTextAndUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
-	if gotReq.Model != "claude-test" || !gotReq.Stream || gotReq.MaxTokens != DefaultMaxOutputTokens {
+	if gotReq.Model != "claude-test" || !gotReq.Stream || gotReq.MaxTokens != corellm.DefaultMaxOutputTokens {
 		t.Fatalf("request = %#v", gotReq)
 	}
 	if resp.Message == nil || resp.Message.Content != "ok" {

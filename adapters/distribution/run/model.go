@@ -235,7 +235,7 @@ func maxOutputTokens(modelSpec corellm.ModelSpec) int {
 	if modelSpec.MaxOutputTokens > 0 && modelSpec.MaxOutputTokens < int64(^uint(0)>>1) {
 		return int(modelSpec.MaxOutputTokens)
 	}
-	return 0
+	return corellm.DefaultMaxOutputTokens
 }
 
 func firstSupportedCSV(csv string, preferred ...string) string {

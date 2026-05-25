@@ -23,8 +23,7 @@ import (
 )
 
 const (
-	DefaultVersion         = "2023-06-01"
-	DefaultMaxOutputTokens = 4096
+	DefaultVersion = "2023-06-01"
 
 	// maxNonStreamingResponseBytes caps the body the non-streaming completion
 	// path will buffer. Realistic Anthropic responses are well under this
@@ -100,7 +99,7 @@ func New(cfg Config) (*Model, error) {
 	}
 	maxOutput := cfg.MaxOutputTokens
 	if maxOutput <= 0 {
-		maxOutput = DefaultMaxOutputTokens
+		maxOutput = corellm.DefaultMaxOutputTokens
 	}
 	version := strings.TrimSpace(cfg.Version)
 	if version == "" {
