@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -76,26 +77,30 @@ type callbackResult struct {
 }
 
 func callbackHandler(state string, out chan<- callbackResult) http.Handler {
+	var once sync.Once
+	deliver := func(result callbackResult) {
+		once.Do(func() { out <- result })
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
 		if query.Get("state") != state {
 			http.Error(w, "invalid state", http.StatusBadRequest)
-			out <- callbackResult{err: "invalid state"}
+			deliver(callbackResult{err: "invalid state"})
 			return
 		}
 		if errText := query.Get("error"); errText != "" {
 			http.Error(w, errText, http.StatusBadRequest)
-			out <- callbackResult{err: errText}
+			deliver(callbackResult{err: errText})
 			return
 		}
 		code := strings.TrimSpace(query.Get("code"))
 		if code == "" {
 			http.Error(w, "missing code", http.StatusBadRequest)
-			out <- callbackResult{err: "missing code"}
+			deliver(callbackResult{err: "missing code"})
 			return
 		}
 		_, _ = io.WriteString(w, "Authorization complete. You can close this window.\n")
-		out <- callbackResult{code: code}
+		deliver(callbackResult{code: code})
 	})
 }
 

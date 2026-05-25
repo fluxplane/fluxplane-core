@@ -102,3 +102,26 @@ session. One bug per iteration: find → reproduce → fix → commit.
 - **Regression test:** `TestStringFieldIgnoresNonStringValues` covers
   string, whitespace, nil, bool, number, and missing-key cases. Verified
   to fail on the old code (`"<nil>"`, `"true"`, `"42"`) and pass on the fix.
+- **Commit:** `d903d72` — "fix: stringField returns empty for non-string JSON values".
+
+## Iteration 7 — oauth2 callback handler can leak goroutines on second callback
+
+- **Where:** `adapters/auth/oauth2flow/flow.go` `callbackHandler`.
+- **Bug:** `Authorize` allocated a buffer-size-1 channel and the HTTP
+  callback handler sent to it unconditionally. If the OAuth provider (or
+  a double-click on the consent page) delivered a second callback before
+  `Authorize` consumed the first, the second handler blocked forever on
+  `out <- ...` because nothing else ever reads. That parked goroutine
+  then stalled the deferred `server.Shutdown(1s)` for the full grace
+  window and leaked.
+- **Reproduction:** Five concurrent goroutines call the handler with
+  valid params. Without the fix, the first delivers, the other four
+  block on the channel send, so `wg.Wait()` never returns and the test
+  times out (confirmed: 4s timeout hits, goroutine dump shows four
+  handlers parked in `chansend1`).
+- **Fix:** Wrapped the channel send in a `sync.Once` so only the first
+  callback delivers; later callbacks complete their HTTP response and
+  return immediately without touching the channel.
+- **Regression test:** `TestCallbackHandlerDoesNotBlockOnSecondCallback`
+  drives five concurrent callbacks at the handler and asserts they all
+  complete and exactly one result is delivered.
