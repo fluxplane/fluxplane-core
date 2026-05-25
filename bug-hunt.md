@@ -249,3 +249,28 @@ session. One bug per iteration: find → reproduce → fix → commit.
   survives. Verified to fail on the old code (all four assertions
   trip). Companion `TestBindLocalRuntimeFlagsHonorsCommandLineOverride`
   proves the cli flag still wins when present.
+- **Commit:** `a9954e7` — "fix: BindLocalRuntimeFlags must honor caller-supplied defaults".
+
+## Iteration 13 — same UTF-8 truncation pattern in Slack `compactText`
+
+- **Where:** `plugins/integrations/slack/run_observer.go` `compactText`.
+- **Bug:** `text[:max] + "..."` — slices at byte `max` regardless of
+  UTF-8 rune boundaries. With a multi-byte rune straddling the cut, the
+  result was an invalid-UTF-8 string with a dangling continuation byte
+  followed by `"..."`. Iteration 10 noted this helper as "cosmetic and
+  left for a separate pass" — this is that pass.
+- **Impact:** `compactText` feeds Slack message bodies via
+  `postError` (`compactText(err.Error(), 600)`) wrapped in a code
+  fence. With non-ASCII content in an error message — paths,
+  usernames, plugin-returned text — the invalid bytes round-trip
+  through Slack's API as replacement characters in the displayed
+  message.
+- **Reproduction:** 9 ASCII bytes + one 3-byte rune (`"€"`) with
+  `max = 10`. Old code returns `"aaaaaaaaa\xe2..."` (invalid UTF-8);
+  new code returns `"aaaaaaaaa..."`.
+- **Fix:** Same approach as iterations 8 and 10 — scan backwards from
+  the byte limit to the nearest `utf8.RuneStart` before slicing.
+- **Regression test:** `TestCompactTextPreservesUTF8RuneBoundaries`
+  feeds the multi-byte-boundary input and checks `utf8.ValidString`.
+  Companion `TestCompactTextLeavesShortValidStrings` confirms the
+  short-string path is untouched.

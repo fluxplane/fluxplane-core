@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
@@ -830,7 +831,11 @@ func compactText(text string, max int) string {
 	if max <= 0 || len(text) <= max {
 		return text
 	}
-	return text[:max] + "..."
+	limit := max
+	for limit > 0 && !utf8.RuneStart(text[limit]) {
+		limit--
+	}
+	return text[:limit] + "..."
 }
 
 func sanitizeCodeFence(text string) string {
