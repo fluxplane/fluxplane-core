@@ -200,3 +200,26 @@ session. One bug per iteration: find → reproduce → fix → commit.
   body preview). Those touch user-visible text rather than indexed
   values, so the impact is cosmetic and they're left for a separate
   pass.
+- **Commit:** `435dde3` — "fix: keep mirror sqlstore truncate at a UTF-8 rune boundary".
+
+## Iteration 11 — `CompactTranscript.SummarizedItems` under-counted `NewItems`
+
+- **Where:** `runtime/conversation/compact.go` `CompactTranscript`.
+- **Bug:** When the transcript still exceeded its budget after omitting
+  old items, the function called `compactLargeItems` on both `out.Items`
+  and `out.NewItems`. Only the first call's return was captured into
+  `summarized`; the second was checked only for "did anything change?"
+  and the count was discarded. `CompactResult.SummarizedItems` then
+  reported only the `Items` count even when `NewItems` had also been
+  summarized.
+- **Impact:** Wrong telemetry/audit count for compaction passes —
+  downstream dashboards that sum the field undercount, and callers
+  inspecting `SummarizedItems` can't tell how much work actually ran.
+- **Reproduction:** A transcript with one large tool result in `Items`
+  and one large tool result in `NewItems`. Old code returned
+  `SummarizedItems = 1`; new code returns `2`.
+- **Fix:** Add the `compactLargeItems(out.NewItems, ...)` return into
+  `summarized` instead of testing it for truthiness.
+- **Regression test:** `TestCompactTranscriptSummarizedItemsCoversBothItemsAndNewItems`
+  feeds large items into both lists and asserts the count is 2.
+  Verified to fail on the old code (`SummarizedItems = 1`).

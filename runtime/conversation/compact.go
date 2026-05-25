@@ -62,10 +62,8 @@ func CompactTranscript(transcript coreconversation.Transcript, opts CompactOptio
 	}
 	if estimateItemsTokens(out.Items) > limit {
 		summarized := compactLargeItems(out.Items, opts.LargeItemTokens)
+		summarized += compactLargeItems(out.NewItems, opts.LargeItemTokens)
 		if summarized > 0 {
-			compacted = true
-		}
-		if compactLargeItems(out.NewItems, opts.LargeItemTokens) > 0 {
 			compacted = true
 		}
 		return CompactResult{

@@ -52,6 +52,40 @@ func TestCompactTranscriptCompactsLargeToolResultsAndClearsNative(t *testing.T) 
 	}
 }
 
+// TestCompactTranscriptSummarizedItemsCoversBothItemsAndNewItems regresses a
+// counting bug: compactLargeItems was called on both out.Items and
+// out.NewItems, but only the first call's return was assigned to
+// SummarizedItems - the second call's count was discarded so the reported
+// total under-counted when both lists carried large items.
+func TestCompactTranscriptSummarizedItemsCoversBothItemsAndNewItems(t *testing.T) {
+	large := strings.Repeat("diff line\n", 1000)
+	mkPair := func() []coreconversation.Item {
+		return []coreconversation.Item{
+			{Kind: coreconversation.ItemOutput, CallID: "call_x", Name: "file_edit"},
+			{
+				Kind:    coreconversation.ItemToolResult,
+				CallID:  "call_x",
+				Name:    "file_edit",
+				Content: large,
+			},
+		}
+	}
+	transcript := coreconversation.Transcript{
+		Provider: coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses"},
+		Items:    mkPair(),
+		NewItems: mkPair(),
+	}
+	result := CompactTranscript(transcript, CompactOptions{MaxInputTokens: 2048, SafetyMarginTokens: 1, LargeItemTokens: 128})
+	if !result.Compacted {
+		t.Fatal("result.Compacted = false, want true")
+	}
+	// One large tool result in Items + one in NewItems = 2 summarized items.
+	// The old code reported 1 because it ignored the NewItems call's return.
+	if result.SummarizedItems != 2 {
+		t.Fatalf("SummarizedItems = %d, want 2 (covers both Items and NewItems)", result.SummarizedItems)
+	}
+}
+
 func TestCompactTranscriptLeavesLargeInBudgetToolResultUnchanged(t *testing.T) {
 	large := strings.Repeat("file content\n", 1000)
 	native := []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`)
