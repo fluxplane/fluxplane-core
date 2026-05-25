@@ -127,6 +127,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `error-policy`, and `idempotency-key`; use snake_case fields instead.
 
 ### Fixed
+- Changed the generic `claude/opus`, `claude/sonnet`, and `claude/haiku`
+  model aliases to use the Claude Code subscription provider instead of the
+  plain Anthropic API-key provider.
+- Added bare `opus`, `sonnet`, and `haiku` aliases for Claude Code
+  subscription models while keeping explicit `anthropic/<family>` aliases for
+  Anthropic API-key models.
 - Normalized provider-prefixed model identities during provider transcript
   projection so OpenRouter tool calls such as `openrouter/...` models remain
   paired with their tool results.

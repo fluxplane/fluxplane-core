@@ -326,8 +326,9 @@ func addBuiltInModelAliases(aliases map[string]corellm.ModelRef, catalog corellm
 		for _, family := range []string{"opus", "sonnet", "haiku"} {
 			if model, ok := latestClaudeFamilyModel(catalog, provider, family); ok {
 				addAlias(aliases, provider+"/"+family, provider, model)
-				if provider == "anthropic" {
+				if provider == "claudecode" {
 					addAlias(aliases, "claude/"+family, provider, model)
+					addAlias(aliases, family, provider, model)
 				}
 			}
 		}

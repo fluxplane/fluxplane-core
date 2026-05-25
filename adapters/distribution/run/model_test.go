@@ -53,12 +53,28 @@ func TestResolveModelSelectionUsesBuiltInAliases(t *testing.T) {
 		t.Fatalf("codex selection = %#v, want codex/gpt-5.5", got)
 	}
 	got = registry.ResolveModelSelection("openai", "claude/sonnet")
-	if got.Provider != "anthropic" || !strings.HasPrefix(got.Model, "claude-sonnet-") {
-		t.Fatalf("claude/sonnet selection = %#v, want anthropic claude sonnet", got)
+	if got.Provider != "claudecode" || !strings.HasPrefix(got.Model, "claude-sonnet-") {
+		t.Fatalf("claude/sonnet selection = %#v, want Claude Code sonnet", got)
 	}
-	got = registry.ResolveModelSelection("anthropic", "sonnet")
+	got = registry.ResolveModelSelection("openai", "claude/haiku")
+	if got.Provider != "claudecode" || !strings.HasPrefix(got.Model, "claude-haiku-") {
+		t.Fatalf("claude/haiku selection = %#v, want Claude Code haiku", got)
+	}
+	got = registry.ResolveModelSelection("openai", "sonnet")
+	if got.Provider != "claudecode" || !strings.HasPrefix(got.Model, "claude-sonnet-") {
+		t.Fatalf("sonnet selection = %#v, want Claude Code sonnet", got)
+	}
+	got = registry.ResolveModelSelection("openai", "opus")
+	if got.Provider != "claudecode" || !strings.HasPrefix(got.Model, "claude-opus-") {
+		t.Fatalf("opus selection = %#v, want Claude Code opus", got)
+	}
+	got = registry.ResolveModelSelection("openai", "haiku")
+	if got.Provider != "claudecode" || !strings.HasPrefix(got.Model, "claude-haiku-") {
+		t.Fatalf("haiku selection = %#v, want Claude Code haiku", got)
+	}
+	got = registry.ResolveModelSelection("openai", "anthropic/sonnet")
 	if got.Provider != "anthropic" || !strings.HasPrefix(got.Model, "claude-sonnet-") {
-		t.Fatalf("anthropic sonnet selection = %#v, want anthropic claude sonnet", got)
+		t.Fatalf("anthropic/sonnet selection = %#v, want Anthropic API sonnet", got)
 	}
 	got = registry.ResolveModelSelection("openai", "minimax")
 	if got.Provider != "minimax" || got.Model == "" {
