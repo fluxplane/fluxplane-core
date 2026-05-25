@@ -56,6 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider.
 
 ### Changed
+- Made the distribution REPL collect continuation lines for slash commands with
+  open quotes so pasted multi-line prompts are submitted as one command instead
+  of being split into command errors and normal chat input.
 - Renamed the published Go module and repository references to
   `github.com/fluxplane/fluxplane-core`.
 - Updated the Claude Code LLM provider headers and preflight identity to match

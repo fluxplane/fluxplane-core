@@ -161,7 +161,7 @@ func targetSubmit(ctx operation.Context, in TargetSubmitInput) operation.Result 
 	if result.RunID != "" {
 		out.RunID = string(result.RunID)
 	}
-	if result.Outbound != nil && result.Outbound.Message != nil {
+	if result.Outbound != nil && result.Outbound.Message != nil && result.Outbound.Message.Content != nil {
 		out.OutboundText = fmt.Sprint(result.Outbound.Message.Content)
 	}
 	if err != nil {
@@ -173,7 +173,7 @@ func targetSubmit(ctx operation.Context, in TargetSubmitInput) operation.Result 
 
 func summarizeEvent(event clientapi.Event) EventSummary {
 	out := EventSummary{Kind: string(event.Kind), RunID: string(event.RunID), Replayed: event.Replayed}
-	if event.Outbound != nil && event.Outbound.Message != nil {
+	if event.Outbound != nil && event.Outbound.Message != nil && event.Outbound.Message.Content != nil {
 		out.Outbound = fmt.Sprint(event.Outbound.Message.Content)
 	}
 	if event.Runtime != nil {

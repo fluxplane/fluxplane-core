@@ -4,6 +4,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/adapters/llm/modelview"
 	"github.com/fluxplane/fluxplane-core/adapters/ui/terminal"
 	"github.com/fluxplane/fluxplane-core/core/channel"
+	corecommand "github.com/fluxplane/fluxplane-core/core/command"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
@@ -258,7 +260,17 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 		if !scanner.Scan() {
 			break
 		}
-		prompt := strings.TrimSpace(scanner.Text())
+		prompt, ok, err := readREPLPrompt(scanner, strings.TrimSpace(scanner.Text()), stdout, name)
+		if err != nil {
+			_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
+			if !ok {
+				break
+			}
+			continue
+		}
+		if !ok {
+			break
+		}
 		switch prompt {
 		case "":
 			continue
@@ -286,17 +298,41 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 		}
 		turnCtx, cancelTurn := context.WithCancel(ctx)
 		setTurnCancel(cancelTurn)
-		err := terminal.RunTurn(turnCtx, session, prompt, terminalOptions(opts, uiState), tracker)
+		turnErr := terminal.RunTurn(turnCtx, session, prompt, terminalOptions(opts, uiState), tracker)
 		cancelTurn()
 		setTurnCancel(nil)
-		if err != nil {
-			_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
+		if turnErr != nil {
+			_, _ = fmt.Fprintf(errOut, "error: %v\n", turnErr)
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return err
 	}
 	return nil
+}
+
+func readREPLPrompt(scanner *bufio.Scanner, first string, out io.Writer, name string) (string, bool, error) {
+	prompt := strings.TrimSpace(first)
+	for slashCommandHasUnterminatedQuote(prompt) {
+		_, _ = fmt.Fprintf(out, "%s... ", name)
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				return "", false, err
+			}
+			return prompt, false, corecommand.ErrUnterminatedQuote
+		}
+		prompt += "\n" + scanner.Text()
+	}
+	return strings.TrimSpace(prompt), true, nil
+}
+
+func slashCommandHasUnterminatedQuote(prompt string) bool {
+	prompt = strings.TrimSpace(prompt)
+	if !strings.HasPrefix(prompt, "/") {
+		return false
+	}
+	_, _, err := corecommand.ParseSlash(prompt)
+	return errors.Is(err, corecommand.ErrUnterminatedQuote)
 }
 
 func openSession(ctx context.Context, dist distribution.Distribution, opts RunOptions) (clientapi.SessionHandle, error) {

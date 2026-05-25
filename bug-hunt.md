@@ -464,3 +464,28 @@ session. One bug per iteration: find → reproduce → fix → commit.
   upserts three docs with matching title+body into a fresh index five
   times and asserts the hit order is `a.md, b.md, c.md` each
   iteration. Fails on the old code with random orderings.
+- **Commit:** `49a9cfc` — "fix: tie-break Index.Search results deterministically by Ref.ID".
+
+## Iteration 21 — `summarizeEvent` / `targetSubmit` leaked `"<nil>"` outbound text
+
+- **Where:** `apps/evaluator/operations.go` — `targetSubmit` result
+  shaping and `summarizeEvent`.
+- **Bug:** Third instance of the `fmt.Sprint(value)` foot-gun in this
+  trial (after iteration 6's `stringField` and iteration 15's
+  `selectInstance`). Both helpers gated only on
+  `Outbound != nil && Outbound.Message != nil` and then wrote
+  `fmt.Sprint(Outbound.Message.Content)` into the output text field.
+  `channel.Message.Content` is `any`, so a `nil` content — a valid
+  "the message has no body" state — produced the literal string
+  `"<nil>"` in JSON output.
+- **Impact:** Evaluator and downstream dashboards see a stray `"<nil>"`
+  in the Outbound text of submitted events where they should see the
+  empty string. Anyone comparing event summaries between runs has to
+  special-case the sentinel.
+- **Fix:** Add the third guard
+  `Outbound.Message.Content != nil` before the `fmt.Sprint`, so nil
+  content leaves the destination field at its zero value.
+- **Regression tests:** `TestSummarizeEventNilContentDoesNotLeakNilString`
+  builds an event with nil content and asserts `Outbound == ""`;
+  fails on the old code with `Outbound = "<nil>"`. Companion
+  `TestSummarizeEventPreservesStringContent` pins the happy path.

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/core/channel"
+	corecommand "github.com/fluxplane/fluxplane-core/core/command"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/resource"
@@ -336,6 +337,50 @@ func TestRunREPLHandlesUIReasoningLocally(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "ui: reasoning on") {
 		t.Fatalf("err = %q, want UI status", errOut.String())
+	}
+}
+
+func TestRunREPLCollectsSlashCommandContinuationLines(t *testing.T) {
+	session := &captureSession{}
+	runtime := &sessionRuntime{session: session}
+	var out, errOut bytes.Buffer
+
+	err := Run(context.Background(), distribution.Distribution{
+		Spec: coredistribution.Spec{
+			Name:                "coder",
+			DefaultSession:      coresession.Ref{Name: "coder"},
+			DefaultConversation: channel.ConversationRef{ID: "coder"},
+		},
+		Runtime: runtime,
+	}, RunOptions{
+		In: strings.NewReader("/loop --count=5 \"find one bug,\ntrack it in bug-hunt.md\"\n/exit\n"),
+		PromptHandler: func(_ context.Context, prompt string, _ clientapi.SessionHandle, _ RunOptions) (bool, error) {
+			_, _, err := corecommand.ParseSlash(prompt)
+			return false, err
+		},
+		Out: &out,
+		Err: &errOut,
+	})
+
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(session.submissions) != 1 {
+		t.Fatalf("submissions = %d, want one command", len(session.submissions))
+	}
+	submission := session.submissions[0]
+	if submission.Kind != clientapi.SubmissionCommand || submission.CommandLine == "" {
+		t.Fatalf("submission = %#v, want raw command line submission", submission)
+	}
+	want := "/loop --count=5 \"find one bug,\ntrack it in bug-hunt.md\""
+	if submission.CommandLine != want {
+		t.Fatalf("command line = %q, want %q", submission.CommandLine, want)
+	}
+	if strings.Contains(errOut.String(), "unterminated quoted string") {
+		t.Fatalf("err = %q, want no unterminated quote error", errOut.String())
+	}
+	if !strings.Contains(out.String(), "coder... ") {
+		t.Fatalf("out = %q, want continuation prompt", out.String())
 	}
 }
 
