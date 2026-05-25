@@ -1002,6 +1002,9 @@ func frontmatterStrings(value any) []string {
 	case []any:
 		values := make([]string, 0, len(typed))
 		for _, item := range typed {
+			if item == nil {
+				continue
+			}
 			values = append(values, fmt.Sprint(item))
 		}
 		return cleanStrings(values)

@@ -657,3 +657,37 @@ session. One bug per iteration: find → reproduce → fix → commit.
   the old code produced `\xF0\x9F\x8C` at the tail, which fails this
   check.
 - **Commit:** `5511e6e` — "fix: truncate artifact text on a rune boundary".
+
+## Iteration 28 — `frontmatterStrings` leaked `"<nil>"` for empty YAML list items
+
+- **Where:** `adapters/resources/agentdir/loader.go` `frontmatterStrings`,
+  `[]any` branch.
+- **Bug:** Same `fmt.Sprint(nil)` foot-gun class as iteration 21,
+  this time on the YAML frontmatter ingestion path. A frontmatter
+  list with an empty entry —
+  ```yaml
+  tools:
+    - bash
+    -
+    - read
+  ```
+  decodes to `[]any{"bash", nil, "read"}`. The old code wrote the
+  literal string `"<nil>"` into the result because
+  `fmt.Sprint((interface{})(nil)) == "<nil>"`. `cleanStrings` then
+  kept `"<nil>"` (non-empty, trimmed identically), so the resulting
+  tools / skills / triggers / capabilities list contained a phantom
+  `"<nil>"` reference that silently broke agent definitions at
+  runtime.
+- **Impact:** Affects every agent, command, workflow, and skill that
+  uses `frontmatterStrings` for `Tools`, `Commands`, `Skills`,
+  `Capabilities`, `AllowedTools`, or `Triggers` lists. A user typo
+  (trailing whitespace on a list item, intentional blank for a
+  template-substituted value) silently corrupts the spec instead of
+  being ignored.
+- **Fix:** Skip `nil` items in the `[]any` branch before
+  `fmt.Sprint`. Non-nil typed values (ints, bools, strings) still
+  get coerced, matching prior behavior.
+- **Regression test:** `TestFrontmatterStringsSkipsNilListEntries`
+  passes `[]any{"bash", nil, "read"}` and asserts the result is
+  exactly `["bash", "read"]` with no `"<nil>"` string anywhere.
+- **Commit:** _pending_.

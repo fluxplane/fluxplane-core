@@ -414,3 +414,27 @@ func findSkill(t *testing.T, specs []skill.Spec, name string) skill.Spec {
 	t.Fatalf("skill %q not found", name)
 	return skill.Spec{}
 }
+
+// TestFrontmatterStringsSkipsNilListEntries regresses an fmt.Sprint(nil)
+// foot-gun on the YAML frontmatter ingestion path. A list with an empty
+// item (e.g. `tools:\n  - bash\n  -\n  - read`) decodes to []any{"bash",
+// nil, "read"} and the old code wrote the literal "<nil>" into the
+// resulting tools / skills / triggers / capabilities list, silently
+// corrupting agent definitions instead of skipping the empty entry.
+func TestFrontmatterStringsSkipsNilListEntries(t *testing.T) {
+	got := frontmatterStrings([]any{"bash", nil, "read"})
+	want := []string{"bash", "read"}
+	if len(got) != len(want) {
+		t.Fatalf("frontmatterStrings returned %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("frontmatterStrings[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	for _, value := range got {
+		if value == "<nil>" {
+			t.Fatalf("frontmatterStrings leaked <nil> string into result: %v", got)
+		}
+	}
+}
