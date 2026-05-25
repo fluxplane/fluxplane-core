@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -1602,9 +1603,19 @@ func compactWorkerEvidence(text string, max int) string {
 		return text
 	}
 	if max <= 3 {
-		return text[:max]
+		return trimToRuneBoundary(text, max)
 	}
-	return text[:max-3] + "..."
+	return trimToRuneBoundary(text, max-3) + "..."
+}
+
+func trimToRuneBoundary(text string, max int) string {
+	if max <= 0 || len(text) <= max {
+		return text
+	}
+	for max > 0 && !utf8.RuneStart(text[max]) {
+		max--
+	}
+	return text[:max]
 }
 
 func scopedArtifacts(state runtimetask.State) []coretask.ScopedArtifact {

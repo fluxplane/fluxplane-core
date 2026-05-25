@@ -489,3 +489,21 @@ session. One bug per iteration: find → reproduce → fix → commit.
   builds an event with nil content and asserts `Outbound == ""`;
   fails on the old code with `Outbound = "<nil>"`. Companion
   `TestSummarizeEventPreservesStringContent` pins the happy path.
+
+## Iteration 22 — task finalizer evidence compaction split UTF-8 runes
+
+- **Where:** `orchestration/taskexecutor/executor.go` `compactWorkerEvidence`.
+- **Bug:** `compactWorkerEvidence` collapsed worker output and then truncated
+  with `text[:max]` or `text[:max-3] + "..."`, slicing by byte count without
+  respecting UTF-8 rune boundaries. A multi-byte rune crossing the cut left a
+  dangling byte in the finalizer prompt.
+- **Impact:** The helper feeds completed step evidence into the task finalizer
+  worker prompt. Non-ASCII output from tools, file paths, or user content could
+  be corrupted into invalid UTF-8 before the follow-up worker saw it.
+- **Reproduction:** 236 ASCII bytes + `"€"` + filler with max 240 made the old
+  code cut at byte 237 before appending `"..."`, producing invalid UTF-8.
+- **Fix:** Added `trimToRuneBoundary` and used it for both short max values and
+  ellipsis truncation.
+- **Regression tests:** `TestCompactWorkerEvidencePreservesUTF8RuneBoundaries`
+  and `TestCompactWorkerEvidenceLeavesShortValues` in the taskexecutor package.
+- **Verification:** `go test ./orchestration/taskexecutor`.

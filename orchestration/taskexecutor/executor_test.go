@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fluxplane/fluxplane-core/core/event"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
@@ -16,6 +17,25 @@ import (
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 )
 
+func TestCompactWorkerEvidencePreservesUTF8RuneBoundaries(t *testing.T) {
+	input := strings.Repeat("a", 236) + "€" + strings.Repeat("b", 10)
+	got := compactWorkerEvidence(input, 240)
+
+	if !utf8.ValidString(got) {
+		t.Fatalf("compactWorkerEvidence produced invalid UTF-8: %q", got)
+	}
+	want := strings.Repeat("a", 236) + "..."
+	if got != want {
+		t.Fatalf("compactWorkerEvidence = %q, want %q", got, want)
+	}
+}
+
+func TestCompactWorkerEvidenceLeavesShortValues(t *testing.T) {
+	const input = "hello € world"
+	if got := compactWorkerEvidence(input, 240); got != input {
+		t.Fatalf("compactWorkerEvidence = %q, want %q", got, input)
+	}
+}
 func TestSchedulerRunsReadyTaskDAG(t *testing.T) {
 	ctx := context.Background()
 	store := newTaskStore(t)

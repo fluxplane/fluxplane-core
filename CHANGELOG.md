@@ -133,6 +133,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `error-policy`, and `idempotency-key`; use snake_case fields instead.
 
 ### Fixed
+- Kept task finalizer step evidence compaction on valid UTF-8 rune boundaries
+  so non-ASCII worker output is not corrupted before being sent to follow-up
+  worker prompts.
 - Rendered `/loop` session-run lifecycle events in the terminal REPL and made
   the final loop summary use markdown lists so status counts and target session
   stay readable.
