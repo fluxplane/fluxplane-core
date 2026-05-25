@@ -2,6 +2,8 @@ package trigger
 
 import (
 	"context"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -90,6 +92,71 @@ func TestHostFireSubmitsStartupTrigger(t *testing.T) {
 	if len(submission.Trigger.Actions) != 1 || submission.Trigger.Actions[0].Operation.Operation.Name != "notify_send" {
 		t.Fatalf("actions = %#v, want notify_send operation", submission.Trigger.Actions)
 	}
+}
+
+func TestHostRunRejectsBadScheduleBeforeSpawningGoroutines(t *testing.T) {
+	client := &countingClient{}
+	host, err := New(Config{
+		Client: client,
+		NewRunID: func(prefix string) string {
+			return prefix + "test"
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	host.specs = []coretrigger.Spec{
+		{
+			Name:    "startup-trigger",
+			Kind:    coretrigger.KindStartup,
+			Session: "main",
+			Actions: []corereaction.Action{{
+				Kind: corereaction.ActionRunOperation,
+				Operation: corereaction.OperationAction{
+					Operation: operation.Ref{Name: "noop"},
+				},
+			}},
+		},
+		{
+			Name:     "bad-schedule",
+			Kind:     coretrigger.KindSchedule,
+			Schedule: coretrigger.Schedule{Every: "not-a-duration"},
+			Session:  "main",
+			Actions: []corereaction.Action{{
+				Kind: corereaction.ActionRunOperation,
+				Operation: corereaction.OperationAction{
+					Operation: operation.Ref{Name: "noop"},
+				},
+			}},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err = host.Run(ctx)
+	if err == nil || !strings.Contains(err.Error(), "schedule.every") {
+		t.Fatalf("Run error = %v, want schedule.every parse error", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := client.opens.Load(); got != 0 {
+		t.Fatalf("client.opens = %d after rejected Run, want 0 (the startup trigger goroutine should not have spawned)", got)
+	}
+}
+
+type countingClient struct {
+	opens atomic.Int32
+}
+
+func (c *countingClient) Open(_ context.Context, req clientapi.OpenRequest) (clientapi.SessionHandle, error) {
+	c.opens.Add(1)
+	return &fakeSession{info: clientapi.SessionInfo{Session: req.Session}}, nil
+}
+
+func (*countingClient) Resume(context.Context, clientapi.ResumeRequest) (clientapi.SessionHandle, error) {
+	return nil, nil
+}
+
+func (*countingClient) ListSessions(context.Context, clientapi.ListSessionsRequest) ([]clientapi.SessionSummary, error) {
+	return nil, nil
 }
 
 type fakeClient struct {

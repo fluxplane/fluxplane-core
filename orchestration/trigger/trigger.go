@@ -78,8 +78,22 @@ func (h *Host) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	scheduleIntervals := make(map[int]time.Duration, len(h.specs))
+	for i, spec := range h.specs {
+		if spec.Disabled || spec.Kind != coretrigger.KindSchedule {
+			continue
+		}
+		interval, err := time.ParseDuration(strings.TrimSpace(spec.Schedule.Every))
+		if err != nil {
+			return fmt.Errorf("trigger %q: parse schedule.every: %w", spec.Name, err)
+		}
+		if interval <= 0 {
+			return fmt.Errorf("trigger %q: schedule.every must be positive", spec.Name)
+		}
+		scheduleIntervals[i] = interval
+	}
 	var wg sync.WaitGroup
-	for _, spec := range h.specs {
+	for i, spec := range h.specs {
 		spec := spec
 		if spec.Disabled {
 			continue
@@ -97,13 +111,7 @@ func (h *Host) Run(ctx context.Context) error {
 		if spec.Kind != coretrigger.KindSchedule {
 			continue
 		}
-		interval, err := time.ParseDuration(strings.TrimSpace(spec.Schedule.Every))
-		if err != nil {
-			return fmt.Errorf("trigger %q: parse schedule.every: %w", spec.Name, err)
-		}
-		if interval <= 0 {
-			return fmt.Errorf("trigger %q: schedule.every must be positive", spec.Name)
-		}
+		interval := scheduleIntervals[i]
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
