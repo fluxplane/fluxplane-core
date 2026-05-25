@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/channel"
@@ -452,5 +453,9 @@ func truncateText(text string, max int) string {
 	if max <= 0 || len(text) <= max {
 		return text
 	}
-	return text[:max]
+	limit := max
+	for limit > 0 && !utf8.RuneStart(text[limit]) {
+		limit--
+	}
+	return text[:limit]
 }

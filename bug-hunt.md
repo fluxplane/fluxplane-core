@@ -339,3 +339,26 @@ session. One bug per iteration: find → reproduce → fix → commit.
 - **Regression tests:** `TestShortLogValuePreservesUTF8RuneBoundaries`
   and `TestShortLogValueLeavesShortStrings`. First fails on the old
   code with `"...aaaaaa\xe2..."`.
+- **Commit:** `efa8e8b` — "fix: shortLogValue must respect UTF-8 rune boundaries".
+
+## Iteration 17 — same UTF-8 truncation pattern in `sessioncontrol.truncateText`
+
+- **Where:** `orchestration/sessioncontrol/control.go` `truncateText`.
+- **Bug:** Sixth occurrence of the byte-cut-without-rune-boundary
+  truncation pattern. `text[:max]` chops at byte `max` regardless of
+  multi-byte rune boundaries.
+- **Impact:** This one feeds LLM stop-condition prompts —
+  `finalizerDescription`-style helpers call
+  `truncateText(fmt.Sprint(effect.Result.Output), 2000)` and
+  `truncateText(effect.Result.Error.Message, 1000)` and concatenate the
+  result into a prompt that is then sent to a model. The provider's
+  JSON encoder will escape invalid UTF-8 to `�`, so end-to-end
+  it's "safe", but the model sees a replacement character where the
+  trailing rune used to be — which can derail short-text matching the
+  evaluator was trying to do.
+- **Fix:** Same rune-start scan as iterations 8, 10, 13, 14, 16.
+- **Regression tests:** `TestTruncateTextPreservesUTF8RuneBoundaries`
+  (multi-byte boundary), `TestTruncateTextLeavesShortValues`
+  (short-string path), and `TestTruncateTextHonorsZeroAndNegativeMax`
+  (defensive cases). First fails on the old code with
+  `"truncateText produced invalid UTF-8: \"aaaaaaaaa\\xe2\""`.
