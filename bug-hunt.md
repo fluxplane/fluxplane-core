@@ -656,4 +656,4 @@ session. One bug per iteration: find → reproduce → fix → commit.
   It asserts `utf8.ValidString(body)` is true on the truncated body —
   the old code produced `\xF0\x9F\x8C` at the tail, which fails this
   check.
-- **Commit:** _pending_.
+- **Commit:** `5511e6e` — "fix: truncate artifact text on a rune boundary".
