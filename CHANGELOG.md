@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added shared session-run orchestration for fresh-context helper session
+  executions and a native `/loop` session command plugin for repeating prompts
+  sequentially.
 - Added named `distribution.build.targets` and `distribution.deploy.targets`
   so apps can separately build reusable artifacts and deploy targets that
   reference those artifacts.

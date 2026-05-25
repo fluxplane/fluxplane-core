@@ -18,6 +18,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	coreworkflow "github.com/fluxplane/fluxplane-core/core/workflow"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
+	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
@@ -109,5 +110,11 @@ func defaultEventTypes() []event.Event {
 		sessionagent.Completed{},
 		sessionagent.Failed{},
 		sessionagent.Cancelled{},
+		sessionrun.Requested{},
+		sessionrun.Started{},
+		sessionrun.Progressed{},
+		sessionrun.Completed{},
+		sessionrun.Failed{},
+		sessionrun.Cancelled{},
 	}
 }

@@ -51,6 +51,7 @@ import (
 	goalplugin "github.com/fluxplane/fluxplane-core/plugins/native/goal"
 	"github.com/fluxplane/fluxplane-core/plugins/native/identity"
 	"github.com/fluxplane/fluxplane-core/plugins/native/image"
+	"github.com/fluxplane/fluxplane-core/plugins/native/loop"
 	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
 	"github.com/fluxplane/fluxplane-core/plugins/native/sessionhistory"
 	"github.com/fluxplane/fluxplane-core/plugins/native/skills"
@@ -667,6 +668,7 @@ func availablePluginsWithAuth(hostSystem system.System, dispatcher *slack.Dispat
 		identity.New(),
 		coding.New(hostSystem),
 		goalplugin.New(),
+		loop.New(),
 		openai.New(),
 		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
 		gitlab.NewWithResolver(hostSystem, nativeResolver),

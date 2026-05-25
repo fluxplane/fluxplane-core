@@ -41,6 +41,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessioncontrol"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
+	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionworkflow"
 	conversationruntime "github.com/fluxplane/fluxplane-core/runtime/conversation"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
@@ -72,6 +73,7 @@ type Session struct {
 	ThreadStore          corethread.Store
 	Thread               corethread.Ref
 	SessionAgents        *sessionagent.Runner
+	SessionRuns          *sessionrun.Runner
 	Delegation           sessionenv.DelegationPolicy
 	StopEvaluator        StopEvaluator
 	RunID                string

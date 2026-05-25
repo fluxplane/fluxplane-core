@@ -30,6 +30,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/security"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
+	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
 	"github.com/fluxplane/fluxplane-core/orchestration/toolprojection"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
@@ -56,6 +57,7 @@ type Config struct {
 	Events               coreevent.Sink
 	ThreadStore          corethread.Store
 	SessionAgents        *sessionagent.Runner
+	SessionRuns          *sessionrun.Runner
 	EnvironmentObservers []runtimeevidence.Observer
 	AssertionDerivers    []runtimeevidence.AssertionDeriver
 	ReactionRules        []corereaction.Rule
@@ -94,6 +96,7 @@ type Service struct {
 	events               coreevent.Sink
 	threadStore          corethread.Store
 	sessionAgents        *sessionagent.Runner
+	sessionRuns          *sessionrun.Runner
 	startupObservations  []coreevidence.Observation
 	startupAssertions    []coreevidence.Assertion
 	environmentObservers []runtimeevidence.Observer
@@ -140,6 +143,7 @@ func New(cfg Config) *Service {
 		events:               cfg.Events,
 		threadStore:          cfg.ThreadStore,
 		sessionAgents:        cfg.SessionAgents,
+		sessionRuns:          cfg.SessionRuns,
 		startupObservations:  startupObservations,
 		startupAssertions:    startupAssertions,
 		environmentObservers: append([]runtimeevidence.Observer(nil), cfg.EnvironmentObservers...),
@@ -179,6 +183,17 @@ func (s *Service) SetSessionAgentRunner(runner *sessionagent.Runner) {
 	}
 	s.mu.Lock()
 	s.sessionAgents = runner
+	s.mu.Unlock()
+}
+
+// SetSessionRunRunner installs the generic helper session runner used by
+// session commands that repeatedly or directly submit prompts to fresh sessions.
+func (s *Service) SetSessionRunRunner(runner *sessionrun.Runner) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.sessionRuns = runner
 	s.mu.Unlock()
 }
 
@@ -508,6 +523,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		ThreadStore:          s.threadStore,
 		Thread:               info.Thread,
 		SessionAgents:        s.currentSessionAgents(),
+		SessionRuns:          s.currentSessionRuns(),
 		Delegation:           s.delegationForInfo(info),
 		StopEvaluator:        s.stopEvaluator,
 		RunID:                string(runID),
@@ -623,6 +639,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		ThreadStore:          s.threadStore,
 		Thread:               info.Thread,
 		SessionAgents:        s.currentSessionAgents(),
+		SessionRuns:          s.currentSessionRuns(),
 		Delegation:           s.delegationForInfo(info),
 		StopEvaluator:        s.stopEvaluator,
 		RunID:                string(runID),
@@ -693,6 +710,7 @@ func (s *Service) handleTrigger(ctx context.Context, info SessionInfo, inbound c
 		ThreadStore:          s.threadStore,
 		Thread:               info.Thread,
 		SessionAgents:        s.currentSessionAgents(),
+		SessionRuns:          s.currentSessionRuns(),
 		Delegation:           s.delegationForInfo(info),
 		StopEvaluator:        s.stopEvaluator,
 		RunID:                string(runID),
@@ -752,6 +770,7 @@ func (s *Service) handleOperation(ctx context.Context, info SessionInfo, inbound
 		ThreadStore:          s.threadStore,
 		Thread:               info.Thread,
 		SessionAgents:        s.currentSessionAgents(),
+		SessionRuns:          s.currentSessionRuns(),
 		Delegation:           s.delegationForInfo(info),
 		StopEvaluator:        s.stopEvaluator,
 		RunID:                string(runID),
@@ -805,6 +824,15 @@ func (s *Service) currentSessionAgents() *sessionagent.Runner {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.sessionAgents
+}
+
+func (s *Service) currentSessionRuns() *sessionrun.Runner {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sessionRuns
 }
 
 func (s *Service) delegationForInfo(info SessionInfo) coresession.DelegationPolicy {
@@ -1323,6 +1351,7 @@ func shouldPersistRuntimeEvent(name coreevent.Name) bool {
 		strings.HasPrefix(value, "task.") ||
 		strings.HasPrefix(value, "workflow.") ||
 		strings.HasPrefix(value, "session_agent.") ||
+		strings.HasPrefix(value, "session_run.") ||
 		strings.HasPrefix(value, "skill.") ||
 		value == "llmagent.model_requested" ||
 		value == "llmagent.model_completed" ||

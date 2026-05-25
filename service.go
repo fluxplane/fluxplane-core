@@ -3,6 +3,7 @@ package fluxplane
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/fluxplane/fluxplane-core/adapters/channels/direct"
@@ -27,6 +28,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/resourcecatalog"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
+	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
 	"github.com/fluxplane/fluxplane-core/orchestration/toolprojection"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
@@ -228,87 +230,19 @@ func New(cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	service.SetSessionAgentRunner(sessionagent.New(sessionagent.Config{
-		Client: sessionAgentClient{client: client},
-		ResolveProfile: sessionagent.ProfileResolverFunc(func(_ context.Context, ref coresession.Ref) (coresession.Spec, error) {
+	sessionRuns := sessionrun.New(sessionrun.Config{
+		Client: newSessionRunChannelClient(client),
+		ResolveProfile: sessionrun.ProfileResolverFunc(func(_ context.Context, ref coresession.Ref) (coresession.Spec, error) {
 			binding, err := cfg.SessionCatalog.Resolve(string(ref.Name))
 			if err != nil {
 				return coresession.Spec{}, err
 			}
 			return binding.Spec, nil
 		}),
-	}))
-	return &Service{harness: service, client: client}, nil
-}
-
-type sessionAgentClient struct {
-	client ChannelClient
-}
-
-func (c sessionAgentClient) Open(ctx context.Context, req sessionagent.OpenRequest) (sessionagent.Session, error) {
-	session, err := c.client.Open(ctx, OpenRequest{
-		Session:      req.Session,
-		Profile:      req.Profile,
-		Conversation: req.Conversation,
-		Metadata:     req.Metadata,
-		Approver:     req.Approver,
 	})
-	if err != nil {
-		return nil, err
-	}
-	return sessionAgentSession{session: session}, nil
-}
-
-type sessionAgentSession struct {
-	session Session
-}
-
-func (s sessionAgentSession) Info() sessionagent.SessionInfo {
-	info := s.session.Info()
-	return sessionagent.SessionInfo{Thread: info.Thread}
-}
-
-func (s sessionAgentSession) SendInput(ctx context.Context, input sessionagent.Input) (sessionagent.Run, error) {
-	run, err := s.session.Submit(ctx, NewSubmission().WithInput(Input{Text: input.Text, Metadata: input.Metadata}))
-	if err != nil {
-		return nil, err
-	}
-	return sessionAgentRun{run: run}, nil
-}
-
-type sessionAgentRun struct {
-	run Run
-}
-
-func (r sessionAgentRun) ID() string { return string(r.run.ID()) }
-
-func (r sessionAgentRun) Events() <-chan sessionagent.RunEvent {
-	out := make(chan sessionagent.RunEvent, 16)
-	go func() {
-		defer close(out)
-		for event := range r.run.Events() {
-			converted := sessionagent.RunEvent{Kind: string(event.Kind)}
-			if event.Operation != nil {
-				converted.Operation = event.Operation.Operation.String()
-			}
-			if event.Runtime != nil {
-				converted.Runtime = string(event.Runtime.Name)
-			}
-			out <- converted
-		}
-	}()
-	return out
-}
-
-func (r sessionAgentRun) Wait(ctx context.Context) (sessionagent.RunResult, error) {
-	result, err := r.run.Wait(ctx)
-	if err != nil {
-		return sessionagent.RunResult{}, err
-	}
-	if result.Outbound != nil && result.Outbound.Message != nil {
-		return sessionagent.RunResult{Text: fmt.Sprint(result.Outbound.Message.Content)}, nil
-	}
-	return sessionagent.RunResult{}, nil
+	service.SetSessionRunRunner(sessionRuns)
+	service.SetSessionAgentRunner(sessionagent.New(sessionagent.Config{Runner: sessionRuns}))
+	return &Service{harness: service, client: client}, nil
 }
 
 // NewFromComposition assembles an in-process runtime service from composed app
@@ -416,6 +350,93 @@ func (s *Service) PublishRuntimeEvent(ctx context.Context, thread corethread.Ref
 
 type resolverStopEvaluator struct {
 	resolver LLMModelResolver
+}
+
+type sessionRunChannelClient struct {
+	client clientapi.ChannelClient
+}
+
+func newSessionRunChannelClient(client clientapi.ChannelClient) sessionrun.Client {
+	return sessionRunChannelClient{client: client}
+}
+
+func (c sessionRunChannelClient) Open(ctx context.Context, req sessionrun.OpenRequest) (sessionrun.Session, error) {
+	if c.client == nil {
+		return nil, fmt.Errorf("fluxplane: session-run channel client is nil")
+	}
+	session, err := c.client.Open(ctx, clientapi.OpenRequest{
+		Session:      req.Session,
+		Profile:      req.Profile,
+		Conversation: req.Conversation,
+		Metadata:     req.Metadata,
+		Approver:     req.Approver,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return sessionRunChannelSession{session: session}, nil
+}
+
+type sessionRunChannelSession struct {
+	session clientapi.SessionHandle
+}
+
+func (s sessionRunChannelSession) Info() sessionrun.SessionInfo {
+	info := s.session.Info()
+	return sessionrun.SessionInfo{Thread: info.Thread}
+}
+
+func (s sessionRunChannelSession) SendInput(ctx context.Context, input sessionrun.Input) (sessionrun.Run, error) {
+	run, err := s.session.Submit(ctx, clientapi.NewSubmission().WithInput(clientapi.Input{Text: input.Text, Metadata: input.Metadata}))
+	if err != nil {
+		return nil, err
+	}
+	return sessionRunChannelRun{run: run}, nil
+}
+
+func (s sessionRunChannelSession) Close(ctx context.Context) error {
+	return s.session.Close(ctx)
+}
+
+type sessionRunChannelRun struct {
+	run clientapi.RunHandle
+}
+
+func (r sessionRunChannelRun) ID() string { return string(r.run.ID()) }
+
+func (r sessionRunChannelRun) Events() <-chan sessionrun.RunEvent {
+	out := make(chan sessionrun.RunEvent, 16)
+	go func() {
+		defer close(out)
+		for event := range r.run.Events() {
+			converted := sessionrun.RunEvent{Kind: string(event.Kind)}
+			if event.Operation != nil {
+				converted.Operation = event.Operation.Operation.String()
+			}
+			if event.Runtime != nil {
+				converted.Runtime = string(event.Runtime.Name)
+			}
+			out <- converted
+		}
+	}()
+	return out
+}
+
+func (r sessionRunChannelRun) Wait(ctx context.Context) (sessionrun.RunResult, error) {
+	result, err := r.run.Wait(ctx)
+	if err != nil {
+		return sessionrun.RunResult{}, err
+	}
+	if result.Input != nil && result.Input.Error != nil {
+		return sessionrun.RunResult{}, errors.New(result.Input.Error.Message)
+	}
+	if result.Outbound != nil && result.Outbound.Message != nil {
+		return sessionrun.RunResult{Text: fmt.Sprint(result.Outbound.Message.Content)}, nil
+	}
+	if result.Input != nil && result.Input.Outbound != nil && result.Input.Outbound.Message != nil {
+		return sessionrun.RunResult{Text: fmt.Sprint(result.Input.Outbound.Message.Content)}, nil
+	}
+	return sessionrun.RunResult{}, nil
 }
 
 func (e resolverStopEvaluator) EvaluateStopCondition(ctx context.Context, input session.StopEvaluationInput) (session.StopEvaluation, error) {
