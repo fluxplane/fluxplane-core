@@ -229,7 +229,7 @@ func renderOutbound(out io.Writer, result clientapi.Result) {
 func renderTurnEvents(events <-chan clientapi.Event, tracker *usage.Tracker, opts TurnOptions) <-chan turnRenderResult {
 	done := make(chan turnRenderResult, 1)
 	go func() {
-		renderer := NewRenderer(defaultWriter(opts.Out), defaultWriter(opts.Err), false)
+		renderer := NewRenderer(defaultWriter(opts.Out), defaultWriter(opts.Err), opts.Usage)
 		renderer.Reasoning = opts.Reasoning
 		result := turnRenderResult{ActiveTasks: map[string]bool{}, SeenRuntime: map[string]bool{}, Artifacts: map[string][]coretask.ArtifactSpec{}}
 		for event := range events {

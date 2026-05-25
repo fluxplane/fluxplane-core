@@ -763,7 +763,7 @@ func TestRenderUsageSnapshotGroupsHumanReadableTotals(t *testing.T) {
 		Subject: usage.Subject{Kind: usage.SubjectLLM, Provider: "openai", Name: "gpt-test", ID: "resp_1"},
 		Measurements: []usage.Measurement{
 			{Metric: usage.MetricLLMInputTokens, Quantity: 2109, Unit: usage.UnitToken, Direction: usage.DirectionInput},
-			{Metric: usage.MetricLLMInputTokens, Quantity: 128, Unit: usage.UnitToken, Direction: usage.DirectionInput, Dimensions: map[string]string{"cache_creation": "true"}},
+			{Metric: usage.MetricLLMCacheWriteTokens, Quantity: 128, Unit: usage.UnitToken, Direction: usage.DirectionWrite},
 			{Metric: usage.MetricLLMCachedTokens, Quantity: 1536, Unit: usage.UnitToken, Direction: usage.DirectionCached},
 			{Metric: usage.MetricLLMOutputTokens, Quantity: 11, Unit: usage.UnitToken, Direction: usage.DirectionOutput},
 			{Metric: usage.MetricCost, Quantity: 0.0031, Unit: usage.UnitCurrency, Dimensions: map[string]string{"currency": "USD", "estimated": "true"}},
@@ -784,7 +784,7 @@ func TestRenderUsageSnapshotGroupsHumanReadableTotals(t *testing.T) {
 		"openai/gpt-test",
 		"input tokens 2,109",
 		"cache write tokens 128",
-		"cached input tokens 1,536 | cached 73%",
+		"cached input tokens 1,536 | cached 41%",
 		"output tokens 11",
 		"estimated cost $0.0031",
 		"codex/gpt-test",
@@ -817,5 +817,119 @@ func TestRenderUsageSnapshotEmpty(t *testing.T) {
 	RenderUsageSnapshot(&out, usage.Snapshot{})
 	if out.Len() != 0 {
 		t.Fatalf("usage output = %q, want empty", out.String())
+	}
+}
+
+func TestRenderUsageRequestPrintsCompactContextLine(t *testing.T) {
+	recorded := usage.Recorded{
+		Subject: usage.Subject{Kind: usage.SubjectLLM, Provider: "anthropic", Name: "claude-sonnet"},
+		Measurements: []usage.Measurement{
+			{Metric: usage.MetricLLMInputTokens, Quantity: 45231, Unit: usage.UnitToken},
+			{Metric: usage.MetricLLMCachedTokens, Quantity: 12000, Unit: usage.UnitToken},
+			{Metric: usage.MetricLLMCacheWriteTokens, Quantity: 512, Unit: usage.UnitToken},
+			{Metric: usage.MetricLLMOutputTokens, Quantity: 312, Unit: usage.UnitToken},
+		},
+	}
+	var out bytes.Buffer
+	RenderUsageRequest(&out, recorded)
+	got := out.String()
+	for _, want := range []string{"anthropic/claude-sonnet", "ctx 57,743", "cached 12,000", "cache write 512", "out 312"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("RenderUsageRequest output = %q, want %q", got, want)
+		}
+	}
+	if strings.Contains(got, "\n") && strings.Count(got, "\n") != 1 {
+		t.Fatalf("RenderUsageRequest output = %q, want exactly one line", got)
+	}
+	// Must not include the verbose "Total usage" heading used by RenderUsageSnapshot.
+	if strings.Contains(got, "Total usage") {
+		t.Fatalf("RenderUsageRequest output = %q, must not contain 'Total usage'", got)
+	}
+}
+
+func TestRenderUsageRequestSkipsNonLLMSubjects(t *testing.T) {
+	var out bytes.Buffer
+	RenderUsageRequest(&out, usage.Recorded{
+		Subject:      usage.Subject{Kind: usage.SubjectNetwork},
+		Measurements: []usage.Measurement{{Metric: usage.MetricNetworkBytes, Quantity: 1024, Unit: usage.UnitByte}},
+	})
+	if out.Len() != 0 {
+		t.Fatalf("RenderUsageRequest output = %q, want empty for non-LLM subject", out.String())
+	}
+}
+
+func TestRenderUsageRequestSkipsEmptyMeasurements(t *testing.T) {
+	var out bytes.Buffer
+	RenderUsageRequest(&out, usage.Recorded{
+		Subject: usage.Subject{Kind: usage.SubjectLLM, Name: "model"},
+	})
+	if out.Len() != 0 {
+		t.Fatalf("RenderUsageRequest output = %q, want empty for no measurements", out.String())
+	}
+}
+
+func TestRenderUsageRequestInputOnly(t *testing.T) {
+	var out bytes.Buffer
+	RenderUsageRequest(&out, usage.Recorded{
+		Subject: usage.Subject{Kind: usage.SubjectLLM, Name: "model"},
+		Measurements: []usage.Measurement{
+			{Metric: usage.MetricLLMInputTokens, Quantity: 8192, Unit: usage.UnitToken},
+		},
+	})
+	got := out.String()
+	if !strings.Contains(got, "ctx 8,192") {
+		t.Fatalf("RenderUsageRequest output = %q, want ctx token count", got)
+	}
+	if strings.Contains(got, "cached") || strings.Contains(got, "out") {
+		t.Fatalf("RenderUsageRequest output = %q, must not include absent fields", got)
+	}
+}
+
+func TestRendererEmitsPerRequestUsageWhenShowUsageEnabled(t *testing.T) {
+	var out, errOut bytes.Buffer
+	renderer := NewRenderer(&out, &errOut, true)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: usage.EventRecordedName,
+			Payload: usage.Recorded{
+				Subject: usage.Subject{Kind: usage.SubjectLLM, Provider: "openai", Name: "gpt-test"},
+				Measurements: []usage.Measurement{
+					{Metric: usage.MetricLLMInputTokens, Quantity: 5000, Unit: usage.UnitToken},
+					{Metric: usage.MetricLLMOutputTokens, Quantity: 200, Unit: usage.UnitToken},
+				},
+			},
+		},
+	})
+	// RenderUsageRequest writes to Err (the renderer's stderr writer).
+	got := errOut.String()
+	if !strings.Contains(got, "ctx 5,000") {
+		t.Fatalf("renderer ShowUsage output = %q, want ctx token line", got)
+	}
+	if !strings.Contains(got, "out 200") {
+		t.Fatalf("renderer ShowUsage output = %q, want output token count", got)
+	}
+	if strings.Contains(got, "Total usage") {
+		t.Fatalf("renderer ShowUsage output = %q, must not print 'Total usage' per-request", got)
+	}
+}
+
+func TestRendererSuppressesPerRequestUsageWhenShowUsageDisabled(t *testing.T) {
+	var out, errOut bytes.Buffer
+	renderer := NewRenderer(&out, &errOut, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: usage.EventRecordedName,
+			Payload: usage.Recorded{
+				Subject: usage.Subject{Kind: usage.SubjectLLM, Name: "model"},
+				Measurements: []usage.Measurement{
+					{Metric: usage.MetricLLMInputTokens, Quantity: 1000, Unit: usage.UnitToken},
+				},
+			},
+		},
+	})
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("renderer output = %q / %q, want no usage output when ShowUsage=false", out.String(), errOut.String())
 	}
 }

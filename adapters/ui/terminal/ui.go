@@ -215,7 +215,7 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	case usage.Recorded:
 		r.flushContent()
 		if r.ShowUsage {
-			RenderUsageSnapshot(out, usage.NewSnapshot(payload))
+			RenderUsageRequest(out, payload)
 		}
 	case sessionagent.Started:
 		r.flushContent()
@@ -1523,6 +1523,48 @@ func compact(value any, limit int) string {
 	return text
 }
 
+// RenderUsageRequest renders a compact single-line context summary for one
+// LLM request. It is printed inline after each model response when --usage is
+// active, giving immediate feedback on the input context size submitted to the
+// provider for that specific request. Non-LLM subjects are silently skipped.
+func RenderUsageRequest(w io.Writer, recorded usage.Recorded) {
+	if w == nil || recorded.Subject.Kind != usage.SubjectLLM || recorded.Empty() {
+		return
+	}
+	var inputTok, cachedTok, cacheWriteTok, outputTok float64
+	for _, m := range recorded.Measurements {
+		switch m.Metric {
+		case usage.MetricLLMInputTokens:
+			inputTok += m.Quantity
+		case usage.MetricLLMCachedTokens:
+			cachedTok += m.Quantity
+		case usage.MetricLLMCacheWriteTokens:
+			cacheWriteTok += m.Quantity
+		case usage.MetricLLMOutputTokens:
+			outputTok += m.Quantity
+		}
+	}
+	contextTok := inputTok + cachedTok + cacheWriteTok
+	if contextTok == 0 && outputTok == 0 {
+		return
+	}
+	label := subjectLabel(recorded.Subject)
+	parts := []string{}
+	if contextTok > 0 {
+		parts = append(parts, "↑ ctx "+formatHumanNumber(contextTok))
+	}
+	if cachedTok > 0 {
+		parts = append(parts, "↻ cached "+formatHumanNumber(cachedTok))
+	}
+	if cacheWriteTok > 0 {
+		parts = append(parts, "↥ cache write "+formatHumanNumber(cacheWriteTok))
+	}
+	if outputTok > 0 {
+		parts = append(parts, "↓ out "+formatHumanNumber(outputTok))
+	}
+	_, _ = fmt.Fprintf(w, "%s🧠 %s%s  %s%s\n", ansiDim, label, ansiReset, strings.Join(parts, "  "), ansiReset)
+}
+
 // RenderUsageSnapshot renders grouped usage totals.
 func RenderUsageSnapshot(w io.Writer, snapshot usage.Snapshot) {
 	if w == nil || snapshot.Empty() {
@@ -1578,9 +1620,6 @@ func subjectLabel(subject usage.Subject) string {
 func measurementLine(subject usage.Subject, totals []usage.Measurement, measurement usage.Measurement) string {
 	switch measurement.Metric {
 	case usage.MetricLLMInputTokens:
-		if measurement.Dimensions != nil && measurement.Dimensions["cache_creation"] == "true" {
-			return "↥ cache write tokens " + formatHumanNumber(measurement.Quantity)
-		}
 		return "↑ input tokens " + formatHumanNumber(measurement.Quantity)
 	case usage.MetricLLMCachedTokens:
 		line := "↻ cached input tokens " + formatHumanNumber(measurement.Quantity)
@@ -1588,6 +1627,8 @@ func measurementLine(subject usage.Subject, totals []usage.Measurement, measurem
 			line += " | cached " + formatPercent(rate)
 		}
 		return line
+	case usage.MetricLLMCacheWriteTokens:
+		return "↥ cache write tokens " + formatHumanNumber(measurement.Quantity)
 	case usage.MetricLLMOutputTokens:
 		return "↓ output tokens " + formatHumanNumber(measurement.Quantity)
 	case usage.MetricLLMReasoningTokens:
@@ -1615,7 +1656,8 @@ func cacheRate(subject usage.Subject, totals []usage.Measurement, cached usage.M
 	}
 	var input float64
 	for _, measurement := range totals {
-		if measurement.Metric == usage.MetricLLMInputTokens && measurement.Dimensions["cache_creation"] != "true" {
+		switch measurement.Metric {
+		case usage.MetricLLMInputTokens, usage.MetricLLMCachedTokens, usage.MetricLLMCacheWriteTokens:
 			input += measurement.Quantity
 		}
 	}
