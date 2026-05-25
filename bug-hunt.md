@@ -438,3 +438,29 @@ session. One bug per iteration: find → reproduce → fix → commit.
   three identical-vector chunks into a fresh store 10 times and
   asserts the result order is `a, b, c` each time. Fails on the old
   code with random orderings.
+- **Commit:** `579c74b` — "fix: deterministic ordering for semantic Search ties and UpsertChunks state".
+
+## Iteration 20 — same tie-break missing in `Index.Search` wrapper
+
+- **Where:** `runtime/datasource/semantic/index.go` `Index.Search`.
+- **Bug:** Even after iteration 19's `JSONStore.Search` fix, the
+  higher-level `Index.Search` re-introduced the same non-determinism:
+  it grouped hits by `DocumentKey` into a `map[string]Hit`, then built
+  `out` by iterating that map (random order), then ran `sort.Slice` by
+  `Score` with no tie-breaker.
+- **Impact:** Documents with identical scores returned in random order
+  across runs at the call site that callers actually use — `Index.Search`,
+  not `JSONStore.Search`. The store-layer fix from iteration 19 was
+  invisible to anyone going through the index.
+- **Reproduction:** Three docs with identical `Title` and `Body`
+  embed to the same vector, so cosine against the same query yields
+  three tied scores. Across five fresh indexes the old code
+  returned random orders like `[b.md a.md c.md]`, `[b.md c.md a.md]`.
+- **Fix:** Tie-break by `Ref.ID`, then `Ref.Datasource`, then
+  `Ref.Entity` inside the existing `sort.Slice` comparator. (No need
+  to stable-sort or also touch the map iteration — the comparator now
+  picks a deterministic winner for any tie.)
+- **Regression test:** `TestIndexSearchTieBreaksDeterministically`
+  upserts three docs with matching title+body into a fresh index five
+  times and asserts the hit order is `a.md, b.md, c.md` each
+  iteration. Fails on the old code with random orderings.

@@ -457,7 +457,18 @@ func (i *Index) Search(ctx context.Context, req SearchRequest) (SearchResult, er
 		}
 		out = append(out, hit)
 	}
-	sort.Slice(out, func(a, b int) bool { return out[a].Score > out[b].Score })
+	sort.Slice(out, func(a, b int) bool {
+		if out[a].Score != out[b].Score {
+			return out[a].Score > out[b].Score
+		}
+		if out[a].Ref.ID != out[b].Ref.ID {
+			return out[a].Ref.ID < out[b].Ref.ID
+		}
+		if out[a].Ref.Datasource != out[b].Ref.Datasource {
+			return out[a].Ref.Datasource < out[b].Ref.Datasource
+		}
+		return out[a].Ref.Entity < out[b].Ref.Entity
+	})
 	if len(out) > limit {
 		out = out[:limit]
 	}
