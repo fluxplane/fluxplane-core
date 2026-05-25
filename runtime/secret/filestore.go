@@ -63,9 +63,44 @@ func (s FileStore) SaveSecret(_ context.Context, secret StoredSecret) error {
 	if err != nil {
 		return fmt.Errorf("secret store: marshal: %w", err)
 	}
-	if err := os.WriteFile(s.path(ref), data, 0o600); err != nil {
+	if err := writeFileAtomic(s.path(ref), data, 0o600); err != nil {
 		return fmt.Errorf("secret store: write: %w", err)
 	}
+	return nil
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".tmp-"+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	cleanup = false
 	return nil
 }
 

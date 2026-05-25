@@ -2,6 +2,8 @@ package secret
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
@@ -31,5 +33,28 @@ func TestFileStoreSavesAndResolvesPluginSecret(t *testing.T) {
 	}
 	if material.Kind != coresecret.KindOAuth2Token || material.Value != "access-token" {
 		t.Fatalf("material = %#v, want oauth token", material)
+	}
+}
+
+func TestFileStoreSaveLeavesNoTempFile(t *testing.T) {
+	dir := t.TempDir()
+	store := NewFileStore(dir)
+	ref := coresecret.Plugin("jira", "main", "oauth2_token")
+	for i := 0; i < 5; i++ {
+		if err := store.SaveSecret(context.Background(), StoredSecret{
+			Ref:   ref,
+			Value: "access-token",
+		}); err != nil {
+			t.Fatalf("SaveSecret iter %d: %v", i, err)
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".tmp-") {
+			t.Fatalf("leaked tmp file %q after Save; atomic write should clean up", entry.Name())
+		}
 	}
 }

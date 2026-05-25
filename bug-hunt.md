@@ -62,3 +62,21 @@ session. One bug per iteration: find → reproduce → fix → commit.
   outliers.
 - **Fix:** Added `rows.Err()` check between the for-loop and `rows.Close()`,
   closing the rows on error to release the connection.
+- **Commit:** `0264fca` — "fix: check rows.Err() in sqlstore DeleteRecords and BatchGetRecords".
+
+## Iteration 5 — non-atomic secret file write
+
+- **Where:** `runtime/secret/filestore.go` `SaveSecret`.
+- **Bug:** Used `os.WriteFile(s.path(ref), data, 0o600)` to persist the
+  secret file directly. If the process is killed mid-write (or the disk
+  fills), the file is left truncated and the next `LoadSecret` returns a
+  parse error — caller has now lost a credential they thought they had
+  just saved.
+- **Sibling code uses atomic writes:** `adapters/llm/claudecode/auth.go`
+  and `runtime/datasource/semantic/store.go` both write via temp file +
+  rename. This one was the outlier.
+- **Fix:** Added a small `writeFileAtomic` helper (create temp in same
+  dir → chmod → write → sync → close → rename, with deferred cleanup
+  of the temp file on any error) and routed `SaveSecret` through it.
+- **Regression test:** `TestFileStoreSaveLeavesNoTempFile` writes five
+  times and asserts no `.tmp-*` files remain in the directory.
