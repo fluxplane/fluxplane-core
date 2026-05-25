@@ -62,7 +62,7 @@ func TestExecuteCommandRunsCountWithFreshConversations(t *testing.T) {
 	if output.Success != 2 || output.Failed != 0 {
 		t.Fatalf("output counts = %#v, want 2 success", output)
 	}
-	if !strings.Contains(rendered.Text, "thread=child-thread-1") || !strings.Contains(rendered.Text, "thread=child-thread-2") {
+	if !strings.Contains(rendered.Text, "child-thread-1") || !strings.Contains(rendered.Text, "child-thread-2") {
 		t.Fatalf("rendered text = %q, want child thread summaries", rendered.Text)
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
+	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
@@ -226,6 +227,34 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	case sessionagent.Failed:
 		r.flushContent()
 		_, _ = fmt.Fprintf(out, "%ssession agent failed:%s %s %s\n", ansiRed, ansiReset, payload.ID, payload.Error)
+	case sessionrun.Started:
+		r.flushContent()
+		_, _ = fmt.Fprintf(out, "%s%s start:%s %s", ansiCyan, sessionRunLabel(payload.Causation), ansiReset, compact(payload.Input, 160))
+		renderSessionRunScope(out, payload.Causation)
+		_, _ = fmt.Fprintln(out)
+	case sessionrun.Progressed:
+		if !sessionRunProgressVisible(payload.Message) {
+			return
+		}
+		r.flushContent()
+		_, _ = fmt.Fprintf(out, "%s%s progress:%s %s", ansiCyan, sessionRunLabel(payload.Causation), ansiReset, compact(payload.Message, 160))
+		renderSessionRunScope(out, payload.Causation)
+		_, _ = fmt.Fprintln(out)
+	case sessionrun.Completed:
+		r.flushContent()
+		_, _ = fmt.Fprintf(out, "%s%s done:%s %s", ansiGreen, sessionRunLabel(payload.Causation), ansiReset, compact(payload.Output, 160))
+		renderSessionRunScope(out, payload.Causation)
+		_, _ = fmt.Fprintln(out)
+	case sessionrun.Failed:
+		r.flushContent()
+		_, _ = fmt.Fprintf(out, "%s%s failed:%s %s", ansiRed, sessionRunLabel(payload.Causation), ansiReset, payload.Error)
+		renderSessionRunScope(out, payload.Causation)
+		_, _ = fmt.Fprintln(out)
+	case sessionrun.Cancelled:
+		r.flushContent()
+		_, _ = fmt.Fprintf(out, "%s%s cancelled:%s %s", ansiYellow, sessionRunLabel(payload.Causation), ansiReset, payload.Reason)
+		renderSessionRunScope(out, payload.Causation)
+		_, _ = fmt.Fprintln(out)
 	default:
 		r.flushContent()
 		if string(event.Runtime.Name) == "human.clarification.requested" {
@@ -1500,6 +1529,40 @@ func emptySummaryValue(value any) bool {
 	}
 }
 
+func sessionRunLabel(c sessionrun.Causation) string {
+	iteration := strings.TrimSpace(c.Metadata["loop_iteration"])
+	count := strings.TrimSpace(c.Metadata["loop_count"])
+	if iteration != "" && count != "" {
+		return "loop " + iteration + "/" + count
+	}
+	if iteration != "" {
+		return "loop " + iteration
+	}
+	if c.ID != "" {
+		return "session run " + string(c.ID)
+	}
+	return "session run"
+}
+
+func renderSessionRunScope(out io.Writer, c sessionrun.Causation) {
+	parts := []string{}
+	if c.Profile.Name != "" {
+		parts = append(parts, "session="+string(c.Profile.Name))
+	}
+	if c.ChildThreadID != "" {
+		parts = append(parts, "thread="+string(c.ChildThreadID))
+	}
+	if len(parts) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(out, " %s[%s]%s", ansiDim, strings.Join(parts, " "), ansiReset)
+}
+
+func sessionRunProgressVisible(message string) bool {
+	message = strings.TrimSpace(message)
+	return strings.HasPrefix(message, "calling ") || strings.HasPrefix(message, "completed ")
+}
+
 func compact(value any, limit int) string {
 	if value == nil {
 		return ""
@@ -1517,8 +1580,9 @@ func compact(value any, limit int) string {
 		}
 	}
 	text = strings.Join(strings.Fields(text), " ")
-	if limit > 0 && len(text) > limit {
-		return text[:limit] + "..."
+	runes := []rune(text)
+	if limit > 0 && len(runes) > limit {
+		return string(runes[:limit]) + "..."
 	}
 	return text
 }

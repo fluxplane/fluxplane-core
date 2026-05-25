@@ -130,6 +130,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `error-policy`, and `idempotency-key`; use snake_case fields instead.
 
 ### Fixed
+- Rendered `/loop` session-run lifecycle events in the terminal REPL and made
+  the final loop summary use markdown lists so status counts and target session
+  stay readable.
 - Fixed Claude streamed tool-use finalization so durable `tool_use` transcript
   blocks remain paired with operation requests when Anthropic stream side-state
   is missing or stale.

@@ -18,6 +18,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
+	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 )
@@ -708,6 +709,56 @@ func TestRendererRendersSessionAgentEvents(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("session-agent output = %q, missing %q", got, want)
 		}
+	}
+}
+
+func TestRendererRendersSessionRunEvents(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	cause := sessionrun.Causation{
+		ID:            "run-loop:loop:1",
+		ChildThreadID: "thread-child",
+		Profile:       coresession.Ref{Name: "coder"},
+		Metadata:      map[string]string{"loop_iteration": "1", "loop_count": "3"},
+	}
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    sessionrun.EventStarted,
+			Payload: sessionrun.Started{Causation: cause, Input: "check temperature in Berlin"},
+		},
+	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    sessionrun.EventProgressed,
+			Payload: sessionrun.Progressed{Causation: cause, Message: "reaction.action_applied"},
+		},
+	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    sessionrun.EventProgressed,
+			Payload: sessionrun.Progressed{Causation: cause, Message: "calling web_search"},
+		},
+	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    sessionrun.EventCompleted,
+			Payload: sessionrun.Completed{Causation: cause, Output: "Berlin is 26 C and sunny"},
+		},
+	})
+	renderer.Finish()
+
+	got := out.String() + err.String()
+	for _, want := range []string{"loop 1/3 start:", "check temperature in Berlin", "loop 1/3 progress:", "calling web_search", "loop 1/3 done:", "Berlin is 26 C", "thread=thread-child"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("session-run output = %q, missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "reaction.action_applied") {
+		t.Fatalf("session-run output = %q, want noisy runtime progress filtered", got)
 	}
 }
 

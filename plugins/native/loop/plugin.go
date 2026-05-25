@@ -354,29 +354,29 @@ func renderText(output Output) string {
 	var b strings.Builder
 	switch {
 	case output.Stopped && output.Failed > 0:
-		b.WriteString("Loop stopped with errors\n")
+		b.WriteString("**Loop stopped with errors**\n\n")
 	case output.Failed > 0:
-		b.WriteString("Loop completed with errors\n")
+		b.WriteString("**Loop completed with errors**\n\n")
 	default:
-		b.WriteString("Loop completed\n")
+		b.WriteString("**Loop completed**\n\n")
 	}
-	fmt.Fprintf(&b, "Iterations: %d\n", len(output.Iterations))
-	fmt.Fprintf(&b, "Success: %d\n", output.Success)
-	fmt.Fprintf(&b, "Failed: %d\n", output.Failed)
+	fmt.Fprintf(&b, "- Iterations: %d\n", len(output.Iterations))
+	fmt.Fprintf(&b, "- Success: %d\n", output.Success)
+	fmt.Fprintf(&b, "- Failed: %d\n", output.Failed)
 	if output.Target.Name != "" {
-		fmt.Fprintf(&b, "Session: %s\n", output.Target.Name)
+		fmt.Fprintf(&b, "- Session: %s\n", output.Target.Name)
 	}
 	if output.StopReason != "" {
-		fmt.Fprintf(&b, "Stop reason: %s\n", output.StopReason)
+		fmt.Fprintf(&b, "- Stop reason: %s\n", output.StopReason)
 	}
 	if len(output.Iterations) == 0 {
 		return strings.TrimRight(b.String(), "\n")
 	}
 	b.WriteString("\n")
 	for _, iteration := range output.Iterations {
-		fmt.Fprintf(&b, "%d. %s", iteration.Iteration, iteration.Status)
+		fmt.Fprintf(&b, "%d. `%s`", iteration.Iteration, iteration.Status)
 		if iteration.ChildThreadID != "" {
-			fmt.Fprintf(&b, " thread=%s", iteration.ChildThreadID)
+			fmt.Fprintf(&b, " `%s`", iteration.ChildThreadID)
 		}
 		if summary := iterationSummary(iteration); summary != "" {
 			fmt.Fprintf(&b, " - %s", summary)
