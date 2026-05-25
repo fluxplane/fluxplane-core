@@ -548,6 +548,9 @@ func paginateMemories(memories []corememory.Memory, limit int, cursor string) ([
 	if cursor != "" {
 		_, _ = fmt.Sscanf(cursor, "%d", &offset)
 	}
+	if offset < 0 {
+		offset = 0
+	}
 	if offset >= len(memories) {
 		return nil, "", true
 	}

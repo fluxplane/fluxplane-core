@@ -299,3 +299,26 @@ func TestOrganizeRetagsMemory(t *testing.T) {
 		t.Fatalf("memories = %#v, want retagged memory", result.Memories)
 	}
 }
+
+// TestPaginateMemoriesNegativeCursorDoesNotPanic regresses an off-by-the-axis
+// bug: paginateMemories parsed RetrieveRequest.Cursor with fmt.Sscanf("%d", ...)
+// and accepted negative numbers, then sliced memories[offset:] which panics
+// with "slice bounds out of range [-1:]". A malicious or fat-fingered client
+// could DoS the Retrieve handler with a single request.
+func TestPaginateMemoriesNegativeCursorDoesNotPanic(t *testing.T) {
+	memories := []corememory.Memory{
+		{ID: "m1"},
+		{ID: "m2"},
+		{ID: "m3"},
+	}
+	out, next, complete := paginateMemories(memories, 10, "-1")
+	if len(out) != 3 {
+		t.Fatalf("paginateMemories returned %d memories, want all 3", len(out))
+	}
+	if next != "" {
+		t.Fatalf("paginateMemories next cursor = %q, want empty", next)
+	}
+	if !complete {
+		t.Fatalf("paginateMemories complete = false, want true")
+	}
+}

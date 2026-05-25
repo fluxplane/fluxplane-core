@@ -691,3 +691,26 @@ session. One bug per iteration: find → reproduce → fix → commit.
   passes `[]any{"bash", nil, "read"}` and asserts the result is
   exactly `["bash", "read"]` with no `"<nil>"` string anywhere.
 - **Commit:** `f0c5d87` — "fix: skip nil items when coercing YAML frontmatter list".
+
+## Iteration 29 — `paginateMemories` panicked on negative `Cursor`
+
+- **Where:** `runtime/memory/store.go` `paginateMemories`.
+- **Bug:** The pagination helper parsed `RetrieveRequest.Cursor` with
+  `fmt.Sscanf(cursor, "%d", &offset)` — which happily accepts negative
+  integers — and then sliced `memories[offset:]`. A negative cursor
+  (e.g. `"-1"`) made it past the `offset >= len(memories)` guard and
+  caused `runtime error: slice bounds out of range [-1:]`.
+- **Impact:** `RetrieveRequest.Cursor` flows in from the
+  memory-retrieve operation, which is user-callable. One typo or
+  hostile request would crash whichever goroutine handled it. If the
+  handler didn't recover, the whole server process would terminate;
+  even with recover, the request fails with a stack trace rather than
+  a clean error.
+- **Fix:** Clamp `offset` to `0` if negative after the `Sscanf` call.
+  Same byte count as the existing `offset >= len(memories)` guard, no
+  new dependencies, and no behavior change for well-formed cursors.
+- **Regression test:** `TestPaginateMemoriesNegativeCursorDoesNotPanic`
+  calls `paginateMemories([3 memories], 10, "-1")` and asserts the
+  three memories come back as a complete result with no next cursor.
+  Without the fix the test would panic with the slice-bounds error.
+- **Commit:** _pending_.
