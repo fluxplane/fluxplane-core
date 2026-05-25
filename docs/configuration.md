@@ -73,7 +73,7 @@ Common fields are:
   directly in the app document.
 - `daemon` for listeners and channels used by `fluxplane serve` and remote
   channel clients.
-- `runtime` for local runtime wiring; see [Runtime](#runtime).
+- `runtime` for local runtime wiring; see [Runtime](#profiles-and-runtime).
 - `distribution` for runnable/deployable package metadata and Docker build
   inputs.
 - `semantic_search` for app-wide datasource indexing defaults.
