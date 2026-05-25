@@ -412,8 +412,11 @@ func (s *Service) Subscribe(ctx context.Context, threadID corethread.ID, opts cl
 	}
 	if ctx != nil {
 		go func() {
-			<-ctx.Done()
-			cancel()
+			select {
+			case <-ctx.Done():
+				cancel()
+			case <-sub.done:
+			}
 		}()
 	}
 	return ch, cancel, nil
@@ -459,8 +462,11 @@ func (s *Service) SubscribeAll(ctx context.Context, opts clientapi.EventOptions)
 	}
 	if ctx != nil {
 		go func() {
-			<-ctx.Done()
-			cancel()
+			select {
+			case <-ctx.Done():
+				cancel()
+			case <-sub.done:
+			}
 		}()
 	}
 	return ch, cancel, nil
