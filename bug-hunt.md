@@ -223,3 +223,29 @@ session. One bug per iteration: find → reproduce → fix → commit.
 - **Regression test:** `TestCompactTranscriptSummarizedItemsCoversBothItemsAndNewItems`
   feeds large items into both lists and asserts the count is 2.
   Verified to fail on the old code (`SummarizedItems = 1`).
+- **Commit:** `12e65ae` — "fix: count NewItems summarization in CompactResult.SummarizedItems".
+
+## Iteration 12 — `BindLocalRuntimeFlags` discarded caller-supplied defaults
+
+- **Where:** `apps/launch/flags.go` `BindLocalRuntimeFlags`.
+- **Bug:** The function bound four flags but used hard-coded zero values
+  (`false`, `false`, `false`, `""`) as the `pflag.*Var` defaults instead
+  of threading the current `opts.<field>` values through. The sibling
+  helpers in the same file (`BindModelFlags`,
+  `BindLaunchEnvironmentFlags`) correctly use `opts.<field>`, so any
+  caller that initialised the opts struct with non-zero defaults and
+  then called `BindLocalRuntimeFlags` had those defaults silently
+  overwritten the moment the flag set was parsed.
+- **Impact:** A wrapper that wants to default `Dev=true` (or pin
+  `AllowMaxToolRisk` to a safe value) cannot do so via the struct; the
+  pre-set value is dropped on parse and only `--dev=true` on the
+  command line restores it.
+- **Fix:** Pass `opts.Debug` / `opts.Yolo` / `opts.Dev` /
+  `opts.AllowMaxToolRisk` as the flag defaults instead of the hard-coded
+  zero values, matching the other `Bind*` helpers.
+- **Regression tests:**
+  `TestBindLocalRuntimeFlagsRespectsPreSetDefaults` initialises `opts`
+  with all-truthy values, parses with no args, and asserts every field
+  survives. Verified to fail on the old code (all four assertions
+  trip). Companion `TestBindLocalRuntimeFlagsHonorsCommandLineOverride`
+  proves the cli flag still wins when present.
