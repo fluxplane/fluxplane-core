@@ -21,6 +21,9 @@ const (
 	openRouterResponsesAttempts = 3
 	openRouterRetryBaseWait     = 200 * time.Millisecond
 	openRouterRetryMaxWait      = 2 * time.Second
+	// maxNonStreamingResponseBytes bounds the non-streaming fallback body so a
+	// misbehaving or hostile upstream cannot exhaust process memory.
+	maxNonStreamingResponseBytes = 100 * 1024 * 1024
 )
 
 func responsesReliabilityMiddleware() option.Middleware {
@@ -314,7 +317,7 @@ func synthesizeStreamFromResponse(resp *http.Response, lastFailure *streamFailur
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, streamFailedAfterAttempts(lastFailure)
 	}
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxNonStreamingResponseBytes))
 	if err != nil {
 		return nil, fmt.Errorf("openrouter: read non-streaming fallback: %w", err)
 	}

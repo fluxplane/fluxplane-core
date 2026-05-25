@@ -604,3 +604,29 @@ session. One bug per iteration: find → reproduce → fix → commit.
 - **No regression test:** Materialising a >100 MiB response in a unit
   test is heavy and would dominate CI time. The fix is mechanical and
   mirrors iteration 24.
+
+## Iteration 26 — OpenRouter non-streaming fallback body was unbounded
+
+- **Where:** `adapters/llm/openrouter/responses_reliability.go`
+  `synthesizeStreamFromResponse`.
+- **Bug:** Third instance of the same DoS class as iterations 24/25.
+  After the OpenRouter `/responses` streaming retries are exhausted,
+  the middleware falls back to a non-streaming request and turns the
+  body into a synthetic SSE stream. That fallback read used
+  `io.ReadAll(resp.Body)` with no size cap. A misbehaving or hostile
+  OpenRouter / upstream could return an arbitrarily large body and the
+  client would dutifully buffer it all before parsing.
+- **Impact:** Affects every OpenRouter Responses-API call that goes
+  through the streaming retry path — i.e. the default path used by
+  `adapters/llm/openrouter`. The streaming branches already bound
+  reads (`bufio.Scanner` with a fixed buffer per line), so only the
+  rare-but-reachable fallback was exposed.
+- **Fix:** Added `maxNonStreamingResponseBytes = 100 * 1024 * 1024`
+  and wrapped the read in `io.LimitReader`. 100 MiB is two orders of
+  magnitude above realistic OpenAI/OpenRouter Response bodies, so the
+  happy path is unchanged; the cap exists purely to bound a hostile
+  body.
+- **No regression test:** Same reasoning as iteration 25 — staging a
+  >100 MiB response in a unit test is heavy and the fix is mechanical
+  and mirrors the two prior iterations.
+- **Commit:** _pending_.
