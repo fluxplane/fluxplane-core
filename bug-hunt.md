@@ -409,3 +409,32 @@ session. One bug per iteration: find → reproduce → fix → commit.
   helper so displayed output matches build behavior.
 - **Regression test:** `go test ./adapters/distribution/deploy -run TestBuildAppImageUsesConfiguredDockerfileRelativeToAppRootWithOutDir`
   fails on the old code and passes after the fix. Full package tests also pass.
+- **Commit:** `cfb83f0` — "fix: preserve backslash for unknown escapes in env value parser".
+
+## Iteration 19 — semantic `Search` non-deterministic when scores tie
+
+- **Where:** `runtime/datasource/semantic/store.go` `JSONStore.Search` and
+  `JSONStore.UpsertChunks`.
+- **Bug:** Two compounding sources of non-determinism:
+  1. `UpsertChunks` rebuilt `state.Chunks` by iterating a
+     `map[string]EmbeddedChunk` and appending in iteration order. Go map
+     iteration is randomised, so the persisted chunk order varied across
+     runs.
+  2. `Search` sorted result hits by `Score` with `sort.Slice` (unstable)
+     and no tie-breaker, so hits with identical scores landed in
+     whichever order the unstable sort happened to leave them.
+- **Impact:** Same vector query against the same store returned hits in
+  a different order each run when scores tied — flaky tests, surprising
+  pagination, and shifting top-K when `req.Limit` truncates a tied
+  group.
+- **Reproduction:** Three chunks (ids `a`, `b`, `c`) with the *same*
+  vector against itself produce three hits with identical cosine
+  scores. Across 10 fresh stores, the old code returned random orders
+  like `c, a, b`.
+- **Fix:** Sort `state.Chunks` by `Chunk.ID` after rebuilding from the
+  map in `UpsertChunks`; add `Chunk.ID` as the tie-breaker in
+  `Search`'s sort comparator.
+- **Regression test:** `TestSearchTieBreaksDeterministically` upserts
+  three identical-vector chunks into a fresh store 10 times and
+  asserts the result order is `a, b, c` each time. Fails on the old
+  code with random orderings.

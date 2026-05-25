@@ -83,6 +83,7 @@ func (s *JSONStore) UpsertChunks(ctx context.Context, chunks []EmbeddedChunk) er
 	for _, chunk := range byID {
 		state.Chunks = append(state.Chunks, chunk)
 	}
+	sort.Slice(state.Chunks, func(i, j int) bool { return state.Chunks[i].Chunk.ID < state.Chunks[j].Chunk.ID })
 	return s.saveLocked(ctx, state)
 }
 
@@ -408,7 +409,12 @@ func (s *JSONStore) Search(ctx context.Context, req VectorSearchRequest) ([]Vect
 		}
 		hits = append(hits, VectorHit{Chunk: chunk.Chunk, Score: score})
 	}
-	sort.Slice(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
+	sort.Slice(hits, func(i, j int) bool {
+		if hits[i].Score != hits[j].Score {
+			return hits[i].Score > hits[j].Score
+		}
+		return hits[i].Chunk.ID < hits[j].Chunk.ID
+	})
 	if req.Limit > 0 && len(hits) > req.Limit {
 		hits = hits[:req.Limit]
 	}
