@@ -169,6 +169,7 @@ func writeReplacementFile(root string, data []byte) (string, error) {
 	}
 	path := filepath.Join(dir, "result.json")
 	if err := os.WriteFile(path, data, 0600); err != nil {
+		_ = os.RemoveAll(dir)
 		return "", fmt.Errorf("write replacement result: %w", err)
 	}
 	return path, nil

@@ -507,3 +507,26 @@ session. One bug per iteration: find → reproduce → fix → commit.
 - **Regression tests:** `TestCompactWorkerEvidencePreservesUTF8RuneBoundaries`
   and `TestCompactWorkerEvidenceLeavesShortValues` in the taskexecutor package.
 - **Verification:** `go test ./orchestration/taskexecutor`.
+
+## Iteration 22 — `writeReplacementFile` leaked the temp dir on write failure
+
+- **Where:** `runtime/operation/replacement.go` `writeReplacementFile`.
+- **Bug:** The function calls `os.MkdirTemp(root, "fluxplane-tool-result-*")`
+  to allocate a unique scratch directory, then immediately writes
+  `result.json` inside it. If the write fails (disk full, permission
+  flip mid-flight, ENOSPC, etc.), the function returns the error
+  without removing the directory it just created. Each failed write
+  orphans one `fluxplane-tool-result-*` directory until the host OS
+  cleans `TempDir` — which on Linux can mean reboot, not minutes.
+- **Impact:** Repeated failed oversized-result replacements (typical
+  symptom: tight `/tmp` quota or a buggy filesystem) leak a fresh temp
+  directory each call. Over a long-running session those accumulate.
+- **Fix:** `_ = os.RemoveAll(dir)` before returning the write error, so
+  the cleanup mirrors the standard temp-file/temp-dir cleanup pattern
+  (the same one I added to `writeFileAtomic` in iteration 5).
+- **No regression test:** Reliably forcing `os.WriteFile` to fail
+  without an invasive refactor (e.g., injecting a writer) is awkward
+  and racy across platforms. The fix is a one-line cleanup mirroring
+  iteration 5's atomic-write helper; an explicit nil-check / RemoveAll
+  before the return is mechanical enough that further tooling would
+  not add coverage.
