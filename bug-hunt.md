@@ -713,4 +713,4 @@ session. One bug per iteration: find → reproduce → fix → commit.
   calls `paginateMemories([3 memories], 10, "-1")` and asserts the
   three memories come back as a complete result with no next cursor.
   Without the fix the test would panic with the slice-bounds error.
-- **Commit:** _pending_.
+- **Commit:** `c695d9d` — "fix: clamp negative pagination cursor in paginateMemories".
