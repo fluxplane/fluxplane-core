@@ -1461,7 +1461,11 @@ func (c nativeKubernetesClient) WaitDeployment(ctx context.Context, namespace, n
 		if err != nil {
 			return fmt.Errorf("distribution deploy: get kubernetes deployment %s/%s: %w", namespace, name, err)
 		}
-		if deployment.Status.AvailableReplicas >= *deployment.Spec.Replicas || (deployment.Spec.Replicas == nil && deployment.Status.AvailableReplicas > 0) {
+		if deployment.Spec.Replicas == nil {
+			if deployment.Status.AvailableReplicas > 0 {
+				return nil
+			}
+		} else if deployment.Status.AvailableReplicas >= *deployment.Spec.Replicas {
 			return nil
 		}
 		select {
