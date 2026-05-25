@@ -241,11 +241,8 @@ func stringField(input operation.Value, name string) string {
 	if err := json.Unmarshal(data, &values); err != nil {
 		return ""
 	}
-	value, ok := values[name]
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(fmt.Sprint(value))
+	str, _ := values[name].(string)
+	return strings.TrimSpace(str)
 }
 
 func resourceLabel(resource policy.ResourceRef) string {

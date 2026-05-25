@@ -80,3 +80,25 @@ session. One bug per iteration: find → reproduce → fix → commit.
   of the temp file on any error) and routed `SaveSecret` through it.
 - **Regression test:** `TestFileStoreSaveLeavesNoTempFile` writes five
   times and asserts no `.tmp-*` files remain in the directory.
+- **Commit:** `75f8409` — "fix: write secret files atomically".
+
+## Iteration 6 — `stringField` leaked non-string JSON values into policy names
+
+- **Where:** `runtime/operation/authorization.go` `stringField`.
+- **Bug:** Extracted a named field from an operation input by JSON-encoding
+  the input, decoding into `map[string]any`, then `fmt.Sprint(value)`. For
+  non-string JSON values that's catastrophic for downstream policy lookups:
+  - `null` → `"<nil>"`
+  - `true` → `"true"`
+  - `42` → `"42"`
+  These then get wrapped by `wildcardName` (which only substitutes `*` for
+  the empty string), so they leak into `policy.ResourceRef.Name` for
+  channel/task/datasource authorization. The policy engine then searches
+  for a resource literally named `"<nil>"`, producing confusing deny
+  messages instead of treating the field as absent.
+- **Fix:** Replaced `fmt.Sprint(value)` with a type assertion
+  `str, _ := values[name].(string)` so any non-string (including JSON
+  null) collapses to "" and `wildcardName` substitutes `*` as intended.
+- **Regression test:** `TestStringFieldIgnoresNonStringValues` covers
+  string, whitespace, nil, bool, number, and missing-key cases. Verified
+  to fail on the old code (`"<nil>"`, `"true"`, `"42"`) and pass on the fix.

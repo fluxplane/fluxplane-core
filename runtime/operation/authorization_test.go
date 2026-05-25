@@ -10,6 +10,30 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/policy"
 )
 
+func TestStringFieldIgnoresNonStringValues(t *testing.T) {
+	cases := []struct {
+		name  string
+		input map[string]any
+		field string
+		want  string
+	}{
+		{name: "string value", input: map[string]any{"channel": "alerts"}, field: "channel", want: "alerts"},
+		{name: "trims whitespace", input: map[string]any{"channel": "  alerts  "}, field: "channel", want: "alerts"},
+		{name: "json null", input: map[string]any{"channel": nil}, field: "channel", want: ""},
+		{name: "boolean", input: map[string]any{"channel": true}, field: "channel", want: ""},
+		{name: "number", input: map[string]any{"channel": 42}, field: "channel", want: ""},
+		{name: "missing key", input: map[string]any{"other": "value"}, field: "channel", want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := stringField(tc.input, tc.field)
+			if got != tc.want {
+				t.Fatalf("stringField(%v, %q) = %q, want %q", tc.input, tc.field, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAuthorizationGateDeniesMissingGrant(t *testing.T) {
 	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
