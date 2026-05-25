@@ -809,6 +809,11 @@ func TestResponseFromOpenAIConvertsUsage(t *testing.T) {
 	if len(got.Usage[0].Measurements) != 5 {
 		t.Fatalf("usage measurements = %#v, want 5", got.Usage[0].Measurements)
 	}
+	assertUsageQuantity(t, got.Usage, usage.MetricLLMInputTokens, 7)
+	assertUsageQuantity(t, got.Usage, usage.MetricLLMCachedTokens, 3)
+	assertUsageQuantity(t, got.Usage, usage.MetricLLMOutputTokens, 5)
+	assertUsageQuantity(t, got.Usage, usage.MetricLLMReasoningTokens, 2)
+	assertUsageQuantity(t, got.Usage, usage.MetricLLMTotalTokens, 15)
 }
 
 func TestResponseFromOpenAIEnrichesUsageCost(t *testing.T) {
@@ -842,6 +847,18 @@ func TestResponseFromOpenAIEnrichesUsageCost(t *testing.T) {
 	if cost.Metric != usage.MetricCost || cost.Quantity != 0.002 || cost.Dimensions["estimated"] != "true" {
 		t.Fatalf("cost measurement = %#v, want estimated cost", cost)
 	}
+}
+
+func assertUsageQuantity(t *testing.T, records []usage.Recorded, metric usage.MetricName, quantity float64) {
+	t.Helper()
+	for _, record := range records {
+		for _, measurement := range record.Measurements {
+			if measurement.Metric == metric && measurement.Quantity == quantity {
+				return
+			}
+		}
+	}
+	t.Fatalf("usage records = %#v, want %s=%v", records, metric, quantity)
 }
 
 func TestResponseFromOpenAIConvertsMultipleFunctionCalls(t *testing.T) {

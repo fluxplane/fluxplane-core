@@ -5,6 +5,7 @@ import (
 
 	"github.com/codewandler/modeldb"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
+	coreusage "github.com/fluxplane/fluxplane-core/core/usage"
 )
 
 func TestSupportsAPI(t *testing.T) {
@@ -84,6 +85,35 @@ func TestProjectProviderPreservesModelAliases(t *testing.T) {
 	if got := spec.Models[0].Aliases; len(got) != 2 || got[0] != "claude-sonnet" || got[1] != "sonnet" {
 		t.Fatalf("aliases = %#v, want model and offering aliases", got)
 	}
+}
+
+func TestProjectProviderMapsCacheWritePricing(t *testing.T) {
+	key := modeldb.NormalizeKey(modeldb.ModelKey{Creator: "anthropic", Family: "claude", Version: "sonnet"})
+	catalog := modeldb.Catalog{
+		Models: map[modeldb.ModelKey]modeldb.ModelRecord{
+			key: {Key: key, Name: "Claude Sonnet"},
+		},
+		Services: map[string]modeldb.Service{"anthropic": {ID: "anthropic"}},
+		Offerings: map[modeldb.OfferingRef]modeldb.Offering{
+			{ServiceID: "anthropic", WireModelID: "claude-sonnet"}: {
+				ServiceID:   "anthropic",
+				WireModelID: "claude-sonnet",
+				ModelKey:    key,
+				Pricing:     &modeldb.Pricing{Input: 3, CachedInput: 0.3, CacheWrite: 3.75, Output: 15},
+				Exposures:   []modeldb.OfferingExposure{{APIType: modeldb.APITypeAnthropicMessages}},
+			},
+		},
+	}
+	spec, ok := ProjectProvider(catalog, ProviderProjection{ServiceID: "anthropic", APIType: modeldb.APITypeAnthropicMessages})
+	if !ok || len(spec.Models) != 1 {
+		t.Fatalf("ProjectProvider = %#v, %v", spec, ok)
+	}
+	for _, price := range spec.Models[0].Pricing {
+		if price.Metric == coreusage.MetricLLMCacheWriteTokens && price.Direction == coreusage.DirectionWrite && price.Price == 3.75 {
+			return
+		}
+	}
+	t.Fatalf("pricing = %#v, want cache-write pricing", spec.Models[0].Pricing)
 }
 
 func TestFromModelDBAnnotatesOpenAIResponsesReasoningValues(t *testing.T) {

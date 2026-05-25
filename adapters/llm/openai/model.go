@@ -1294,11 +1294,20 @@ func usageFromOpenAI(resp responses.Response, provider coreconversation.Provider
 			Direction: direction,
 		})
 	}
-	addMeasurement(usage.MetricLLMInputTokens, resp.Usage.InputTokens, usage.DirectionInput)
-	addMeasurement(usage.MetricLLMCachedTokens, resp.Usage.InputTokensDetails.CachedTokens, usage.DirectionCached)
+	cachedInputTokens := resp.Usage.InputTokensDetails.CachedTokens
+	standardInputTokens := resp.Usage.InputTokens - cachedInputTokens
+	if standardInputTokens < 0 {
+		standardInputTokens = 0
+	}
+	addMeasurement(usage.MetricLLMInputTokens, standardInputTokens, usage.DirectionInput)
+	addMeasurement(usage.MetricLLMCachedTokens, cachedInputTokens, usage.DirectionCached)
 	addMeasurement(usage.MetricLLMOutputTokens, resp.Usage.OutputTokens, usage.DirectionOutput)
 	addMeasurement(usage.MetricLLMReasoningTokens, resp.Usage.OutputTokensDetails.ReasoningTokens, usage.DirectionOutput)
-	addMeasurement(usage.MetricLLMTotalTokens, resp.Usage.TotalTokens, "")
+	totalTokens := resp.Usage.TotalTokens
+	if totalTokens <= 0 {
+		totalTokens = resp.Usage.InputTokens + resp.Usage.OutputTokens
+	}
+	addMeasurement(usage.MetricLLMTotalTokens, totalTokens, "")
 	if recorded.Empty() {
 		return nil
 	}

@@ -35,3 +35,26 @@ func TestEvaluatePricesMatchingUsageRecords(t *testing.T) {
 		t.Fatalf("lines len = %d, want 1", len(got.Lines))
 	}
 }
+
+func TestEvaluatePricesCacheWriteTokens(t *testing.T) {
+	got := Evaluate([]coreusage.Recorded{{
+		Subject: coreusage.Subject{Kind: coreusage.SubjectLLM, Provider: "anthropic", Name: "claude-test"},
+		Measurements: []coreusage.Measurement{{
+			Metric:    coreusage.MetricLLMCacheWriteTokens,
+			Quantity:  2_000,
+			Unit:      coreusage.UnitToken,
+			Direction: coreusage.DirectionWrite,
+		}},
+	}}, []llm.PricingSpec{{
+		Metric:    coreusage.MetricLLMCacheWriteTokens,
+		Unit:      coreusage.UnitToken,
+		Direction: coreusage.DirectionWrite,
+		Currency:  "USD",
+		Price:     3.75,
+		Per:       1_000_000,
+	}})
+
+	if got.Total != 0.0075 {
+		t.Fatalf("total = %v, want 0.0075", got.Total)
+	}
+}

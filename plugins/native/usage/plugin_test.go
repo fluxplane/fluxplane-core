@@ -30,6 +30,8 @@ func TestUsageDatasourceSearchesTokenUsageEvents(t *testing.T) {
 				Subject: coreusage.Subject{Kind: coreusage.SubjectLLM, Provider: "codex", Name: "gpt-5.5"},
 				Measurements: []coreusage.Measurement{
 					{Metric: coreusage.MetricLLMInputTokens, Quantity: 1200, Unit: coreusage.UnitToken, Direction: coreusage.DirectionInput},
+					{Metric: coreusage.MetricLLMCachedTokens, Quantity: 300, Unit: coreusage.UnitToken, Direction: coreusage.DirectionCached},
+					{Metric: coreusage.MetricLLMCacheWriteTokens, Quantity: 50, Unit: coreusage.UnitToken, Direction: coreusage.DirectionWrite},
 					{Metric: coreusage.MetricLLMOutputTokens, Quantity: 34, Unit: coreusage.UnitToken, Direction: coreusage.DirectionOutput},
 					{Metric: coreusage.MetricCost, Quantity: 0.0012, Unit: coreusage.UnitCurrency, Dimensions: map[string]string{"currency": "USD"}},
 				},
@@ -57,7 +59,7 @@ func TestUsageDatasourceSearchesTokenUsageEvents(t *testing.T) {
 		t.Fatalf("records = %d total = %d, want 1", len(result.Records), result.Total)
 	}
 	record := result.Records[0]
-	if record.Metadata["input_tokens"] != "1200" || record.Metadata["output_tokens"] != "34" || record.Metadata["total_tokens"] != "1234" {
+	if record.Metadata["input_tokens"] != "1200" || record.Metadata["cached_input_tokens"] != "300" || record.Metadata["cache_write_input_tokens"] != "50" || record.Metadata["output_tokens"] != "34" || record.Metadata["total_tokens"] != "1584" {
 		t.Fatalf("metadata = %#v, want token totals", record.Metadata)
 	}
 	if record.Metadata["cost"] != "0.0012" || record.Metadata["currency"] != "USD" {

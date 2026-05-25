@@ -78,6 +78,8 @@ func TestMetricsAggregation(t *testing.T) {
 	}
 	records := []coreusage.Recorded{{Measurements: []coreusage.Measurement{
 		{Metric: coreusage.MetricLLMInputTokens, Quantity: 11, Unit: coreusage.UnitToken},
+		{Metric: coreusage.MetricLLMCachedTokens, Quantity: 5, Unit: coreusage.UnitToken},
+		{Metric: coreusage.MetricLLMCacheWriteTokens, Quantity: 2, Unit: coreusage.UnitToken},
 		{Metric: coreusage.MetricLLMOutputTokens, Quantity: 7, Unit: coreusage.UnitToken},
 		{Metric: coreusage.MetricLLMReasoningTokens, Quantity: 3, Unit: coreusage.UnitToken},
 	}}}
@@ -95,7 +97,7 @@ func TestMetricsAggregation(t *testing.T) {
 	if metrics.EventCount != len(events) {
 		t.Fatalf("event count = %d, want %d", metrics.EventCount, len(events))
 	}
-	if metrics.InputTokens != 11 || metrics.OutputTokens != 7 || metrics.ReasoningTokens != 3 || metrics.TotalTokens != 21 {
+	if metrics.InputTokens != 18 || metrics.OutputTokens != 7 || metrics.ReasoningTokens != 3 || metrics.TotalTokens != 25 {
 		t.Fatalf("tokens = %#v", metrics)
 	}
 	if metrics.RuntimeMS <= 0 {
@@ -107,13 +109,15 @@ func TestMetricsAggregationDerivesTotalsAcrossRecords(t *testing.T) {
 	var metrics Metrics
 	metrics.AddUsage(coreusage.Recorded{Measurements: []coreusage.Measurement{
 		{Metric: coreusage.MetricLLMInputTokens, Quantity: 10, Unit: coreusage.UnitToken},
+		{Metric: coreusage.MetricLLMCachedTokens, Quantity: 3, Unit: coreusage.UnitToken},
+		{Metric: coreusage.MetricLLMCacheWriteTokens, Quantity: 2, Unit: coreusage.UnitToken},
 	}})
 	metrics.AddUsage(coreusage.Recorded{Measurements: []coreusage.Measurement{
 		{Metric: coreusage.MetricLLMOutputTokens, Quantity: 4, Unit: coreusage.UnitToken},
 		{Metric: coreusage.MetricLLMReasoningTokens, Quantity: 2, Unit: coreusage.UnitToken},
 	}})
-	if metrics.TotalTokens != 16 {
-		t.Fatalf("total tokens = %v, want 16", metrics.TotalTokens)
+	if metrics.TotalTokens != 19 {
+		t.Fatalf("total tokens = %v, want 19", metrics.TotalTokens)
 	}
 }
 

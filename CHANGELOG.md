@@ -127,6 +127,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `error-policy`, and `idempotency-key`; use snake_case fields instead.
 
 ### Fixed
+- Normalized LLM usage token buckets so Anthropic cache creation is reported as
+  cache-write input tokens and OpenAI cached input is subtracted from standard
+  input tokens before usage events and cost enrichment.
 - Changed the generic `claude/opus`, `claude/sonnet`, and `claude/haiku`
   model aliases to use the Claude Code subscription provider instead of the
   plain Anthropic API-key provider.

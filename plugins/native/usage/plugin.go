@@ -308,6 +308,7 @@ func entitySpec() coredatasource.EntitySpec {
 			{Name: "name", Type: coredatasource.FieldString, Filterable: true, Searchable: true},
 			{Name: "input_tokens", Type: coredatasource.FieldNumber, Filterable: true},
 			{Name: "cached_input_tokens", Type: coredatasource.FieldNumber, Filterable: true},
+			{Name: "cache_write_input_tokens", Type: coredatasource.FieldNumber, Filterable: true},
 			{Name: "output_tokens", Type: coredatasource.FieldNumber, Filterable: true},
 			{Name: "reasoning_tokens", Type: coredatasource.FieldNumber, Filterable: true},
 			{Name: "total_tokens", Type: coredatasource.FieldNumber, Filterable: true},
@@ -405,6 +406,7 @@ func usageRecord(datasource coredatasource.Name, snapshot corethread.Snapshot, s
 	totals := usageTotals(recorded)
 	addQuantity(metadata, "input_tokens", totals.inputTokens)
 	addQuantity(metadata, "cached_input_tokens", totals.cachedInputTokens)
+	addQuantity(metadata, "cache_write_input_tokens", totals.cacheWriteTokens)
 	addQuantity(metadata, "output_tokens", totals.outputTokens)
 	addQuantity(metadata, "reasoning_tokens", totals.reasoningTokens)
 	addQuantity(metadata, "total_tokens", totals.totalTokens)
@@ -433,6 +435,7 @@ func usageRecord(datasource coredatasource.Name, snapshot corethread.Snapshot, s
 type totals struct {
 	inputTokens       float64
 	cachedInputTokens float64
+	cacheWriteTokens  float64
 	outputTokens      float64
 	reasoningTokens   float64
 	totalTokens       float64
@@ -451,6 +454,8 @@ func usageTotals(recorded coreusage.Recorded) totals {
 			out.inputTokens += measurement.Quantity
 		case coreusage.MetricLLMCachedTokens:
 			out.cachedInputTokens += measurement.Quantity
+		case coreusage.MetricLLMCacheWriteTokens:
+			out.cacheWriteTokens += measurement.Quantity
 		case coreusage.MetricLLMOutputTokens:
 			out.outputTokens += measurement.Quantity
 		case coreusage.MetricLLMReasoningTokens:
@@ -471,7 +476,7 @@ func usageTotals(recorded coreusage.Recorded) totals {
 		}
 	}
 	if out.totalTokens == 0 {
-		out.totalTokens = out.inputTokens + out.cachedInputTokens + out.outputTokens + out.reasoningTokens
+		out.totalTokens = out.inputTokens + out.cachedInputTokens + out.cacheWriteTokens + out.outputTokens
 	}
 	return out
 }
@@ -509,6 +514,7 @@ func usageContent(recorded coreusage.Recorded, totals totals) string {
 	}
 	addPart("input_tokens", totals.inputTokens)
 	addPart("cached_input_tokens", totals.cachedInputTokens)
+	addPart("cache_write_input_tokens", totals.cacheWriteTokens)
 	addPart("output_tokens", totals.outputTokens)
 	addPart("reasoning_tokens", totals.reasoningTokens)
 	addPart("total_tokens", totals.totalTokens)

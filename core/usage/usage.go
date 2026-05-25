@@ -60,16 +60,33 @@ const (
 type MetricName string
 
 const (
-	MetricLLMInputTokens     MetricName = "llm.input_tokens"
-	MetricLLMCachedTokens    MetricName = "llm.cached_input_tokens"
-	MetricLLMOutputTokens    MetricName = "llm.output_tokens"
+	// MetricLLMInputTokens is the standard uncached input-token bucket.
+	// Provider adapters exclude cache-read and cache-write buckets from this
+	// measurement when the provider reports those buckets separately.
+	MetricLLMInputTokens MetricName = "llm.input_tokens"
+	// MetricLLMCachedTokens is the input-token bucket served from a provider
+	// prompt cache.
+	MetricLLMCachedTokens MetricName = "llm.cached_input_tokens"
+	// MetricLLMCacheWriteTokens is the input-token bucket written into a
+	// provider prompt cache during this request.
+	MetricLLMCacheWriteTokens MetricName = "llm.cache_write_input_tokens"
+	// MetricLLMOutputTokens is the generated output-token bucket reported by
+	// the provider. Provider-specific reasoning details can be reported
+	// separately with MetricLLMReasoningTokens.
+	MetricLLMOutputTokens MetricName = "llm.output_tokens"
+	// MetricLLMReasoningTokens is the provider-reported reasoning-token
+	// breakdown. For providers whose output token count includes reasoning,
+	// this is a detail measurement rather than an additional total component.
 	MetricLLMReasoningTokens MetricName = "llm.reasoning_tokens"
-	MetricLLMTotalTokens     MetricName = "llm.total_tokens"
-	MetricNetworkBytes       MetricName = "network.bytes"
-	MetricFileBytes          MetricName = "file.bytes"
-	MetricRequests           MetricName = "requests"
-	MetricWallTime           MetricName = "wall_time"
-	MetricCost               MetricName = "cost"
+	// MetricLLMTotalTokens is the provider-normalized inclusive token total for
+	// the request. For LLM records, consumers should prefer this metric over
+	// deriving totals from other measurements.
+	MetricLLMTotalTokens MetricName = "llm.total_tokens"
+	MetricNetworkBytes   MetricName = "network.bytes"
+	MetricFileBytes      MetricName = "file.bytes"
+	MetricRequests       MetricName = "requests"
+	MetricWallTime       MetricName = "wall_time"
+	MetricCost           MetricName = "cost"
 )
 
 // Measurement records one quantity for one metric.

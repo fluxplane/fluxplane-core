@@ -73,7 +73,7 @@ func TestStreamTextAndUsage(t *testing.T) {
 			`data: {"type":"content_block_stop","index":0}`,
 			``,
 			`event: message_delta`,
-			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2,"cache_read_input_tokens":3}}`,
+			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2,"cache_read_input_tokens":3,"cache_creation_input_tokens":5}}`,
 			``,
 			`event: message_stop`,
 			`data: {"type":"message_stop"}`,
@@ -103,7 +103,9 @@ func TestStreamTextAndUsage(t *testing.T) {
 	}
 	assertUsage(t, resp.Usage, usage.MetricLLMInputTokens, 7)
 	assertUsage(t, resp.Usage, usage.MetricLLMCachedTokens, 3)
+	assertUsage(t, resp.Usage, usage.MetricLLMCacheWriteTokens, 5)
 	assertUsage(t, resp.Usage, usage.MetricLLMOutputTokens, 2)
+	assertUsage(t, resp.Usage, usage.MetricLLMTotalTokens, 17)
 }
 
 func TestStreamToolUseReturnsOperationAndTranscript(t *testing.T) {

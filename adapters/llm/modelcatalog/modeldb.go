@@ -343,6 +343,7 @@ func pricing(price *modeldb.Pricing) []corellm.PricingSpec {
 	}
 	add(usage.MetricLLMInputTokens, usage.DirectionInput, price.Input)
 	add(usage.MetricLLMCachedTokens, usage.DirectionCached, price.CachedInput)
+	add(usage.MetricLLMCacheWriteTokens, usage.DirectionWrite, price.CacheWrite)
 	add(usage.MetricLLMOutputTokens, usage.DirectionOutput, price.Output)
 	add(usage.MetricLLMReasoningTokens, usage.DirectionOutput, price.Reasoning)
 	return out

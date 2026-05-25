@@ -141,6 +141,8 @@ func (m *Metrics) AddUsage(record coreusage.Recorded) {
 		switch measurement.Metric {
 		case coreusage.MetricLLMInputTokens:
 			m.InputTokens += measurement.Quantity
+		case coreusage.MetricLLMCachedTokens, coreusage.MetricLLMCacheWriteTokens:
+			m.InputTokens += measurement.Quantity
 		case coreusage.MetricLLMOutputTokens:
 			m.OutputTokens += measurement.Quantity
 		case coreusage.MetricLLMReasoningTokens:
@@ -155,6 +157,6 @@ func (m *Metrics) AddUsage(record coreusage.Recorded) {
 		}
 	}
 	if !m.explicitTotalTokens {
-		m.TotalTokens = m.InputTokens + m.OutputTokens + m.ReasoningTokens
+		m.TotalTokens = m.InputTokens + m.OutputTokens
 	}
 }

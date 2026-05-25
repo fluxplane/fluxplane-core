@@ -289,10 +289,10 @@ func usageFromAnthropic(raw usageWire, provider coreconversation.ProviderIdentit
 	}
 	add(usage.MetricLLMInputTokens, raw.InputTokens, usage.DirectionInput, nil)
 	add(usage.MetricLLMCachedTokens, raw.CacheReadInputTokens, usage.DirectionCached, nil)
-	add(usage.MetricLLMInputTokens, raw.CacheCreationInputTokens, usage.DirectionInput, map[string]string{"cache_creation": "true"})
+	add(usage.MetricLLMCacheWriteTokens, raw.CacheCreationInputTokens, usage.DirectionWrite, nil)
 	add(usage.MetricLLMOutputTokens, raw.OutputTokens, usage.DirectionOutput, nil)
 	add(usage.MetricLLMReasoningTokens, raw.ReasoningOutputTokens, usage.DirectionOutput, nil)
-	total := raw.InputTokens + raw.CacheReadInputTokens + raw.CacheCreationInputTokens + raw.OutputTokens + raw.ReasoningOutputTokens
+	total := raw.InputTokens + raw.CacheReadInputTokens + raw.CacheCreationInputTokens + raw.OutputTokens
 	add(usage.MetricLLMTotalTokens, total, "", nil)
 	return runtimeusage.EnrichCosts([]usage.Recorded{recorded}, prices)
 }
