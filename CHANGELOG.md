@@ -48,10 +48,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so silent SSE connections fail instead of hanging indefinitely.
 - Added the native usage datasource to local `--dev` launches, alongside the
   existing dev session-history datasource.
+- Added `cmd/claude-middleman`, a local capture proxy for comparing Claude Code
+  CLI request headers and Messages payloads against the Fluxplane Claude Code
+  provider.
 
 ### Changed
 - Renamed the published Go module and repository references to
   `github.com/fluxplane/fluxplane-core`.
+- Updated the Claude Code LLM provider headers and preflight identity to match
+  the current interactive Claude Code subscription request path more closely.
 - Standardized generated runtime backend DSN environment variable defaults on
   the `FLUXPLANE_*` prefix.
 - Standardized the default NATS event stream and subject on

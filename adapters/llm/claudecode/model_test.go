@@ -89,16 +89,20 @@ func TestStreamUsesClaudeCodeHeadersAndPreflight(t *testing.T) {
 	}
 	for _, want := range []string{
 		"claude-code-20250219",
+		"oauth-2025-04-20",
 		"interleaved-thinking-2025-05-14",
+		"redact-thinking-2026-02-12",
 		"context-management-2025-06-27",
 		"prompt-caching-scope-2026-01-05",
-		"advisor-tool-2026-03-01",
-		"oauth-2025-04-20",
 		"effort-2025-11-24",
+		"extended-cache-ttl-2025-04-11",
 	} {
 		if !strings.Contains(seen.Header.Get("Anthropic-Beta"), want) {
 			t.Fatalf("Anthropic-Beta = %q, missing %q", seen.Header.Get("Anthropic-Beta"), want)
 		}
+	}
+	if strings.Contains(seen.Header.Get("Anthropic-Beta"), "advisor-tool-2026-03-01") {
+		t.Fatalf("Anthropic-Beta = %q, still contains advisor tool beta", seen.Header.Get("Anthropic-Beta"))
 	}
 	var wire anthropicmessages.MessageRequest
 	if err := json.Unmarshal(body, &wire); err != nil {

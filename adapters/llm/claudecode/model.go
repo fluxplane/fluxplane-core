@@ -21,10 +21,10 @@ import (
 
 const (
 	DefaultBaseURL       = "https://api.anthropic.com"
-	claudeUserAgent      = "claude-cli/2.1.112 (external, sdk-cli)"
-	claudeBillingHeader  = "x-anthropic-billing-header: cc_version=2.1.112.43b; cc_entrypoint=sdk-cli; cch=1757e;"
-	claudeSystemCore     = "You are a Claude agent, built on Anthropic's Claude Agent SDK."
-	stainlessPackage     = "0.81.0"
+	claudeUserAgent      = "claude-cli/2.1.142 (external, cli)"
+	claudeBillingHeader  = "x-anthropic-billing-header: cc_version=2.1.142.fc8; cc_entrypoint=cli; cch=8781c;"
+	claudeSystemCore     = "You are Claude Code, Anthropic's official CLI for Claude."
+	stainlessPackage     = "0.94.0"
 	stainlessNodeVersion = "v24.3.0"
 	systemCacheTTL       = "1h"
 )
@@ -98,17 +98,20 @@ func bearerHeader(provider tokenProvider) anthropicmessages.HeaderFunc {
 func claudeHeaders(_ context.Context, req *http.Request, wire anthropicmessages.MessageRequest) error {
 	betas := []string{
 		"claude-code-20250219",
-		"interleaved-thinking-2025-05-14",
-		"context-management-2025-06-27",
-		"prompt-caching-scope-2026-01-05",
-		"advisor-tool-2026-03-01",
 	}
 	if req.Header.Get("Authorization") != "" {
 		betas = append(betas, "oauth-2025-04-20")
 	}
+	betas = append(betas,
+		"interleaved-thinking-2025-05-14",
+		"redact-thinking-2026-02-12",
+		"context-management-2025-06-27",
+		"prompt-caching-scope-2026-01-05",
+	)
 	if wire.OutputConfig != nil && wire.OutputConfig.Effort != "" {
 		betas = append(betas, "effort-2025-11-24")
 	}
+	betas = append(betas, "extended-cache-ttl-2025-04-11")
 	for _, beta := range betas {
 		addAnthropicBeta(req.Header, beta)
 	}
