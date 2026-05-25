@@ -11,6 +11,11 @@ import (
 	"strings"
 )
 
+// maxTokenResponseBytes caps the size of an OAuth2 token endpoint response.
+// Real token responses are well under 10KB; the cap exists so a malicious
+// or buggy endpoint cannot exhaust process memory via an unbounded body.
+const maxTokenResponseBytes = 1 << 20 // 1 MiB
+
 // TokenRequest describes an OAuth2 token endpoint request.
 type TokenRequest struct {
 	TokenURL     string
@@ -69,7 +74,7 @@ func postTokenForm(ctx context.Context, client *http.Client, tokenURL string, fo
 		return TokenResponse{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponseBytes))
 	if err != nil {
 		return TokenResponse{}, err
 	}

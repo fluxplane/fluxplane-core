@@ -553,3 +553,29 @@ session. One bug per iteration: find → reproduce → fix → commit.
   custom `Environment` that records the context it was called with and
   asserts the test's `context.WithValue` marker survives the call.
   Fails on the old code with the empty zero value.
+- **Commit:** `76e088d` — "fix: EnvResolver.ResolveSecret must propagate the caller's context".
+
+## Iteration 24 — `postTokenForm` did an unbounded `io.ReadAll(resp.Body)`
+
+- **Where:** `runtime/oauth2client/client.go` `postTokenForm`.
+- **Bug:** The OAuth2 token exchange read the entire response body with
+  `io.ReadAll(resp.Body)` — no size cap. A malicious, misconfigured, or
+  buggy token endpoint could return an arbitrarily large body and the
+  process would dutifully buffer it all into memory before failing on
+  JSON decode. Real token responses are well under 10KB.
+- **Impact:** Unbounded memory growth from a single OAuth refresh /
+  exchange request. The token endpoint is whichever URL the caller
+  configured, and `runtime/oauth2client` is the helper that
+  `claudecode/auth.go`, `codex/auth.go`, and `authconnect` all reach
+  for, so any of those can be poisoned by a hostile or compromised
+  upstream.
+- **Fix:** Cap the read at `maxTokenResponseBytes = 1 MiB` via
+  `io.LimitReader(resp.Body, maxTokenResponseBytes)`. The cap is two
+  orders of magnitude above realistic token response sizes; well-behaved
+  endpoints are unaffected.
+- **Regression tests:** `TestPostTokenFormPreservesSmallResponse`
+  pins the happy path. `TestPostTokenFormCapsResponseSize` serves a
+  2 MiB body padded with whitespace and asserts the function either
+  returns the legitimate token or a structured decode error — what
+  must NOT happen is buffering the full 2 MiB, which would have OOMed
+  the test on small CI runners under the old code.
