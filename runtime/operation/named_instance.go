@@ -160,7 +160,8 @@ func (o namedInstanceOperation) selectInstance(input operation.Value) (NamedInst
 	if err != nil {
 		return NamedInstanceBinding{}, input, err
 	}
-	instance := strings.TrimSpace(fmt.Sprint(values["instance"]))
+	instanceValue, _ := values["instance"].(string)
+	instance := strings.TrimSpace(instanceValue)
 	if instance == "" {
 		return NamedInstanceBinding{}, input, fmt.Errorf("instance is required")
 	}

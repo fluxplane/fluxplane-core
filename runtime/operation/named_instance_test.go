@@ -3,10 +3,45 @@ package operationruntime
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
 )
+
+// TestNamedInstanceRejectsNonStringInstanceWithStableMessage regresses a bug
+// where selectInstance used fmt.Sprint(values["instance"]) to derive the
+// instance name. For a missing key fmt.Sprint(nil) returned "<nil>" and for
+// non-string values produced "true"/"42"/etc - none of which match an actual
+// instance and none of which the "instance is required" check could catch.
+// The user got a confusing `unknown instance "<nil>"` (or "42", etc.) error
+// instead of the clear "instance is required" message.
+func TestNamedInstanceRejectsNonStringInstanceWithStableMessage(t *testing.T) {
+	op := AggregateNamedInstances("gitlab", []NamedInstanceBinding{
+		{Instance: "a", Operation: namedInstanceTestOperation("a")},
+		{Instance: "b", Operation: namedInstanceTestOperation("b")},
+	})
+	cases := []struct {
+		name  string
+		input map[string]any
+	}{
+		{"missing key", map[string]any{"name": "Ada"}},
+		{"nil value", map[string]any{"instance": nil, "name": "Ada"}},
+		{"boolean value", map[string]any{"instance": true, "name": "Ada"}},
+		{"number value", map[string]any{"instance": 42, "name": "Ada"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := op.Run(operation.NewContext(context.Background(), nil), tc.input)
+			if !result.IsError() || result.Error == nil {
+				t.Fatalf("result = %#v, want error", result)
+			}
+			if !strings.Contains(result.Error.Message, "instance is required") {
+				t.Fatalf("error message = %q, want to contain 'instance is required'", result.Error.Message)
+			}
+		})
+	}
+}
 
 func TestNamedInstanceOperationAddsInstanceOnlyForMultipleInstances(t *testing.T) {
 	base := namedInstanceTestOperation("base")

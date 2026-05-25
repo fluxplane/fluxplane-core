@@ -295,3 +295,28 @@ session. One bug per iteration: find → reproduce → fix → commit.
   `TestTruncateBytesLeavesShortValues` checks the short-string path.
   Verified to fail on the old code with
   `"truncateBytes produced invalid UTF-8: \"aaaaaaaaa\\xe2\""`.
+- **Commit:** `3685ddf` — "fix: truncateBytes in datasource detect must respect UTF-8 boundaries".
+
+## Iteration 15 — `selectInstance` produced `unknown instance "<nil>"` on missing key
+
+- **Where:** `runtime/operation/named_instance.go` `selectInstance`.
+- **Bug:** Same `fmt.Sprint(value)` foot-gun fixed in iteration 6 for
+  `runtime/operation/authorization.go` `stringField`, now in a second
+  location.
+  `instance := strings.TrimSpace(fmt.Sprint(values["instance"]))`
+  produced:
+  - `"<nil>"` when the key was missing or the value was JSON null
+  - `"true"` / `"false"` for boolean values
+  - `"42"` for numeric values
+  The "instance is required" check (`instance == ""`) never tripped for
+  any of these. The user got the confusing
+  `unknown instance "<nil>"` (or `"42"`, etc.) error instead.
+- **Fix:** Type-assert `values["instance"]` to `string` so any
+  non-string (including JSON null and missing key) collapses to "" and
+  the "instance is required" check runs.
+- **Regression test:** `TestNamedInstanceRejectsNonStringInstanceWithStableMessage`
+  tabulates four cases — missing key, nil value, boolean, number — and
+  asserts every one returns an error containing `"instance is required"`.
+  All four cases fail on the old code with
+  `unknown instance "<nil>"` / `"true"` / `"42"` messages, all pass on
+  the fix.
