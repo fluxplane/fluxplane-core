@@ -59,10 +59,23 @@ coverage, coupling, and refactoring decisions. Production architecture boundary,
 side-effect, and unknown-package violations are hard gate failures; scores and
 findings guide review.
 
+Three variants are available:
+
+- `task quality:go` — the quality gate used by `task verify`. Runs the
+  codegate assessment with `--fail-on boundary,effects,unknown` and a
+  `summary` view, so it fails the build on production architecture-boundary,
+  side-effect, or unknown-package violations and prints minimal evidence.
+- `task quality:go:review` — non-failing review evidence with the `compact`
+  view and up to 10 suggestions. Use this when iterating on a change and
+  reviewing findings.
+- `task quality:go:full` — non-failing review evidence with the `full` view
+  and up to 20 suggestions. Use this for a deep dive when investigating
+  architecture or maintainability findings in detail.
+
 ```bash
-task quality:go
-task quality:go:review
-task quality:go:full
+task quality:go         # hard gate, summary view (used by task verify)
+task quality:go:review  # compact review evidence, up to 10 suggestions
+task quality:go:full    # full review evidence, up to 20 suggestions
 ```
 
 ## Security Scan

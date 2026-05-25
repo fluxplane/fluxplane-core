@@ -29,8 +29,10 @@ go install github.com/fluxplane/fluxplane-core/cmd/fluxplane@latest
 | `fluxplane config edit <dir>` | Open the app manifest in `$EDITOR`. |
 | `fluxplane describe <dir>` | Describe distribution surfaces and resources. |
 | `fluxplane discover <dir>` | Show resolved resource trees and plugin contributions. |
+| `fluxplane healthcheck` | Check a served app health endpoint (defaults to `http://127.0.0.1:18080/control/status`). |
+| `fluxplane op <dir> ...` | Run configured operations from an app manifest. |
 | `fluxplane auth status` | Show plugin auth readiness for the selected app. |
-| `fluxplane datasource index build <dir>` | Index configured datasources. |
+| `fluxplane datasource index build\|embed\|status\|clear <dir>` | Manage configured datasource indexes: queue corpus, embed semantic chunks, show status, or remove entries. See [Datasource embeddings](embeddings.md). |
 
 Run `fluxplane <command> --help` for the full flag list.
 
@@ -122,11 +124,16 @@ status to the selected app manifest.
 
 ```bash
 fluxplane datasource index build ./my-app
+fluxplane datasource index embed ./my-app
+fluxplane datasource index status ./my-app
+fluxplane datasource index clear ./my-app
 ```
 
-Builds the structured field index for configured datasources. Semantic
-embeddings are queued by build and run separately; see
-[Datasource embeddings](embeddings.md).
+`build` writes the structured field index and queues semantic corpus.
+`embed` runs the embedding worker over queued chunks. `status` reports
+index contents per datasource and entity. `clear` removes indexed records.
+See [Datasource embeddings](embeddings.md) for providers, chunking, store
+layout, and full flag reference.
 
 ## Scope
 

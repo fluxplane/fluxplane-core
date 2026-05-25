@@ -154,6 +154,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restored the OpenAI-compatible streaming idle timeout default to 90 seconds.
 
 ### Documentation
+- Documented additional `fluxplane` CLI commands and clarified the Go quality
+  task variants used for hard-gate and review workflows.
 - Reworked the root README around Fluxplane core as the reusable runtime and
   generic `fluxplane` CLI, with `coder` documented as a separate sibling product
   rather than an integrated app.
