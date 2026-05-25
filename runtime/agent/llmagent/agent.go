@@ -252,15 +252,16 @@ func (a *Agent) request(ctx agent.Context, input agent.StepInput, toolOverride [
 		tools = append([]tool.Spec(nil), toolOverride...)
 	}
 	return Request{
-		Agent:        a.spec,
-		Driver:       a.driver,
-		Tools:        tools,
-		Goal:         input.Goal,
-		Objective:    chooseObjective(input.Objective, a.spec.Objective),
-		Observations: append([]coreevidence.Observation(nil), input.Observations...),
-		Context:      append([]corecontext.Block(nil), input.Context...),
-		Transcript:   transcriptFromContext(ctx),
-		State:        input.State,
+		Agent:           a.spec,
+		Driver:          a.driver,
+		ConversationKey: conversationKeyFromContext(ctx),
+		Tools:           tools,
+		Goal:            input.Goal,
+		Objective:       chooseObjective(input.Objective, a.spec.Objective),
+		Observations:    append([]coreevidence.Observation(nil), input.Observations...),
+		Context:         append([]corecontext.Block(nil), input.Context...),
+		Transcript:      transcriptFromContext(ctx),
+		State:           input.State,
 	}
 }
 

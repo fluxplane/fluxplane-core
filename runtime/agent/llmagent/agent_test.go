@@ -129,6 +129,27 @@ func TestAgentStepIncludesProjectedTools(t *testing.T) {
 	}
 }
 
+func TestAgentStepIncludesConversationKey(t *testing.T) {
+	var got Request
+	runtime, err := New(agent.Spec{Name: "main"}, ModelFunc(func(_ context.Context, req Request) (Response, error) {
+		got = req
+		return MessageResponse("ok"), nil
+	}))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx := ContextWithConversationKey(context.Background(), "thread:one:branch:main")
+	result := runtime.Step(testAgentContext{Context: ctx}, agent.StepInput{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if got.ConversationKey != "thread:one:branch:main" {
+		t.Fatalf("conversation key = %q, want propagated key", got.ConversationKey)
+	}
+}
+
 func TestAgentStepWithToolsOverridesConfiguredTools(t *testing.T) {
 	var got Request
 	runtime, err := New(agent.Spec{Name: "main"}, ModelFunc(func(_ context.Context, req Request) (Response, error) {

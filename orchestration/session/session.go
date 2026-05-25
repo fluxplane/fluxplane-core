@@ -673,6 +673,7 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 			return innerTurnResult{Result: inputFailed("conversation_projection_failed", err.Error(), nil), State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		modelCtx := sessioncontrol.ContextWithTranscript(in.BaseContext, &transcript)
+		modelCtx = sessioncontrol.ContextWithConversationKey(modelCtx, s.conversationCacheKey())
 		modelCtx = s.withBaseContext(modelCtx, "", in.Events, reactions.Active)
 		agentCtx := agentContext{Context: modelCtx, events: in.Events}
 		stepInput := agent.StepInput{
@@ -3063,6 +3064,13 @@ func (s Session) providerIdentity() coreconversation.ProviderIdentity {
 	}
 	identity.Provider, identity.Model = normalizeProviderModel(identity.Provider, identity.Model)
 	return identity
+}
+
+func (s Session) conversationCacheKey() string {
+	if s.Thread.ID == "" {
+		return ""
+	}
+	return fmt.Sprintf("thread:%s:branch:%s", s.Thread.ID, s.Thread.BranchID)
 }
 
 func normalizeProviderModel(provider, model string) (string, string) {

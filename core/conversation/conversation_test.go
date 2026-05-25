@@ -56,6 +56,17 @@ func TestContinuationHandleRejectsWrongMode(t *testing.T) {
 	}
 }
 
+func TestContinuationHandleRejectsWebSocketTransport(t *testing.T) {
+	handle := ContinuationHandle{
+		Mode:       ContinuationPreviousResponseID,
+		Transport:  TransportWebSocket,
+		ResponseID: "resp_123",
+	}
+	if handle.SupportsPreviousResponseID() {
+		t.Fatalf("SupportsPreviousResponseID = true, want false with websocket transport")
+	}
+}
+
 func TestTranscriptEmpty(t *testing.T) {
 	tests := []struct {
 		name       string

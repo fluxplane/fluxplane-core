@@ -37,19 +37,23 @@ func New(cfg Config) (*openai.Model, error) {
 	}
 	runtime := cfg.Runtime
 	if runtime.Transport == "" || runtime.Transport == openai.ResponsesTransportAuto {
-		runtime.Transport = openai.ResponsesTransportSSE
-	}
-	if runtime.Transport == openai.ResponsesTransportWebSocket {
-		return nil, fmt.Errorf("codex: websocket transport is not implemented; HTTP/SSE transport requires replay continuation")
+		runtime.Transport = openai.ResponsesTransportWebSocket
 	}
 	if runtime.Cache == "" {
 		runtime.Cache = openai.ResponsesCacheMax
 	}
 	if runtime.Continuation == "" || runtime.Continuation == openai.ResponsesContinuationAuto {
-		runtime.Continuation = openai.ResponsesContinuationReplay
+		if runtime.Transport == openai.ResponsesTransportSSE {
+			runtime.Continuation = openai.ResponsesContinuationReplay
+		} else {
+			runtime.Continuation = openai.ResponsesContinuationProvider
+		}
 	}
-	if runtime.Continuation == openai.ResponsesContinuationProvider {
+	if runtime.Transport == openai.ResponsesTransportSSE && runtime.Continuation == openai.ResponsesContinuationProvider {
 		return nil, fmt.Errorf("codex: provider continuation requires websocket transport; HTTP/SSE endpoint rejects previous_response_id")
+	}
+	if runtime.WebSocketWarmup == "" {
+		runtime.WebSocketWarmup = openai.ResponsesWebSocketWarmupAuto
 	}
 	if runtime.Output == "" {
 		runtime.Output = openai.ResponsesOutputStreamItems
@@ -59,18 +63,21 @@ func New(cfg Config) (*openai.Model, error) {
 		return nil, err
 	}
 	return openai.New(openai.Config{
-		Model:             cfg.Model,
-		ProviderName:      "codex",
-		APIName:           "codex.responses",
-		BaseURL:           baseURL,
-		APIKey:            "codex-auth-via-middleware",
-		HTTPClient:        cfg.HTTPClient,
-		Runtime:           runtime,
-		Pricing:           cfg.Pricing,
-		ReasoningEffort:   cfg.ReasoningEffort,
-		ReasoningSummary:  cfg.ReasoningSummary,
-		ParallelToolCalls: cfg.ParallelToolCalls,
-		Redactor:          cfg.Redactor,
+		Model:                               cfg.Model,
+		ProviderName:                        "codex",
+		APIName:                             "codex.responses",
+		BaseURL:                             baseURL,
+		APIKey:                              "codex-auth-via-middleware",
+		HTTPClient:                          cfg.HTTPClient,
+		Runtime:                             runtime,
+		AllowStoreFalseProviderContinuation: true,
+		Pricing:                             cfg.Pricing,
+		ReasoningEffort:                     cfg.ReasoningEffort,
+		ReasoningSummary:                    cfg.ReasoningSummary,
+		ParallelToolCalls:                   cfg.ParallelToolCalls,
+		Redactor:                            cfg.Redactor,
+		WebSocketHeaderFunc:                 codexWebSocketHeaderFunc(auth),
+		PayloadMutator:                      mutateRawPayload,
 		RequestOptions: []option.RequestOption{
 			option.WithMiddleware(codexMiddleware(auth)),
 			option.WithHeader("originator", "codex_cli_rs"),
@@ -99,6 +106,20 @@ func codexMiddleware(auth *auth) option.Middleware {
 		}
 		body := readAndReplaceBody(resp)
 		return nil, fmt.Errorf("codex: HTTP %s: %s", resp.Status, body)
+	}
+}
+
+func codexWebSocketHeaderFunc(auth *auth) func(context.Context, http.Header) error {
+	return func(ctx context.Context, h http.Header) error {
+		if err := auth.setHeaders(ctx, h); err != nil {
+			return err
+		}
+		h.Set("originator", "codex_cli_rs")
+		h.Set("version", "0.124.0")
+		h.Set("OpenAI-Beta", "responses_websockets=2026-02-06")
+		h.Set("User-Agent", "codex-cli/0.124.0")
+		h.Set("x-codex-installation-id", "fluxplane")
+		return nil
 	}
 }
 
@@ -149,6 +170,30 @@ func mutateBody(raw []byte) ([]byte, bool, error) {
 		return nil, false, fmt.Errorf("codex: encode request body: %w", err)
 	}
 	return encoded, true, nil
+}
+
+func mutateRawPayload(payload map[string]json.RawMessage) {
+	if payload == nil {
+		return
+	}
+	payload["store"] = json.RawMessage("false")
+	for _, key := range []string{
+		"max_output_tokens",
+		"temperature",
+		"top_p",
+		"top_k",
+		"response_format",
+		"prompt_cache_retention",
+		"previous_response_id",
+	} {
+		delete(payload, key)
+	}
+	if text, ok := payload["text"]; ok {
+		var textPayload map[string]json.RawMessage
+		if err := json.Unmarshal(text, &textPayload); err == nil && len(textPayload) == 0 {
+			delete(payload, "text")
+		}
+	}
 }
 
 func readAndReplaceBody(resp *http.Response) string {

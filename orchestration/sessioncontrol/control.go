@@ -107,6 +107,12 @@ func ContextWithTranscript(ctx context.Context, transcript *coreconversation.Tra
 	return llmagent.ContextWithMaterializedContext(llmagent.ContextWithTranscript(ctx, transcript))
 }
 
+// ContextWithConversationKey attaches a runtime-local conversation cache key to
+// ctx for model transports that keep process-local provider state.
+func ContextWithConversationKey(ctx context.Context, key string) context.Context {
+	return llmagent.ContextWithConversationKey(ctx, key)
+}
+
 // IsLLMDriverKind reports whether kind is the built-in LLM driver.
 func IsLLMDriverKind(kind agent.DriverKind) bool {
 	return strings.TrimSpace(string(kind)) == string(llmagent.DriverKind)

@@ -35,6 +35,16 @@ const (
 	ResponsesContinuationProvider ResponsesContinuationMode = "provider"
 )
 
+// ResponsesWebSocketWarmupMode controls whether a Responses websocket session
+// is primed with a generate=false request before the first real request.
+type ResponsesWebSocketWarmupMode string
+
+const (
+	ResponsesWebSocketWarmupAuto ResponsesWebSocketWarmupMode = "auto"
+	ResponsesWebSocketWarmupOn   ResponsesWebSocketWarmupMode = "on"
+	ResponsesWebSocketWarmupOff  ResponsesWebSocketWarmupMode = "off"
+)
+
 // ResponsesOutputMode controls which response payload supplies completed
 // output items for streaming requests.
 type ResponsesOutputMode string
@@ -47,11 +57,12 @@ const (
 // ResponsesRuntimeConfig is the provider-neutral runtime tuning shared by
 // OpenAI Responses-compatible adapters.
 type ResponsesRuntimeConfig struct {
-	Transport    ResponsesTransportMode
-	Cache        ResponsesCacheMode
-	Continuation ResponsesContinuationMode
-	Output       ResponsesOutputMode
-	ToolSearch   bool
+	Transport       ResponsesTransportMode
+	Cache           ResponsesCacheMode
+	Continuation    ResponsesContinuationMode
+	WebSocketWarmup ResponsesWebSocketWarmupMode
+	Output          ResponsesOutputMode
+	ToolSearch      bool
 	// StreamIdleTimeout cancels a streaming Responses request when no provider
 	// event arrives for the configured duration. Zero uses the default;
 	// negative values disable the watchdog.
@@ -65,6 +76,7 @@ func DefaultResponsesRuntimeConfig() ResponsesRuntimeConfig {
 		Transport:         ResponsesTransportAuto,
 		Cache:             ResponsesCacheMax,
 		Continuation:      ResponsesContinuationAuto,
+		WebSocketWarmup:   ResponsesWebSocketWarmupAuto,
 		Output:            ResponsesOutputFinalResponse,
 		ToolSearch:        true,
 		StreamIdleTimeout: defaultStreamIdleTimeout,
@@ -81,6 +93,9 @@ func (c ResponsesRuntimeConfig) withDefaults() ResponsesRuntimeConfig {
 	if c.Continuation == "" {
 		c.Continuation = ResponsesContinuationAuto
 	}
+	if c.WebSocketWarmup == "" {
+		c.WebSocketWarmup = ResponsesWebSocketWarmupAuto
+	}
 	if c.Output == "" {
 		c.Output = ResponsesOutputFinalResponse
 	}
@@ -93,6 +108,15 @@ func (c ResponsesRuntimeConfig) withDefaults() ResponsesRuntimeConfig {
 func (m ResponsesTransportMode) Valid() bool {
 	switch m {
 	case "", ResponsesTransportAuto, ResponsesTransportWebSocket, ResponsesTransportSSE:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m ResponsesWebSocketWarmupMode) Valid() bool {
+	switch m {
+	case "", ResponsesWebSocketWarmupAuto, ResponsesWebSocketWarmupOn, ResponsesWebSocketWarmupOff:
 		return true
 	default:
 		return false

@@ -7,6 +7,7 @@ import (
 )
 
 type transcriptContextKey struct{}
+type conversationKeyContextKey struct{}
 type contextMaterializedKey struct{}
 
 // ContextWithTranscript attaches a provider transcript projection to ctx.
@@ -26,6 +27,26 @@ func transcriptFromContext(ctx context.Context) *coreconversation.Transcript {
 	}
 	transcript, _ := ctx.Value(transcriptContextKey{}).(*coreconversation.Transcript)
 	return transcript
+}
+
+// ContextWithConversationKey attaches a runtime-local conversation cache key to
+// ctx. Model adapters may use it for process-local transport caches.
+func ContextWithConversationKey(ctx context.Context, key string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if key == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, conversationKeyContextKey{}, key)
+}
+
+func conversationKeyFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	key, _ := ctx.Value(conversationKeyContextKey{}).(string)
+	return key
 }
 
 // ContextWithMaterializedContext marks ctx as already carrying session-rendered

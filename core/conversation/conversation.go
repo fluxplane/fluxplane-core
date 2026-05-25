@@ -130,7 +130,7 @@ func (t Transcript) Empty() bool {
 // SupportsPreviousResponseID reports whether the handle can be used as an
 // OpenAI Responses-style previous_response_id continuation.
 func (h ContinuationHandle) SupportsPreviousResponseID() bool {
-	return h.Mode == ContinuationPreviousResponseID && strings.TrimSpace(h.ResponseID) != ""
+	return h.Mode == ContinuationPreviousResponseID && h.Transport != TransportWebSocket && strings.TrimSpace(h.ResponseID) != ""
 }
 
 // ItemKind classifies provider transcript items.

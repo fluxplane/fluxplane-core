@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -76,6 +78,11 @@ type Config struct {
 	// and defaults to false.
 	Store bool
 
+	// AllowStoreFalseProviderContinuation permits provider continuation without
+	// forcing store=true. Codex uses connection-local websocket state with
+	// store=false.
+	AllowStoreFalseProviderContinuation bool
+
 	// ParallelToolCalls enables provider-level parallel function calls. The
 	// runtime already accepts multiple operation requests in one agent response.
 	ParallelToolCalls bool
@@ -94,22 +101,40 @@ type Config struct {
 	// RequestOptions appends low-level OpenAI SDK options such as provider
 	// middleware. Prefer higher-level config when adding new behavior.
 	RequestOptions []option.RequestOption
+
+	// WebSocketHeaders appends static headers to Responses websocket handshakes.
+	WebSocketHeaders http.Header
+
+	// WebSocketHeaderFunc appends dynamic headers to Responses websocket
+	// handshakes. It is used for provider auth that may refresh tokens.
+	WebSocketHeaderFunc func(context.Context, http.Header) error
+
+	// PayloadMutator may adjust raw Responses request payloads before they are
+	// sent over transports not owned by the OpenAI SDK.
+	PayloadMutator func(map[string]json.RawMessage)
 }
 
 // Model implements runtime/agent/llmagent.Model using OpenAI Responses.
 type Model struct {
-	client            openai.Client
-	model             string
-	provider          string
-	api               string
-	runtime           ResponsesRuntimeConfig
-	maxOutputTokens   int
-	pricing           []corellm.PricingSpec
-	reasoningEffort   string
-	reasoningSummary  string
-	store             bool
-	parallelToolCalls bool
-	redactor          adapterllm.Redactor
+	client              openai.Client
+	model               string
+	baseURL             string
+	apiKey              string
+	provider            string
+	api                 string
+	runtime             ResponsesRuntimeConfig
+	maxOutputTokens     int
+	pricing             []corellm.PricingSpec
+	reasoningEffort     string
+	reasoningSummary    string
+	store               bool
+	parallelToolCalls   bool
+	redactor            adapterllm.Redactor
+	webSocketHeaders    http.Header
+	webSocketHeaderFunc func(context.Context, http.Header) error
+	payloadMutator      func(map[string]json.RawMessage)
+	webSocketMu         sync.Mutex
+	webSocketSessions   map[string]*responsesWebSocketSession
 }
 
 // New returns an OpenAI Responses API model adapter.
@@ -130,26 +155,36 @@ func New(cfg Config) (*Model, error) {
 	opts = append(opts, option.WithMiddleware(httpUsageMiddleware()))
 	runtime := cfg.Runtime.withDefaults()
 	store := cfg.Store
-	if runtime.Continuation != ResponsesContinuationReplay {
+	if runtime.Continuation != ResponsesContinuationReplay && !cfg.AllowStoreFalseProviderContinuation {
 		store = true
+	}
+	apiKey := strings.TrimSpace(cfg.APIKey)
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	}
 	maxOutputTokens := cfg.MaxOutputTokens
 	if maxOutputTokens <= 0 {
 		maxOutputTokens = corellm.DefaultMaxOutputTokens
 	}
 	return &Model{
-		client:            openai.NewClient(opts...),
-		model:             strings.TrimSpace(cfg.Model),
-		provider:          normalizeProvider(cfg.ProviderName),
-		api:               firstNonEmpty(strings.TrimSpace(cfg.APIName), "openai.responses"),
-		runtime:           runtime,
-		maxOutputTokens:   maxOutputTokens,
-		pricing:           append([]corellm.PricingSpec(nil), cfg.Pricing...),
-		reasoningEffort:   strings.TrimSpace(cfg.ReasoningEffort),
-		reasoningSummary:  firstNonEmpty(strings.TrimSpace(cfg.ReasoningSummary), string(shared.ReasoningSummaryAuto)),
-		store:             store,
-		parallelToolCalls: cfg.ParallelToolCalls,
-		redactor:          cfg.Redactor,
+		client:              openai.NewClient(opts...),
+		model:               strings.TrimSpace(cfg.Model),
+		baseURL:             firstNonEmpty(strings.TrimSpace(cfg.BaseURL), defaultResponsesBaseURL),
+		apiKey:              apiKey,
+		provider:            normalizeProvider(cfg.ProviderName),
+		api:                 firstNonEmpty(strings.TrimSpace(cfg.APIName), "openai.responses"),
+		runtime:             runtime,
+		maxOutputTokens:     maxOutputTokens,
+		pricing:             append([]corellm.PricingSpec(nil), cfg.Pricing...),
+		reasoningEffort:     strings.TrimSpace(cfg.ReasoningEffort),
+		reasoningSummary:    firstNonEmpty(strings.TrimSpace(cfg.ReasoningSummary), string(shared.ReasoningSummaryAuto)),
+		store:               store,
+		parallelToolCalls:   cfg.ParallelToolCalls,
+		redactor:            cfg.Redactor,
+		webSocketHeaders:    cloneHeader(cfg.WebSocketHeaders),
+		webSocketHeaderFunc: cfg.WebSocketHeaderFunc,
+		payloadMutator:      cfg.PayloadMutator,
+		webSocketSessions:   map[string]*responsesWebSocketSession{},
 	}, nil
 }
 
@@ -193,6 +228,15 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 	if err != nil {
 		return llmagent.Response{}, err
 	}
+	if m.runtime.Transport == ResponsesTransportWebSocket {
+		out, err := m.streamWebSocketWithParams(ctx, req, emit, params, tools, sentItems, httpUsage)
+		if err == nil {
+			return out, nil
+		}
+		if !errors.Is(err, errWebSocketFallback) {
+			return out, err
+		}
+	}
 	return m.streamWithParams(ctx, req, emit, params, tools, sentItems, httpUsage)
 }
 
@@ -207,7 +251,16 @@ func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit
 
 	stream := m.client.Responses.NewStreaming(streamCtx, params)
 	defer func() { _ = stream.Close() }()
+	return m.consumeResponseEventStream(req, emit, stream, tools, sentItems, httpUsage, watchdog, nil)
+}
 
+type responseEventStream interface {
+	Next() bool
+	Current() responses.ResponseStreamEventUnion
+	Err() error
+}
+
+func (m *Model) consumeResponseEventStream(req llmagent.Request, emit llmagent.StreamFunc, stream responseEventStream, tools []adapterllm.ToolSpec, sentItems []coreconversation.Item, httpUsage *httpUsageCollector, watchdog *streamIdleWatchdog, onComplete func(responses.Response)) (llmagent.Response, error) {
 	streamState := openAIStreamState{
 		toolNames:    map[int]tool.Name{},
 		outputPhases: map[int]string{},
@@ -294,6 +347,9 @@ func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit
 	provider := m.providerIdentity(m.modelName(req))
 	m.emitBufferedStreamContent(final, &streamState, emit)
 	source := responseForOutputMode(final, streamedOutputItems, m.runtime.Output)
+	if onComplete != nil {
+		onComplete(source)
+	}
 	out, err := responseFromOpenAI(source, tools, provider, m.store, m.pricing)
 	if err != nil {
 		return attachOpenAIPartial(err, sentItems, provider, httpUsage)

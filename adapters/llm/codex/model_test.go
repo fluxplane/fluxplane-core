@@ -2,8 +2,11 @@ package codex
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -70,12 +73,36 @@ func TestNewRejectsProviderContinuationOnHTTPTransport(t *testing.T) {
 	}
 }
 
-func TestNewRejectsWebSocketTransportUntilImplemented(t *testing.T) {
-	_, err := New(Config{Runtime: openai.ResponsesRuntimeConfig{
-		Transport: openai.ResponsesTransportWebSocket,
-	}})
-	if err == nil || !strings.Contains(err.Error(), "websocket transport is not implemented") {
-		t.Fatalf("err = %v, want websocket transport error", err)
+func TestNewAcceptsWebSocketTransport(t *testing.T) {
+	model, err := New(Config{
+		AuthPath: testAuthPath(t),
+		Runtime: openai.ResponsesRuntimeConfig{
+			Transport: openai.ResponsesTransportWebSocket,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if model == nil {
+		t.Fatalf("model is nil")
+	}
+}
+
+func TestMutateRawPayloadAllowsWebSocketPreviousResponseIDAfterMutation(t *testing.T) {
+	payload := map[string]json.RawMessage{
+		"store":                json.RawMessage("true"),
+		"max_output_tokens":    json.RawMessage("1024"),
+		"previous_response_id": json.RawMessage(`"resp_old"`),
+	}
+	mutateRawPayload(payload)
+	if _, ok := payload["max_output_tokens"]; ok {
+		t.Fatalf("payload = %#v, want max_output_tokens removed", payload)
+	}
+	if _, ok := payload["previous_response_id"]; ok {
+		t.Fatalf("payload = %#v, want previous_response_id removed before websocket request shaping", payload)
+	}
+	if string(payload["store"]) != "false" {
+		t.Fatalf("store = %s, want false", payload["store"])
 	}
 }
 
@@ -93,4 +120,14 @@ func httptestRequest(t *testing.T, body []byte) *http.Request {
 	}
 	req.Body = io.NopCloser(bytes.NewReader(body))
 	return req
+}
+
+func testAuthPath(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "auth.json")
+	data := []byte(`{"auth_mode":"chatgpt","tokens":{"access_token":"test-token"}}`)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+	return path
 }

@@ -54,6 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `cmd/claude-middleman`, a local capture proxy for comparing Claude Code
   CLI request headers and Messages payloads against the Fluxplane Claude Code
   provider.
+- Added shared OpenAI Responses WebSocket streaming with Codex defaults,
+  best-effort warmup, active-session `previous_response_id` continuation, and
+  env-gated live Codex provider tests.
 
 ### Changed
 - Increased the OpenAI-compatible Responses stream idle watchdog default from

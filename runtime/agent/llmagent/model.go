@@ -47,15 +47,16 @@ func (f ModelFunc) Complete(ctx context.Context, req Request) (Response, error) 
 // Request is the structured model input assembled from an agent step. It is
 // intentionally not a provider prompt format.
 type Request struct {
-	Agent        agent.Spec                   `json:"agent"`
-	Driver       corellmagent.Spec            `json:"driver,omitempty"`
-	Tools        []tool.Spec                  `json:"tools,omitempty"`
-	Goal         string                       `json:"goal,omitempty"`
-	Objective    agent.Objective              `json:"objective,omitempty"`
-	Observations []coreevidence.Observation   `json:"observations,omitempty"`
-	Context      []corecontext.Block          `json:"context,omitempty"`
-	Transcript   *coreconversation.Transcript `json:"transcript,omitempty"`
-	State        agent.StateRef               `json:"state,omitempty"`
+	Agent           agent.Spec                   `json:"agent"`
+	Driver          corellmagent.Spec            `json:"driver,omitempty"`
+	ConversationKey string                       `json:"conversation_key,omitempty"`
+	Tools           []tool.Spec                  `json:"tools,omitempty"`
+	Goal            string                       `json:"goal,omitempty"`
+	Objective       agent.Objective              `json:"objective,omitempty"`
+	Observations    []coreevidence.Observation   `json:"observations,omitempty"`
+	Context         []corecontext.Block          `json:"context,omitempty"`
+	Transcript      *coreconversation.Transcript `json:"transcript,omitempty"`
+	State           agent.StateRef               `json:"state,omitempty"`
 }
 
 // Response is the provider-neutral structured output of one model turn. The
