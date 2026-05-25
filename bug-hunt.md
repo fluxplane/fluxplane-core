@@ -362,3 +362,29 @@ session. One bug per iteration: find → reproduce → fix → commit.
   (short-string path), and `TestTruncateTextHonorsZeroAndNegativeMax`
   (defensive cases). First fails on the old code with
   `"truncateText produced invalid UTF-8: \"aaaaaaaaa\\xe2\""`.
+- **Commit:** `c7572bb` — "fix: sessioncontrol truncateText must respect UTF-8 rune boundaries".
+
+## Iteration 18 — `unescapeDoubleQuotedEnv` dropped the backslash for unknown escapes
+
+- **Where:** `runtime/system/env.go` `unescapeDoubleQuotedEnv`.
+- **Bug:** The `default` case of the escape switch wrote only the
+  following rune, silently dropping the leading backslash. Combined
+  with the known cases above it, the function turned `\n`/`\r`/`\t`
+  into their control characters (correct), `\\` and `\"` into `\` and
+  `"` (correct), but `\$`/`\x`/`\<anything-else>` into just the bare
+  character (wrong). The dotenv convention — and the user's
+  intuition — is that an unknown escape stays literal.
+- **Reproduction:** `KEY="hi \$world"` in an env file → old parser
+  yields `hi $world`. Same for `KEY="path \% literal"` → `path % literal`.
+- **Impact:** Users who write `\$` (or any other dollar sequence) into
+  a quoted env value to defend against shell expansion get a different
+  value than what's in the file. Anything that round-trips env values
+  through this parser similarly mutates content unexpectedly.
+- **Fix:** In the `default` branch, write the backslash before the
+  following rune so unknown escapes survive verbatim.
+- **Regression tests:** `TestUnescapeDoubleQuotedEnvPreservesUnknownEscapes`
+  tables seven cases (known escapes, escaped quote, escaped backslash,
+  unknown `\$`, unknown `\x`, plain text); the unknown-escape rows fail
+  on the old code (`"hi $world"` vs the wanted `"hi \$world"`).
+  `TestUnescapeDoubleQuotedEnvRejectsTrailingEscape` confirms the
+  defensive trailing-backslash error path still trips.

@@ -329,6 +329,7 @@ func unescapeDoubleQuotedEnv(value string) (string, error) {
 			case '\\', '"':
 				out.WriteRune(r)
 			default:
+				out.WriteByte('\\')
 				out.WriteRune(r)
 			}
 			escaped = false
