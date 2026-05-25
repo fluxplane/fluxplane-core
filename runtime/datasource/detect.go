@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 )
@@ -237,7 +238,11 @@ func truncateBytes(value string, max int) string {
 	if max <= 0 || len(value) <= max {
 		return value
 	}
-	return value[:max]
+	limit := max
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+	return value[:limit]
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

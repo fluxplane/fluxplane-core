@@ -274,3 +274,24 @@ session. One bug per iteration: find → reproduce → fix → commit.
   feeds the multi-byte-boundary input and checks `utf8.ValidString`.
   Companion `TestCompactTextLeavesShortValidStrings` confirms the
   short-string path is untouched.
+- **Commit:** `9a8e393` — "fix: compactText in slack observer must respect UTF-8 rune boundaries".
+
+## Iteration 14 — same pattern in `runtime/datasource/detect.go` `truncateBytes`
+
+- **Where:** `runtime/datasource/detect.go` `truncateBytes`.
+- **Bug:** Final outstanding member of the UTF-8 truncation trilogy
+  noted in iteration 10. `truncateBytes(value, max)` returned
+  `value[:max]` without respecting rune boundaries, used to cap
+  detection source text to 64KB before running the regex detector.
+- **Impact:** When source text exceeded the byte cap and a multi-byte
+  rune straddled the cut, the truncated buffer ended with a partial
+  UTF-8 sequence. If a regex match touched that region, the resulting
+  `RecordRef.SourceText` carried invalid UTF-8 to anything that rendered
+  it (and `regexp.FindAllStringSubmatchIndex` treats invalid UTF-8 as
+  individual U+FFFD runes, so a match could shift unexpectedly).
+- **Fix:** Same rune-start scan as the previous two truncation fixes.
+- **Regression test:** `TestTruncateBytesPreservesUTF8RuneBoundaries`
+  feeds 9 ASCII + 3-byte rune with cap 10. Companion
+  `TestTruncateBytesLeavesShortValues` checks the short-string path.
+  Verified to fail on the old code with
+  `"truncateBytes produced invalid UTF-8: \"aaaaaaaaa\\xe2\""`.
