@@ -119,6 +119,10 @@ func (s *Store) DeleteRecords(ctx context.Context, scope coredata.Scope, refs ..
 				hashes = append(hashes, recordHash(record.Scope, record.Ref))
 			}
 		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
 		if err := rows.Close(); err != nil {
 			return err
 		}
@@ -162,6 +166,10 @@ func (s *Store) BatchGetRecords(ctx context.Context, scope coredata.Scope, refs 
 				out = append(out, record)
 				break
 			}
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
 		}
 		if err := rows.Close(); err != nil {
 			return nil, err

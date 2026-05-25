@@ -42,4 +42,23 @@ session. One bug per iteration: find → reproduce → fix → commit.
 - **Regression test:** `TestHostRunRejectsBadScheduleBeforeSpawningGoroutines`
   in `trigger_test.go` — verified to fail on the old code (`client.opens = 1`)
   and pass on the fix.
-- **Commit:** pending.
+- **Commit:** `ae8f6d7` — "fix: stop leaking trigger goroutines on bad schedule.every".
+
+## Iteration 4 — missing `rows.Err()` in `sqlstore` row iterations
+
+- **Where:** `adapters/storage/data/sqlstore/store.go` —
+  `DeleteRecords` (~line 112) and `BatchGetRecords` (~line 155).
+- **Bug:** Both functions iterate with `for rows.Next() {}` and call
+  `rows.Close()` after the loop, but never check `rows.Err()`. If
+  iteration exits because of a driver-level read error (not just
+  end-of-rows), the error is silently dropped.
+  - In `DeleteRecords` the result is a committed transaction that
+    deleted only the rows we managed to scan — partial delete masquerading
+    as success.
+  - In `BatchGetRecords` the result is a quiet "no match found" return,
+    even though the scan actually failed mid-stream.
+- **Inconsistency in the file:** sibling functions `QueryRecords` and
+  `QueryRelations` correctly call `rows.Err()`; these two were the
+  outliers.
+- **Fix:** Added `rows.Err()` check between the for-loop and `rows.Close()`,
+  closing the rows on error to release the connection.
