@@ -690,4 +690,4 @@ session. One bug per iteration: find → reproduce → fix → commit.
 - **Regression test:** `TestFrontmatterStringsSkipsNilListEntries`
   passes `[]any{"bash", nil, "read"}` and asserts the result is
   exactly `["bash", "read"]` with no `"<nil>"` string anywhere.
-- **Commit:** _pending_.
+- **Commit:** `f0c5d87` — "fix: skip nil items when coercing YAML frontmatter list".
