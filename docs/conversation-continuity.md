@@ -31,8 +31,9 @@ Provider-visible tool calls are a strict pair:
    group before results arrive.
 4. No non-tool-call provider-visible item may appear while a tool call is open.
 5. A tool result without a matching open assistant tool call is invalid.
-6. Duplicate call IDs, duplicate results, missing call IDs, and durable repair
-   artifacts are invalid.
+6. Duplicate open call IDs, duplicate results for an open call, missing call
+   IDs, and durable repair artifacts are invalid. A provider may reuse a call ID
+   later after its earlier call/result pair is complete.
 
 The session runtime enforces this by validating model operation requests against
 the assistant tool-call items emitted by the model step before executing

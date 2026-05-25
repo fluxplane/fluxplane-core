@@ -167,8 +167,6 @@ func (e ContinuityError) Error() string {
 // transcripts; current-version sessions must make invalid states impossible.
 func ValidateContinuity(items []coreconversation.Item, opts ValidateOptions) error {
 	open := map[string]int{}
-	seenCalls := map[string]int{}
-	seenResults := map[string]int{}
 	for i, original := range items {
 		item := ensureItemProvider(original, opts.Provider)
 		if item.Metadata["repair"] != "" {
@@ -187,10 +185,9 @@ func ValidateContinuity(items []coreconversation.Item, opts ValidateOptions) err
 				if callID == "" {
 					return ContinuityError{Reason: "assistant tool call missing provider call id", Index: i}
 				}
-				if prior, ok := seenCalls[callID]; ok {
-					return ContinuityError{Reason: fmt.Sprintf("duplicate assistant tool call first_item_index=%d", prior), CallID: callID, Index: i}
+				if prior, ok := open[callID]; ok {
+					return ContinuityError{Reason: fmt.Sprintf("duplicate open assistant tool call first_item_index=%d", prior), CallID: callID, Index: i}
 				}
-				seenCalls[callID] = i
 				open[callID] = i
 			}
 		case coreconversation.ItemToolResult:
@@ -201,10 +198,6 @@ func ValidateContinuity(items []coreconversation.Item, opts ValidateOptions) err
 			if _, ok := open[callID]; !ok {
 				return ContinuityError{Reason: "tool result without open assistant tool call", CallID: callID, Index: i}
 			}
-			if prior, ok := seenResults[callID]; ok {
-				return ContinuityError{Reason: fmt.Sprintf("duplicate tool result first_item_index=%d", prior), CallID: callID, Index: i}
-			}
-			seenResults[callID] = i
 			delete(open, callID)
 		default:
 			if len(open) > 0 {

@@ -292,6 +292,40 @@ func TestProjectFullReplayAllowsParallelToolCallOutputsBeforeResults(t *testing.
 	}
 }
 
+func TestProjectFullReplayAllowsReusedProviderCallIDAfterResult(t *testing.T) {
+	ctx := context.Background()
+	store := newThreadStore(t)
+	ref := createThread(t, ctx, store)
+	provider := coreconversation.ProviderIdentity{Provider: "openrouter", API: "openrouter.responses", Family: "responses", Model: "moonshotai/kimi-k2"}
+	callID := "functions.file_read:14"
+	items := []coreconversation.Item{
+		{Provider: provider, Kind: coreconversation.ItemOutput, CallID: callID, Name: "file_read"},
+		{Provider: provider, Kind: coreconversation.ItemToolResult, CallID: callID, Name: "file_read", Content: "first"},
+		{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "read again"},
+		{Provider: provider, Kind: coreconversation.ItemOutput, CallID: callID, Name: "file_read"},
+		{Provider: provider, Kind: coreconversation.ItemToolResult, CallID: callID, Name: "file_read", Content: "second"},
+	}
+	if err := Append(ctx, store, ref, "turn-1", provider, items); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+	snapshot, err := store.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+
+	result, err := Project(ProjectionInput{
+		Thread:   snapshot,
+		Provider: provider,
+		Mode:     coreconversation.ProjectionFullReplay,
+	})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(result.Items) != len(items) {
+		t.Fatalf("items = %#v, want both completed tool-call pairs", result.Items)
+	}
+}
+
 func TestProjectFullReplayKeepsProviderPrefixedModelToolCall(t *testing.T) {
 	ctx := context.Background()
 	store := newThreadStore(t)
@@ -350,6 +384,20 @@ func TestValidateContinuityRejectsInvalidAndMissingCalls(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "missing provider call id") {
 		t.Fatalf("error = %v, want missing provider call id", err)
+	}
+}
+
+func TestValidateContinuityRejectsDuplicateOpenCallID(t *testing.T) {
+	provider := coreconversation.ProviderIdentity{Provider: "openrouter", API: "openrouter.responses", Model: "moonshotai/kimi-k2"}
+	err := ValidateContinuity([]coreconversation.Item{
+		{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "functions.file_read:14", Name: "file_read"},
+		{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "functions.file_read:14", Name: "file_read"},
+	}, ValidateOptions{Provider: provider})
+	if err == nil {
+		t.Fatal("ValidateContinuity succeeded, want duplicate open call id error")
+	}
+	if !strings.Contains(err.Error(), "duplicate open assistant tool call") {
+		t.Fatalf("error = %v, want duplicate open assistant tool call", err)
 	}
 }
 

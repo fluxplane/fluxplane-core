@@ -125,6 +125,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Normalized provider-prefixed model identities during provider transcript
   projection so OpenRouter tool calls such as `openrouter/...` models remain
   paired with their tool results.
+- Allowed providers that reuse call IDs after completed tool-call/result pairs
+  to project and compact conversation transcripts without false duplicate-call
+  continuity failures.
 - Restored the OpenAI-compatible streaming idle timeout default to 90 seconds.
 
 ### Documentation
