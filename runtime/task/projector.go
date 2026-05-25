@@ -258,16 +258,28 @@ func ReadySteps(state State) []coretask.Step {
 }
 
 // AllStepsTerminal reports whether the current execution has no runnable or
-// running steps left.
+// running steps left. A waiting step whose dependency path is permanently
+// blocked (every upstream is failed, cancelled, or skipped) counts as
+// terminal because it can never be dispatched.
 func AllStepsTerminal(state State) bool {
 	exec, ok := state.Executions[state.CurrentExecution]
 	if !ok || len(state.Task.Steps) == 0 {
 		return false
 	}
 	for _, step := range state.Task.Steps {
-		if !coretask.StepTerminal(exec.Steps[step.ID].Status) {
-			return false
+		stepExec := exec.Steps[step.ID]
+		if coretask.StepTerminal(stepExec.Status) {
+			continue
 		}
+		// A waiting (or uninitialised) step is permanently stuck when at least
+		// one of its declared dependencies has already terminated without
+		// completing successfully. Treat it as terminal so callers do not spin
+		// waiting for a cancellation event that may arrive asynchronously.
+		if (stepExec.Status == coretask.StepStatusWaiting || stepExec.Status == "") &&
+			hasBlockedDependency(step, exec) {
+			continue
+		}
+		return false
 	}
 	return true
 }
@@ -380,6 +392,19 @@ func dependenciesCompleted(step coretask.Step, exec coretask.Execution) bool {
 		}
 	}
 	return true
+}
+
+// hasBlockedDependency reports whether any direct dependency of step has
+// terminated in a non-completed state (failed, cancelled, or skipped),
+// meaning the step can never be dispatched.
+func hasBlockedDependency(step coretask.Step, exec coretask.Execution) bool {
+	for _, dep := range step.DependsOn {
+		switch exec.Steps[dep].Status {
+		case coretask.StepStatusFailed, coretask.StepStatusCancelled, coretask.StepStatusSkipped:
+			return true
+		}
+	}
+	return false
 }
 
 func ensureExecutionSteps(steps []coretask.Step, existing map[coretask.StepID]coretask.StepExecution) map[coretask.StepID]coretask.StepExecution {

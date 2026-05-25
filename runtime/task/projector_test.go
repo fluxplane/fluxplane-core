@@ -318,6 +318,79 @@ func TestAllStepsTerminalRequiresDeclaredTaskSteps(t *testing.T) {
 	}
 }
 
+// TestAllStepsTerminalWaitingWithFailedDep is the core regression: a waiting
+// step whose direct dependency already failed must not prevent AllStepsTerminal
+// from returning true. Without the fix the executor's finalizeMissingOutputs
+// callback would spin indefinitely waiting for a StepCancelled event.
+func TestAllStepsTerminalWaitingWithFailedDep(t *testing.T) {
+	state := State{
+		Task: coretask.Task{
+			Steps: []coretask.Step{
+				{ID: "a"},
+				{ID: "b", DependsOn: []coretask.StepID{"a"}},
+			},
+		},
+		CurrentExecution: "exec_1",
+		Executions: map[coretask.ExecutionID]coretask.Execution{
+			"exec_1": {ID: "exec_1", Steps: map[coretask.StepID]coretask.StepExecution{
+				"a": {Status: coretask.StepStatusFailed},
+				"b": {Status: coretask.StepStatusWaiting},
+			}},
+		},
+	}
+	if !AllStepsTerminal(state) {
+		t.Fatal("AllStepsTerminal = false, want true: waiting step with failed dep is permanently stuck")
+	}
+}
+
+// TestAllStepsTerminalWaitingNoDepsIsNotTerminal ensures a waiting step with
+// no dependencies (i.e. it is genuinely runnable) is not considered terminal.
+func TestAllStepsTerminalWaitingNoDepsIsNotTerminal(t *testing.T) {
+	state := State{
+		Task: coretask.Task{
+			Steps: []coretask.Step{
+				{ID: "a"},
+				{ID: "b"}, // no DependsOn — still runnable
+			},
+		},
+		CurrentExecution: "exec_1",
+		Executions: map[coretask.ExecutionID]coretask.Execution{
+			"exec_1": {ID: "exec_1", Steps: map[coretask.StepID]coretask.StepExecution{
+				"a": {Status: coretask.StepStatusCompleted},
+				"b": {Status: coretask.StepStatusWaiting},
+			}},
+		},
+	}
+	if AllStepsTerminal(state) {
+		t.Fatal("AllStepsTerminal = true, want false: waiting step with no deps is still runnable")
+	}
+}
+
+// TestAllStepsTerminalCancelledDepIsAlsoBlocked covers a step waiting on a
+// cancelled (not just failed) dependency.
+func TestAllStepsTerminalCancelledDepIsAlsoBlocked(t *testing.T) {
+	state := State{
+		Task: coretask.Task{
+			Steps: []coretask.Step{
+				{ID: "a"},
+				{ID: "b", DependsOn: []coretask.StepID{"a"}},
+				{ID: "c", DependsOn: []coretask.StepID{"b"}},
+			},
+		},
+		CurrentExecution: "exec_1",
+		Executions: map[coretask.ExecutionID]coretask.Execution{
+			"exec_1": {ID: "exec_1", Steps: map[coretask.StepID]coretask.StepExecution{
+				"a": {Status: coretask.StepStatusFailed},
+				"b": {Status: coretask.StepStatusCancelled},
+				"c": {Status: coretask.StepStatusWaiting},
+			}},
+		},
+	}
+	if !AllStepsTerminal(state) {
+		t.Fatal("AllStepsTerminal = false, want true: step c waiting on cancelled dep b is permanently stuck")
+	}
+}
+
 func TestProjectReconcilesExecutionStepsOnRevision(t *testing.T) {
 	base := time.Unix(1700000000, 0).UTC()
 	state := Project([]event.Record{
