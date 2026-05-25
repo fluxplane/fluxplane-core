@@ -6,12 +6,34 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	_ "github.com/go-sql-driver/mysql"
 	tc_mysql "github.com/testcontainers/testcontainers-go/modules/mysql"
 	_ "modernc.org/sqlite"
 )
+
+func TestNormalizedIndexValuePreservesUTF8RuneBoundaries(t *testing.T) {
+	// Build a string whose 191-byte truncation lands in the middle of a 3-byte
+	// rune. "ä" is 2 bytes (0xc3 0xa4), "€" is 3 bytes (0xe2 0x82 0xac).
+	// Construct 189 ASCII bytes + one 3-byte rune so byte 191 sits inside it.
+	value := strings.Repeat("a", 189) + "€" + strings.Repeat("b", 10)
+	if len(value) <= 191 {
+		t.Fatalf("test setup: input %d bytes, want >191", len(value))
+	}
+	got := normalizedIndexValue(value)
+	if !utf8.ValidString(got) {
+		t.Fatalf("normalizedIndexValue produced invalid UTF-8: %q", got)
+	}
+	if len(got) > 191 {
+		t.Fatalf("normalizedIndexValue length = %d, want <= 191", len(got))
+	}
+	// The truncation must drop the partial "€"; the result should end at byte 189.
+	if got != strings.Repeat("a", 189) {
+		t.Fatalf("normalizedIndexValue = %q, want %d 'a's followed by no partial rune", got, 189)
+	}
+}
 
 func TestSQLiteStoreImplementsCoreDataStore(t *testing.T) {
 	ctx := context.Background()

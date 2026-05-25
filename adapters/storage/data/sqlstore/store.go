@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 )
@@ -812,7 +813,11 @@ func normalizedIndexValue(value string) string {
 	if len(value) <= 191 {
 		return value
 	}
-	return value[:191]
+	limit := 191
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+	return value[:limit]
 }
 
 func sortedFilterNames(filters map[string]string) []string {

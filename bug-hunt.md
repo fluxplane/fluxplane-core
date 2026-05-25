@@ -125,3 +125,27 @@ session. One bug per iteration: find → reproduce → fix → commit.
 - **Regression test:** `TestCallbackHandlerDoesNotBlockOnSecondCallback`
   drives five concurrent callbacks at the handler and asserts they all
   complete and exactly one result is delivered.
+- **Commit:** `087229c` — "fix: stop oauth2flow callbackHandler from blocking on a second callback".
+
+## Iteration 8 — `normalizedIndexValue` truncates UTF-8 in the middle of a rune
+
+- **Where:** `adapters/storage/data/sqlstore/store.go` `normalizedIndexValue`.
+- **Bug:** When the normalized value exceeded 191 bytes, the function
+  returned `value[:191]` unconditionally. If byte 191 fell inside a
+  multi-byte UTF-8 rune (e.g. `"€"` is 3 bytes), the result was an
+  invalid UTF-8 string ending in a dangling continuation byte.
+- **Impact:** This value gets written to `data_store_record_field.value_norm`
+  and compared against in WHERE clauses for filter queries. A MySQL
+  column with utf8mb4 charset rejects invalid sequences (strict mode)
+  or silently replaces them, putting the INSERT and SEARCH paths
+  out of sync — searches stop finding rows whose normalized value
+  was truncated.
+- **Reproduction:** A 200-byte input shaped `"aaa…aaa€bbb…"` with the
+  `€` placed so byte 191 is inside it. Old code returns
+  `"a"×189 + 0xe2 0x82` (invalid UTF-8); new code returns `"a"×189`.
+- **Fix:** Scan backwards from byte 191 to the nearest `utf8.RuneStart`
+  byte and truncate there, so the result never ends inside a rune.
+- **Regression test:** `TestNormalizedIndexValuePreservesUTF8RuneBoundaries`
+  feeds the multi-byte-boundary input and checks `utf8.ValidString` plus
+  the expected byte length. Verified to fail on the old code
+  (`invalid UTF-8: "...\xe2\x82"`).
