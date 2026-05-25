@@ -37,7 +37,7 @@ var (
 	ErrStreamIdleTimeout = errors.New("openai: stream idle timeout")
 )
 
-const defaultStreamIdleTimeout = 90 * time.Second
+const defaultStreamIdleTimeout = 5 * time.Minute
 
 // Config configures an OpenAI Responses API backed model.
 type Config struct {

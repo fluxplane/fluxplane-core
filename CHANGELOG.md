@@ -56,6 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider.
 
 ### Changed
+- Increased the OpenAI-compatible Responses stream idle watchdog default from
+  90 seconds to 5 minutes so long silent reasoning phases do not fail active
+  Codex/OpenAI turns prematurely.
 - Made the distribution REPL collect continuation lines for slash commands with
   open quotes so pasted multi-line prompts are submitted as one command instead
   of being split into command errors and normal chat input.

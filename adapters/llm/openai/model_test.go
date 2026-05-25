@@ -151,6 +151,27 @@ func TestResponseParamsCacheAutoIsProviderNeutral(t *testing.T) {
 	}
 }
 
+func TestResponsesRuntimeDefaultStreamIdleTimeoutAllowsLongReasoningGaps(t *testing.T) {
+	cfg := DefaultResponsesRuntimeConfig()
+	if cfg.StreamIdleTimeout != 5*time.Minute {
+		t.Fatalf("default stream idle timeout = %s, want 5m", cfg.StreamIdleTimeout)
+	}
+	if got := (ResponsesRuntimeConfig{}).withDefaults().StreamIdleTimeout; got != 5*time.Minute {
+		t.Fatalf("withDefaults stream idle timeout = %s, want 5m", got)
+	}
+}
+
+func TestResponsesRuntimePreservesExplicitStreamIdleTimeout(t *testing.T) {
+	cfg := ResponsesRuntimeConfig{StreamIdleTimeout: 30 * time.Second}.withDefaults()
+	if cfg.StreamIdleTimeout != 30*time.Second {
+		t.Fatalf("stream idle timeout = %s, want explicit 30s", cfg.StreamIdleTimeout)
+	}
+	disabled := ResponsesRuntimeConfig{StreamIdleTimeout: -1}.withDefaults()
+	if disabled.StreamIdleTimeout != -1 {
+		t.Fatalf("stream idle timeout = %s, want explicit disabled value", disabled.StreamIdleTimeout)
+	}
+}
+
 func TestResponseParamsAppliesReasoningEffort(t *testing.T) {
 	model, err := New(Config{Model: "gpt-5.5", ReasoningEffort: "minimal", ReasoningSummary: "concise"})
 	if err != nil {
