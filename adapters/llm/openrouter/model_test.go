@@ -28,6 +28,18 @@ func TestNewUsesOpenRouterIdentityAndDefaults(t *testing.T) {
 	}
 }
 
+func TestNewNormalizesProviderPrefixedModelIdentity(t *testing.T) {
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	model, err := New(Config{Model: "openrouter/moonshotai/kimi-k2"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	identity := model.ProviderIdentity(llmagent.Request{})
+	if identity.Provider != "openrouter" || identity.Model != "moonshotai/kimi-k2" {
+		t.Fatalf("identity = %#v, want normalized openrouter model", identity)
+	}
+}
+
 func TestNewAllowsRuntimeOverride(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	model, err := New(Config{

@@ -3066,12 +3066,13 @@ func (s Session) providerIdentity() coreconversation.ProviderIdentity {
 func normalizeProviderModel(provider, model string) (string, string) {
 	provider = strings.TrimSpace(provider)
 	model = strings.TrimSpace(model)
+	if provider != "" {
+		return coreconversation.NormalizeProviderModel(provider, model)
+	}
 	if before, after, ok := strings.Cut(model, "/"); ok && before != "" && after != "" {
 		switch {
-		case provider == "" && knownModelProviderPrefix(before):
+		case knownModelProviderPrefix(before):
 			return before, after
-		case provider != "" && before == provider:
-			return provider, after
 		}
 	}
 	return provider, model

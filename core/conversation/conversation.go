@@ -20,7 +20,15 @@ type ProviderIdentity struct {
 // Compatible reports whether continuation recorded under c can be used for
 // requested. Empty fields act as wildcards.
 func (c ProviderIdentity) Compatible(requested ProviderIdentity) bool {
-	if !compatibleField(c.Provider, requested.Provider) {
+	recordedProvider, recordedModel := NormalizeProviderModel(c.Provider, c.Model)
+	requestedProvider, requestedModel := NormalizeProviderModel(requested.Provider, requested.Model)
+	if recordedProvider == "" && requestedProvider != "" {
+		_, recordedModel = NormalizeProviderModel(requestedProvider, recordedModel)
+	}
+	if requestedProvider == "" && recordedProvider != "" {
+		_, requestedModel = NormalizeProviderModel(recordedProvider, requestedModel)
+	}
+	if !compatibleField(recordedProvider, requestedProvider) {
 		return false
 	}
 	if !compatibleAPI(c.API, requested.API) {
@@ -29,7 +37,19 @@ func (c ProviderIdentity) Compatible(requested ProviderIdentity) bool {
 	if !compatibleAPI(c.Family, requested.Family) {
 		return false
 	}
-	return compatibleField(c.Model, requested.Model)
+	return compatibleField(recordedModel, requestedModel)
+}
+
+// NormalizeProviderModel strips a leading provider prefix from a model name
+// when the provider is already represented separately.
+func NormalizeProviderModel(provider, model string) (string, string) {
+	provider = strings.TrimSpace(provider)
+	model = strings.TrimSpace(model)
+	before, after, ok := strings.Cut(model, "/")
+	if ok && before == provider && after != "" {
+		return provider, after
+	}
+	return provider, model
 }
 
 func compatibleField(a, b string) bool {

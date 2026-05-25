@@ -292,6 +292,49 @@ func TestProjectFullReplayAllowsParallelToolCallOutputsBeforeResults(t *testing.
 	}
 }
 
+func TestProjectFullReplayKeepsProviderPrefixedModelToolCall(t *testing.T) {
+	ctx := context.Background()
+	store := newThreadStore(t)
+	ref := createThread(t, ctx, store)
+	provider := coreconversation.ProviderIdentity{Provider: "openrouter", API: "openrouter.responses", Family: "responses", Model: "moonshotai/kimi-k2"}
+	callProvider := coreconversation.ProviderIdentity{Provider: "openrouter", API: "openrouter.responses", Family: "responses", Model: "openrouter/moonshotai/kimi-k2"}
+	callID := "functions.file_edit:17"
+	items := []coreconversation.Item{
+		{
+			Provider: callProvider,
+			Kind:     coreconversation.ItemOutput,
+			CallID:   callID,
+			Name:     "file_edit",
+			ToolCalls: []coreconversation.ToolCallRef{{
+				CallID: callID,
+				Name:   "file_edit",
+				Type:   "function_call",
+				Input:  `{"path":"README.md"}`,
+			}},
+		},
+		{Provider: provider, Kind: coreconversation.ItemToolResult, CallID: callID, Name: "file_edit", Content: "ok"},
+	}
+	if err := Append(ctx, store, ref, "turn-1", provider, items); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+	snapshot, err := store.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+
+	result, err := Project(ProjectionInput{
+		Thread:   snapshot,
+		Provider: provider,
+		Mode:     coreconversation.ProjectionFullReplay,
+	})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(result.Items) != 2 || result.Items[0].Kind != coreconversation.ItemOutput || result.Items[1].Kind != coreconversation.ItemToolResult {
+		t.Fatalf("items = %#v, want tool call and matching result", result.Items)
+	}
+}
+
 func TestValidateContinuityRejectsInvalidAndMissingCalls(t *testing.T) {
 	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Model: "gpt-test"}
 	err := ValidateContinuity([]coreconversation.Item{{

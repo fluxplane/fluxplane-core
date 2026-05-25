@@ -37,7 +37,7 @@ var (
 	ErrStreamIdleTimeout = errors.New("openai: stream idle timeout")
 )
 
-const defaultStreamIdleTimeout = 20 * time.Second
+const defaultStreamIdleTimeout = 90 * time.Second
 
 // Config configures an OpenAI Responses API backed model.
 type Config struct {
@@ -473,11 +473,12 @@ func (m *Model) providerIdentity(model string) coreconversation.ProviderIdentity
 	if api == "" {
 		api = "openai.responses"
 	}
+	provider, normalizedModel := coreconversation.NormalizeProviderModel(m.provider, model)
 	return coreconversation.ProviderIdentity{
-		Provider: m.provider,
+		Provider: provider,
 		API:      api,
 		Family:   "responses",
-		Model:    model,
+		Model:    normalizedModel,
 	}
 }
 

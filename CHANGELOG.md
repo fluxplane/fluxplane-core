@@ -121,6 +121,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed dashed workflow manifest field aliases such as `depends-on`,
   `error-policy`, and `idempotency-key`; use snake_case fields instead.
 
+### Fixed
+- Normalized provider-prefixed model identities during provider transcript
+  projection so OpenRouter tool calls such as `openrouter/...` models remain
+  paired with their tool results.
+- Restored the OpenAI-compatible streaming idle timeout default to 90 seconds.
+
 ### Documentation
 - Reworked the root README around Fluxplane core as the reusable runtime and
   generic `fluxplane` CLI, with `coder` documented as a separate sibling product

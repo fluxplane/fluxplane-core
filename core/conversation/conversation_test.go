@@ -18,6 +18,14 @@ func TestProviderIdentityRejectsModelMismatch(t *testing.T) {
 	}
 }
 
+func TestProviderIdentityCompatibleProviderPrefixedModel(t *testing.T) {
+	recorded := ProviderIdentity{Provider: "openrouter", API: "openrouter.responses", Model: "openrouter/moonshotai/kimi-k2"}
+	requested := ProviderIdentity{Provider: "openrouter", API: "openrouter.responses", Model: "moonshotai/kimi-k2"}
+	if !recorded.Compatible(requested) {
+		t.Fatalf("Compatible = false, want true")
+	}
+}
+
 func TestContinuationHandleSupportsPreviousResponseID(t *testing.T) {
 	handle := ContinuationHandle{
 		Mode:       ContinuationPreviousResponseID,
