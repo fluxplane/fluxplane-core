@@ -161,3 +161,39 @@ func (b *ContributionBundle) Append(other ContributionBundle) {
 	b.Plugins = append(b.Plugins, other.Plugins...)
 	b.Diagnostics = append(b.Diagnostics, other.Diagnostics...)
 }
+
+// CloneContributionBundles shallow-copies contribution bundle slices before
+// callers append or normalize resources in place.
+func CloneContributionBundles(bundles []ContributionBundle) []ContributionBundle {
+	if len(bundles) == 0 {
+		return nil
+	}
+	out := make([]ContributionBundle, len(bundles))
+	for i, bundle := range bundles {
+		out[i] = bundle
+		out[i].Apps = append([]coreapp.Spec(nil), bundle.Apps...)
+		out[i].Agents = append([]agent.Spec(nil), bundle.Agents...)
+		out[i].ActivationSets = append([]activation.Set(nil), bundle.ActivationSets...)
+		out[i].OperationSets = append([]operation.Set(nil), bundle.OperationSets...)
+		out[i].Toolchains = append([]language.ToolchainSpec(nil), bundle.Toolchains...)
+		out[i].ToolSets = append([]tool.Set(nil), bundle.ToolSets...)
+		out[i].Operations = append([]operation.Spec(nil), bundle.Operations...)
+		out[i].Commands = append([]command.Spec(nil), bundle.Commands...)
+		out[i].Datasources = append([]coredatasource.Spec(nil), bundle.Datasources...)
+		out[i].DataSources = append([]coredata.SourceSpec(nil), bundle.DataSources...)
+		out[i].LLMProviders = append([]corellm.ProviderSpec(nil), bundle.LLMProviders...)
+		out[i].LLMModelAliases = append([]corellm.ModelAliasSpec(nil), bundle.LLMModelAliases...)
+		out[i].Sessions = append([]coresession.Spec(nil), bundle.Sessions...)
+		out[i].PostEditChecks = append([]coresession.PostEditCheckSpec(nil), bundle.PostEditChecks...)
+		out[i].Skills = append([]skill.Spec(nil), bundle.Skills...)
+		out[i].ContextProviders = append([]corecontext.ProviderSpec(nil), bundle.ContextProviders...)
+		out[i].Workflows = append([]workflow.Spec(nil), bundle.Workflows...)
+		out[i].Observers = append([]coreevidence.ObserverSpec(nil), bundle.Observers...)
+		out[i].AssertionDerivers = append([]coreevidence.AssertionDeriverSpec(nil), bundle.AssertionDerivers...)
+		out[i].Reactions = append([]reaction.Rule(nil), bundle.Reactions...)
+		out[i].EventTypes = append([]event.Event(nil), bundle.EventTypes...)
+		out[i].Plugins = append([]PluginRef(nil), bundle.Plugins...)
+		out[i].Diagnostics = append([]Diagnostic(nil), bundle.Diagnostics...)
+	}
+	return out
+}

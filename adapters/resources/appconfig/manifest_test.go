@@ -194,6 +194,53 @@ plugins:
 	}
 }
 
+func TestDecodeResourceFragmentIgnoresProductFields(t *testing.T) {
+	bundle, err := DecodeResourceFragment(".coder.yaml", []byte(`
+version: 1
+workspace:
+  env_files: [.env]
+commands:
+  - name: local_check
+    target:
+      workflow: check_namespace_logs
+      input:
+        namespace: default
+observations:
+  observers:
+    - name: kubernetes.context
+      phase: turn
+  assertion_derivers:
+    - name: kubernetes.assertions
+      observation_kinds: [kubernetes.context]
+      assertions:
+        - kind: integration.available
+          target: kubernetes
+reactions:
+  - name: kubernetes.available
+    when:
+      assertion: integration.available
+      target: kubernetes
+    actions:
+      - kind: enable_activation_set
+        activation_set: coder.task_batch_monitor
+`))
+	if err != nil {
+		t.Fatalf("DecodeResourceFragment: %v", err)
+	}
+	if len(bundle.Commands) != 1 || bundle.Commands[0].Path.String() != "/local_check" {
+		t.Fatalf("commands = %#v, want local_check", bundle.Commands)
+	}
+	if len(bundle.Observers) != 1 || bundle.Observers[0].Name != "kubernetes.context" {
+		t.Fatalf("observers = %#v, want kubernetes.context", bundle.Observers)
+	}
+	if len(bundle.AssertionDerivers) != 1 || bundle.AssertionDerivers[0].Name != "kubernetes.assertions" {
+		t.Fatalf("assertion derivers = %#v, want kubernetes.assertions", bundle.AssertionDerivers)
+	}
+	if len(bundle.Reactions) != 1 || bundle.Reactions[0].Actions[0].ActivationSet != "coder.task_batch_monitor" {
+		t.Fatalf("reactions = %#v, want activation reaction", bundle.Reactions)
+	}
+}
+
 func TestDecodeManifestPreservesScalarShorthands(t *testing.T) {
 	bundle, err := DecodeManifest("fluxplane.yaml", []byte(`
 name: engineer

@@ -87,6 +87,54 @@ type WorkspaceRoot struct {
 	EnvFiles []string
 }
 
+// CloneWorkspaceConfig copies a workspace config deeply enough for callers to
+// append roots and env files without mutating the source config.
+func CloneWorkspaceConfig(cfg WorkspaceConfig) WorkspaceConfig {
+	return WorkspaceConfig{
+		Roots:       CloneWorkspaceRoots(cfg.Roots),
+		ScratchRoot: strings.TrimSpace(cfg.ScratchRoot),
+		EnvFiles:    append([]string(nil), cfg.EnvFiles...),
+	}
+}
+
+// CloneWorkspaceRoots copies workspace roots, including each root's env files.
+func CloneWorkspaceRoots(roots []WorkspaceRoot) []WorkspaceRoot {
+	if len(roots) == 0 {
+		return nil
+	}
+	out := make([]WorkspaceRoot, 0, len(roots))
+	for _, root := range roots {
+		root.EnvFiles = append([]string(nil), root.EnvFiles...)
+		out = append(out, root)
+	}
+	return out
+}
+
+// MergeWorkspaceConfig overlays request-time workspace fields onto defaults.
+func MergeWorkspaceConfig(base, override WorkspaceConfig) WorkspaceConfig {
+	out := CloneWorkspaceConfig(base)
+	out.Roots = append(out.Roots, CloneWorkspaceRoots(override.Roots)...)
+	out.EnvFiles = append(out.EnvFiles, override.EnvFiles...)
+	if strings.TrimSpace(override.ScratchRoot) != "" {
+		out.ScratchRoot = strings.TrimSpace(override.ScratchRoot)
+	}
+	return out
+}
+
+// TrimStrings trims values and drops empty entries.
+func TrimStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
 // ParseWorkspaceRoots parses repeated local workspace root flag values. Values
 // may be PATH or NAME=PATH. Unnamed roots are assigned names from the path base.
 func ParseWorkspaceRoots(values []string) ([]WorkspaceRoot, error) {

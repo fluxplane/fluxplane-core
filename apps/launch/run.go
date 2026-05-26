@@ -1130,28 +1130,7 @@ func pluginRefs(bundles []resource.ContributionBundle) []resource.PluginRef {
 }
 
 func cloneBundles(bundles []resource.ContributionBundle) []resource.ContributionBundle {
-	out := make([]resource.ContributionBundle, len(bundles))
-	for i, bundle := range bundles {
-		out[i] = bundle
-		out[i].Apps = append(out[i].Apps[:0:0], bundle.Apps...)
-		out[i].Agents = append(out[i].Agents[:0:0], bundle.Agents...)
-		out[i].ActivationSets = append(out[i].ActivationSets[:0:0], bundle.ActivationSets...)
-		out[i].OperationSets = append(out[i].OperationSets[:0:0], bundle.OperationSets...)
-		out[i].ToolSets = append(out[i].ToolSets[:0:0], bundle.ToolSets...)
-		out[i].Operations = append(out[i].Operations[:0:0], bundle.Operations...)
-		out[i].Commands = append(out[i].Commands[:0:0], bundle.Commands...)
-		out[i].Datasources = append(out[i].Datasources[:0:0], bundle.Datasources...)
-		out[i].DataSources = append(out[i].DataSources[:0:0], bundle.DataSources...)
-		out[i].Sessions = append(out[i].Sessions[:0:0], bundle.Sessions...)
-		out[i].PostEditChecks = append(out[i].PostEditChecks[:0:0], bundle.PostEditChecks...)
-		out[i].Skills = append(out[i].Skills[:0:0], bundle.Skills...)
-		out[i].ContextProviders = append(out[i].ContextProviders[:0:0], bundle.ContextProviders...)
-		out[i].Workflows = append(out[i].Workflows[:0:0], bundle.Workflows...)
-		out[i].EventTypes = append(out[i].EventTypes[:0:0], bundle.EventTypes...)
-		out[i].Plugins = append(out[i].Plugins[:0:0], bundle.Plugins...)
-		out[i].Diagnostics = append(out[i].Diagnostics[:0:0], bundle.Diagnostics...)
-	}
-	return out
+	return resource.CloneContributionBundles(bundles)
 }
 
 func appendBundleEventTypes(base []event.Event, bundles []resource.ContributionBundle) []event.Event {

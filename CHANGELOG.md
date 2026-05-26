@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added public helpers for cloning contribution bundles, merging workspace
+  launch configs, deriving core datasource catalog specs from plugin data sources,
+  decoding resource fragments, and contributing a native interruptible sleep
+  plugin.
 - Added shared session-run orchestration for fresh-context helper session
   executions and a native `/loop` session command plugin for repeating prompts
   sequentially.

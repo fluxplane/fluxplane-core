@@ -148,6 +148,46 @@ func DecodeManifest(path string, data []byte) (resource.ContributionBundle, erro
 	return file.Bundle, nil
 }
 
+// DecodeResourceFragment decodes reusable resource lists from a product-owned
+// configuration file. Unknown top-level fields are ignored so product-specific
+// settings can live beside commands, observations, and reactions.
+func DecodeResourceFragment(path string, data []byte) (resource.ContributionBundle, error) {
+	bundle := resource.ContributionBundle{Source: manifestSource(path)}
+	docs, err := decodeDocuments(data)
+	if err != nil {
+		return resource.ContributionBundle{}, fmt.Errorf("appconfig: decode resource fragment %s: %w", filepath.Clean(path), err)
+	}
+	for _, doc := range docs {
+		raw, ok := documentPayloadValue(doc.Value).(map[string]any)
+		if !ok {
+			continue
+		}
+		if value, ok := raw["commands"]; ok {
+			commands, err := decodeCommandList(value)
+			if err != nil {
+				return resource.ContributionBundle{}, err
+			}
+			bundle.Commands = append(bundle.Commands, commands...)
+		}
+		if value, ok := raw["observations"]; ok {
+			observations, err := decodeObservations(value)
+			if err != nil {
+				return resource.ContributionBundle{}, err
+			}
+			bundle.Observers = append(bundle.Observers, observations.Observers...)
+			bundle.AssertionDerivers = append(bundle.AssertionDerivers, observations.AssertionDerivers...)
+		}
+		if value, ok := raw["reactions"]; ok {
+			reactions, err := decodeReactionList(value)
+			if err != nil {
+				return resource.ContributionBundle{}, err
+			}
+			bundle.Reactions = append(bundle.Reactions, reactions...)
+		}
+	}
+	return bundle, nil
+}
+
 // File is the complete app configuration file shape after decoding.
 type File struct {
 	Path           string
@@ -438,6 +478,56 @@ func decodeReactionDocument(value any, state *manifestDecodeState) error {
 	}
 	state.Bundle.Reactions = append(state.Bundle.Reactions, spec)
 	return nil
+}
+
+func decodeCommandList(value any) ([]command.Spec, error) {
+	var docs []commandDoc
+	if err := decodeDocumentValue(value, &docs); err != nil {
+		return nil, fmt.Errorf("appconfig: decode commands: %w", err)
+	}
+	commands := make([]command.Spec, 0, len(docs))
+	for i, doc := range docs {
+		spec, err := doc.Spec()
+		if err != nil {
+			return nil, fmt.Errorf("appconfig: validate commands[%d]: %w", i, err)
+		}
+		commands = append(commands, spec)
+	}
+	return commands, nil
+}
+
+func decodeObservations(value any) (observationsDoc, error) {
+	var doc observationsDoc
+	if err := decodeDocumentValue(value, &doc); err != nil {
+		return observationsDoc{}, fmt.Errorf("appconfig: decode observations: %w", err)
+	}
+	for i, observer := range doc.Observers {
+		if strings.TrimSpace(observer.Name) == "" {
+			return observationsDoc{}, fmt.Errorf("appconfig: validate observations.observers[%d]: name is empty", i)
+		}
+	}
+	for i, deriver := range doc.AssertionDerivers {
+		if strings.TrimSpace(deriver.Name) == "" {
+			return observationsDoc{}, fmt.Errorf("appconfig: validate observations.assertion_derivers[%d]: name is empty", i)
+		}
+	}
+	return doc, nil
+}
+
+func decodeReactionList(value any) ([]corereaction.Rule, error) {
+	var docs []reactionDoc
+	if err := decodeDocumentValue(value, &docs); err != nil {
+		return nil, fmt.Errorf("appconfig: decode reactions: %w", err)
+	}
+	reactions := make([]corereaction.Rule, 0, len(docs))
+	for i, doc := range docs {
+		rule := doc.Spec()
+		if err := rule.Validate(); err != nil {
+			return nil, fmt.Errorf("appconfig: validate reactions[%d]: %w", i, err)
+		}
+		reactions = append(reactions, rule)
+	}
+	return reactions, nil
 }
 
 func decodeLLMProviderDocument(value any, state *manifestDecodeState) error {

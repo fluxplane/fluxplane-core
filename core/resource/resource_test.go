@@ -58,3 +58,26 @@ func TestContributionBundleAppendObservationReactionFields(t *testing.T) {
 		t.Fatalf("post edit checks = %#v", bundle.PostEditChecks)
 	}
 }
+
+func TestCloneContributionBundlesCopiesResourceSlices(t *testing.T) {
+	original := []ContributionBundle{{
+		Operations: []operation.Spec{{Ref: operation.Ref{Name: "sleep"}}},
+		Observers:  []evidence.ObserverSpec{{Name: "kubernetes.context"}},
+		Reactions:  []reaction.Rule{{Name: "kubernetes.available"}},
+	}}
+
+	cloned := CloneContributionBundles(original)
+	cloned[0].Operations[0].Ref.Name = "changed"
+	cloned[0].Observers[0].Name = "changed"
+	cloned[0].Reactions[0].Name = "changed"
+
+	if original[0].Operations[0].Ref.Name != "sleep" {
+		t.Fatalf("operation mutated original: %#v", original[0].Operations)
+	}
+	if original[0].Observers[0].Name != "kubernetes.context" {
+		t.Fatalf("observer mutated original: %#v", original[0].Observers)
+	}
+	if original[0].Reactions[0].Name != "kubernetes.available" {
+		t.Fatalf("reaction mutated original: %#v", original[0].Reactions)
+	}
+}
