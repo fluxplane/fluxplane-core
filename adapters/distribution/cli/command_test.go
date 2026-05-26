@@ -157,9 +157,9 @@ func TestCommandPropagatesReasoningFlags(t *testing.T) {
 	runtime := &captureRuntime{}
 	cmd := NewCommand(distribution.Distribution{
 		Spec: coredistribution.Spec{
-			Name:                "coder",
-			DefaultSession:      coresession.Ref{Name: "coder"},
-			DefaultConversation: channel.ConversationRef{ID: "coder"},
+			Name:                "assistant",
+			DefaultSession:      coresession.Ref{Name: "assistant"},
+			DefaultConversation: channel.ConversationRef{ID: "assistant"},
 		},
 		Runtime: runtime,
 	})
@@ -180,9 +180,9 @@ func TestCommandPropagatesYoloFlag(t *testing.T) {
 	runtime := &captureRuntime{}
 	cmd := NewCommand(distribution.Distribution{
 		Spec: coredistribution.Spec{
-			Name:                "coder",
-			DefaultSession:      coresession.Ref{Name: "coder"},
-			DefaultConversation: channel.ConversationRef{ID: "coder"},
+			Name:                "assistant",
+			DefaultSession:      coresession.Ref{Name: "assistant"},
+			DefaultConversation: channel.ConversationRef{ID: "assistant"},
 		},
 		Runtime: runtime,
 	})
@@ -203,9 +203,9 @@ func TestCommandPropagatesWorkspaceRootFlags(t *testing.T) {
 	runtime := &captureRuntime{}
 	cmd := NewCommand(distribution.Distribution{
 		Spec: coredistribution.Spec{
-			Name:                "coder",
-			DefaultSession:      coresession.Ref{Name: "coder"},
-			DefaultConversation: channel.ConversationRef{ID: "coder"},
+			Name:                "assistant",
+			DefaultSession:      coresession.Ref{Name: "assistant"},
+			DefaultConversation: channel.ConversationRef{ID: "assistant"},
 		},
 		Runtime: runtime,
 	})
@@ -227,9 +227,9 @@ func TestCommandPreservesStructuredWorkspaceDefaults(t *testing.T) {
 	runtime := &captureRuntime{}
 	cmd := NewCommandWithOptions(distribution.Distribution{
 		Spec: coredistribution.Spec{
-			Name:                "coder",
-			DefaultSession:      coresession.Ref{Name: "coder"},
-			DefaultConversation: channel.ConversationRef{ID: "coder"},
+			Name:                "assistant",
+			DefaultSession:      coresession.Ref{Name: "assistant"},
+			DefaultConversation: channel.ConversationRef{ID: "assistant"},
 		},
 		Runtime: runtime,
 	}, CommandOptions{
@@ -268,9 +268,9 @@ func TestCommandPropagatesEnvFileFlagsToRootWorkspace(t *testing.T) {
 	runtime := &captureRuntime{}
 	cmd := NewCommand(distribution.Distribution{
 		Spec: coredistribution.Spec{
-			Name:                "coder",
-			DefaultSession:      coresession.Ref{Name: "coder"},
-			DefaultConversation: channel.ConversationRef{ID: "coder"},
+			Name:                "assistant",
+			DefaultSession:      coresession.Ref{Name: "assistant"},
+			DefaultConversation: channel.ConversationRef{ID: "assistant"},
 		},
 		Runtime: runtime,
 	})
@@ -292,9 +292,9 @@ func TestCommandDoesNotSetDefaultEffort(t *testing.T) {
 	runtime := &captureRuntime{}
 	cmd := NewCommand(distribution.Distribution{
 		Spec: coredistribution.Spec{
-			Name:                "coder",
-			DefaultSession:      coresession.Ref{Name: "coder"},
-			DefaultConversation: channel.ConversationRef{ID: "coder"},
+			Name:                "assistant",
+			DefaultSession:      coresession.Ref{Name: "assistant"},
+			DefaultConversation: channel.ConversationRef{ID: "assistant"},
 		},
 		Runtime: runtime,
 	})
@@ -318,9 +318,9 @@ func TestRunREPLHandlesUIReasoningLocally(t *testing.T) {
 
 	err := Run(context.Background(), distribution.Distribution{
 		Spec: coredistribution.Spec{
-			Name:                "coder",
-			DefaultSession:      coresession.Ref{Name: "coder"},
-			DefaultConversation: channel.ConversationRef{ID: "coder"},
+			Name:                "assistant",
+			DefaultSession:      coresession.Ref{Name: "assistant"},
+			DefaultConversation: channel.ConversationRef{ID: "assistant"},
 		},
 		Runtime: runtime,
 	}, RunOptions{
@@ -347,9 +347,9 @@ func TestRunREPLCollectsSlashCommandContinuationLines(t *testing.T) {
 
 	err := Run(context.Background(), distribution.Distribution{
 		Spec: coredistribution.Spec{
-			Name:                "coder",
-			DefaultSession:      coresession.Ref{Name: "coder"},
-			DefaultConversation: channel.ConversationRef{ID: "coder"},
+			Name:                "assistant",
+			DefaultSession:      coresession.Ref{Name: "assistant"},
+			DefaultConversation: channel.ConversationRef{ID: "assistant"},
 		},
 		Runtime: runtime,
 	}, RunOptions{
@@ -379,7 +379,7 @@ func TestRunREPLCollectsSlashCommandContinuationLines(t *testing.T) {
 	if strings.Contains(errOut.String(), "unterminated quoted string") {
 		t.Fatalf("err = %q, want no unterminated quote error", errOut.String())
 	}
-	if !strings.Contains(out.String(), "coder... ") {
+	if !strings.Contains(out.String(), "assistant... ") {
 		t.Fatalf("out = %q, want continuation prompt", out.String())
 	}
 }
@@ -395,9 +395,9 @@ func TestRunREPLUsesPerTurnCancelableContext(t *testing.T) {
 	go func() {
 		done <- Run(ctx, distribution.Distribution{
 			Spec: coredistribution.Spec{
-				Name:                "coder",
-				DefaultSession:      coresession.Ref{Name: "coder"},
-				DefaultConversation: channel.ConversationRef{ID: "coder"},
+				Name:                "assistant",
+				DefaultSession:      coresession.Ref{Name: "assistant"},
+				DefaultConversation: channel.ConversationRef{ID: "assistant"},
 			},
 			Runtime: runtime,
 		}, RunOptions{
@@ -428,7 +428,7 @@ func TestRunREPLUsesPerTurnCancelableContext(t *testing.T) {
 }
 
 func TestCommandRejectsInvalidEffort(t *testing.T) {
-	cmd := NewCommand(distribution.Distribution{Spec: coredistribution.Spec{Name: "coder"}})
+	cmd := NewCommand(distribution.Distribution{Spec: coredistribution.Spec{Name: "assistant"}})
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--input", "hello", "--effort", "extreme"})
@@ -444,9 +444,9 @@ func TestRunGoalSubmitsGoalCommand(t *testing.T) {
 	runtime := &sessionRuntime{session: session}
 	err := Run(context.Background(), distribution.Distribution{
 		Spec: coredistribution.Spec{
-			Name:                "coder",
-			DefaultSession:      coresession.Ref{Name: "coder"},
-			DefaultConversation: channel.ConversationRef{ID: "coder"},
+			Name:                "assistant",
+			DefaultSession:      coresession.Ref{Name: "assistant"},
+			DefaultConversation: channel.ConversationRef{ID: "assistant"},
 		},
 		Runtime: runtime,
 	}, RunOptions{
@@ -477,7 +477,7 @@ func TestRunGoalForwardsCommandPayloadWithoutSemanticValidation(t *testing.T) {
 	session := &captureSession{}
 	runtime := &sessionRuntime{session: session}
 	err := Run(context.Background(), distribution.Distribution{
-		Spec:    coredistribution.Spec{Name: "coder"},
+		Spec:    coredistribution.Spec{Name: "assistant"},
 		Runtime: runtime,
 	}, RunOptions{
 		GoalSet: true,

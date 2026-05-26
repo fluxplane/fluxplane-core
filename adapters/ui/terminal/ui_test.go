@@ -722,7 +722,7 @@ func TestRendererRendersSessionRunEvents(t *testing.T) {
 	cause := sessionrun.Causation{
 		ID:            "run-loop:loop:1",
 		ChildThreadID: "thread-child",
-		Profile:       coresession.Ref{Name: "coder"},
+		Profile:       coresession.Ref{Name: "assistant"},
 		Metadata:      map[string]string{"loop_iteration": "1", "loop_count": "3"},
 	}
 	renderer.Render(clientapi.Event{

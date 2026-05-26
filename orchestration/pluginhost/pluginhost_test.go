@@ -153,6 +153,20 @@ func TestHostRejectsInvalidTypedPluginConfig(t *testing.T) {
 	}
 }
 
+func TestConfigMapRoundTripsTypedPluginConfig(t *testing.T) {
+	raw, err := ConfigMap(fakePluginConfig{Prefix: "demo"})
+	if err != nil {
+		t.Fatalf("ConfigMap: %v", err)
+	}
+	cfg, err := DecodeConfig[fakePluginConfig](raw)
+	if err != nil {
+		t.Fatalf("DecodeConfig: %v", err)
+	}
+	if cfg.Prefix != "demo" {
+		t.Fatalf("prefix = %q, want demo", cfg.Prefix)
+	}
+}
+
 func TestHostResolvesDatasourceProviders(t *testing.T) {
 	host, err := New(fakeDatasourceProviderPlugin{name: "docs"})
 	if err != nil {

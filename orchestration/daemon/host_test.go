@@ -39,14 +39,14 @@ func TestHostListConfiguredSessions(t *testing.T) {
 	host, err := New(Config{
 		Client: fakeClient{},
 		SessionCatalog: session.SessionCatalog{
-			"embedded:apps/demo:coder": {
+			"embedded:apps/demo:assistant": {
 				ID: resource.ResourceID{
 					Kind:      "session",
 					Origin:    "embedded",
 					Namespace: resource.NewNamespace("apps/demo"),
-					Name:      "coder",
+					Name:      "assistant",
 				},
-				Spec: coresession.Spec{Name: "coder"},
+				Spec: coresession.Spec{Name: "assistant"},
 			},
 		},
 	})
@@ -60,7 +60,7 @@ func TestHostListConfiguredSessions(t *testing.T) {
 	if len(sessions) != 1 {
 		t.Fatalf("configured sessions len = %d, want 1", len(sessions))
 	}
-	if sessions[0].ID != "embedded:apps/demo:coder" || sessions[0].Spec.Name != "coder" {
+	if sessions[0].ID != "embedded:apps/demo:assistant" || sessions[0].Spec.Name != "assistant" {
 		t.Fatalf("configured sessions = %#v", sessions)
 	}
 }

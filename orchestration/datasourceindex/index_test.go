@@ -418,8 +418,8 @@ func TestBuildFieldsPhaseBatchesDataStoreWritesByCorpusPage(t *testing.T) {
 			},
 			{
 				Ref:      coredatasource.RecordRef{Datasource: "gitlab", Entity: "gitlab.project", ID: "13"},
-				Title:    "coder",
-				Metadata: map[string]string{"name": "coder"},
+				Title:    "assistant",
+				Metadata: map[string]string{"name": "assistant"},
 			},
 		},
 	}

@@ -33,7 +33,7 @@ func (r Runtime) OpenSession(ctx context.Context, req distribution.OpenRequest) 
 		req.Conversation = r.DefaultConversation
 	}
 	if req.Conversation.ID == "" {
-		req.Conversation = channel.ConversationRef{ID: "coder-app-run"}
+		req.Conversation = channel.ConversationRef{ID: "fluxplane-app-run"}
 	}
 	if r.Open == nil {
 		return nil, fmt.Errorf("distribution run: local runtime opener is not configured")

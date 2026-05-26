@@ -29,7 +29,7 @@ func TestResponseParamsUsesRequestModelAndTools(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	_, tools, _, err := model.responseParams(llmagent.Request{
-		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent: agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:  "Say hello.",
 		Tools: []tool.Spec{{
 			Name:        "inspect",
@@ -105,7 +105,7 @@ func TestResponseParamsDefaultsToMaxCaching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	params, _, _, err := model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "coder"}, Goal: "hello"})
+	params, _, _, err := model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "assistant"}, Goal: "hello"})
 	if err != nil {
 		t.Fatalf("responseParams: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestResponseParamsDefaultsToMaxCaching(t *testing.T) {
 		t.Fatalf("marshal params: %v", err)
 	}
 	json := string(raw)
-	for _, want := range []string{`"store":true`, `"prompt_cache_key":"fluxplane:openai:gpt-5.5:coder"`, `"prompt_cache_retention":"24h"`, `"reasoning.encrypted_content"`, `"summary":"auto"`} {
+	for _, want := range []string{`"store":true`, `"prompt_cache_key":"fluxplane:openai:gpt-5.5:assistant"`, `"prompt_cache_retention":"24h"`, `"reasoning.encrypted_content"`, `"summary":"auto"`} {
 		if !strings.Contains(json, want) {
 			t.Fatalf("params json = %s, want %s", json, want)
 		}
@@ -124,7 +124,7 @@ func TestResponseParamsDefaultsToMaxCaching(t *testing.T) {
 func TestPromptCacheKeyPrefersStableConversationKey(t *testing.T) {
 	base := llmagent.Request{
 		ConversationKey: "thread:one:branch:main",
-		Agent:           agent.Spec{Name: "coder", System: "system one"},
+		Agent:           agent.Spec{Name: "assistant", System: "system one"},
 		Goal:            "first prompt",
 	}
 	changedPrompt := llmagent.Request{
@@ -142,13 +142,13 @@ func TestPromptCacheKeyPrefersStableConversationKey(t *testing.T) {
 	}
 	otherBranch := promptCacheKey("codex", "gpt-5.5", llmagent.Request{
 		ConversationKey: "thread:one:branch:review",
-		Agent:           agent.Spec{Name: "coder"},
+		Agent:           agent.Spec{Name: "assistant"},
 	})
 	if otherBranch == first {
 		t.Fatalf("cache key = %q for both branches, want branch-specific key", first)
 	}
-	fallback := promptCacheKey("codex", "gpt-5.5", llmagent.Request{Agent: agent.Spec{Name: "coder"}})
-	if want := "fluxplane:codex:gpt-5.5:coder"; fallback != want {
+	fallback := promptCacheKey("codex", "gpt-5.5", llmagent.Request{Agent: agent.Spec{Name: "assistant"}})
+	if want := "fluxplane:codex:gpt-5.5:assistant"; fallback != want {
 		t.Fatalf("fallback cache key = %q, want %q", fallback, want)
 	}
 }
@@ -164,7 +164,7 @@ func TestResponseParamsCacheAutoIsProviderNeutral(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	params, _, _, err := model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "coder"}, Goal: "hello"})
+	params, _, _, err := model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "assistant"}, Goal: "hello"})
 	if err != nil {
 		t.Fatalf("responseParams: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestResponseParamsAppliesReasoningEffort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	params, _, _, err := model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "coder"}, Goal: "hello"})
+	params, _, _, err := model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "assistant"}, Goal: "hello"})
 	if err != nil {
 		t.Fatalf("responseParams: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestResponseParamsRejectsMissingModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, _, _, err = model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "coder"}})
+	_, _, _, err = model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "assistant"}})
 	if !errors.Is(err, ErrModelMissing) {
 		t.Fatalf("error = %v, want ErrModelMissing", err)
 	}
@@ -242,7 +242,7 @@ func TestResponseParamsUsesTranscriptItemsAndPreviousResponseID(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	params, _, sent, err := model.responseParams(llmagent.Request{
-		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent: agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Transcript: &coreconversation.Transcript{
 			Provider: coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"},
 			Mode:     coreconversation.ProjectionNativeContinuation,
@@ -285,7 +285,7 @@ func TestResponseParamsUsesCustomToolCallOutputForCustomCalls(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	params, _, sent, err := model.responseParams(llmagent.Request{
-		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent: agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Transcript: &coreconversation.Transcript{
 			Provider: coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses", Family: "responses", Model: "gpt-test"},
 			Mode:     coreconversation.ProjectionNativeContinuation,
@@ -348,7 +348,7 @@ func TestResponseParamsRendersCanonicalFunctionToolCallReplay(t *testing.T) {
 		Content: map[string]any{"ok": true},
 	}
 	params, _, sent, err := model.responseParams(llmagent.Request{
-		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent: agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Transcript: &coreconversation.Transcript{
 			Provider: coreconversation.ProviderIdentity{Provider: "openrouter", API: "openrouter.responses", Family: "responses", Model: "anthropic/claude-sonnet-4.6"},
 			Mode:     coreconversation.ProjectionFullReplay,
@@ -407,7 +407,7 @@ func TestResponseParamsRendersCanonicalCustomToolReplay(t *testing.T) {
 		Metadata: map[string]string{"provider_call_type": "custom_tool_call"},
 	}
 	params, _, sent, err := model.responseParams(llmagent.Request{
-		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent: agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Transcript: &coreconversation.Transcript{
 			Provider: coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses", Family: "responses", Model: "gpt-test"},
 			Mode:     coreconversation.ProjectionFullReplay,
@@ -440,7 +440,7 @@ func TestResponseParamsPreservesMatchedReplayToolResult(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	params, _, sent, err := model.responseParams(llmagent.Request{
-		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent: agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Transcript: &coreconversation.Transcript{
 			Provider: coreconversation.ProviderIdentity{Provider: "openrouter", API: "openrouter.responses", Family: "responses", Model: "anthropic/claude-sonnet-4.6"},
 			Mode:     coreconversation.ProjectionFullReplay,
@@ -479,7 +479,7 @@ func TestResponseParamsPreservesMatchedMultiToolReplayResults(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	params, _, sent, err := model.responseParams(llmagent.Request{
-		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent: agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Transcript: &coreconversation.Transcript{
 			Provider: coreconversation.ProviderIdentity{Provider: "openrouter", API: "openrouter.responses", Family: "responses", Model: "anthropic/claude-sonnet-4.6"},
 			Mode:     coreconversation.ProjectionFullReplay,
@@ -523,7 +523,7 @@ func TestResponseParamsLeavesLargeReplayToolResultUncompacted(t *testing.T) {
 	}
 	large := strings.Repeat("large diff line ", 2000)
 	params, _, sent, err := model.responseParams(llmagent.Request{
-		Agent: agent.Spec{Name: "coder"},
+		Agent: agent.Spec{Name: "assistant"},
 		Transcript: &coreconversation.Transcript{
 			Provider: coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses", Family: "responses", Model: "gpt-test"},
 			Mode:     coreconversation.ProjectionFullReplay,
@@ -570,7 +570,7 @@ func TestResponseParamsReplaysPlainAssistantOutput(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	params, _, sent, err := model.responseParams(llmagent.Request{
-		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent: agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Transcript: &coreconversation.Transcript{
 			Provider: coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"},
 			Mode:     coreconversation.ProjectionFullReplay,
@@ -603,7 +603,7 @@ func TestResponseParamsRecordsOnlyTranscriptNewItems(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	params, _, sent, err := model.responseParams(llmagent.Request{
-		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent: agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Transcript: &coreconversation.Transcript{
 			Provider: coreconversation.ProviderIdentity{Model: "gpt-test"},
 			Mode:     coreconversation.ProjectionFullReplay,
@@ -660,7 +660,7 @@ func TestStreamReturnsIdleTimeoutForSilentStream(t *testing.T) {
 	}
 
 	_, err = model.Stream(context.Background(), llmagent.Request{
-		Agent: agent.Spec{Name: "coder"},
+		Agent: agent.Spec{Name: "assistant"},
 		Goal:  "hello",
 	}, nil)
 	if !errors.Is(err, ErrStreamIdleTimeout) {
@@ -695,7 +695,7 @@ func TestStreamReturnsCompletedResponseWhenConnectionStaysOpen(t *testing.T) {
 	}
 
 	got, err := model.Stream(context.Background(), llmagent.Request{
-		Agent: agent.Spec{Name: "coder"},
+		Agent: agent.Spec{Name: "assistant"},
 		Goal:  "hello",
 	}, nil)
 	if err != nil {
@@ -733,7 +733,7 @@ func TestStreamReturnsTerminalErrorWhenConnectionStaysOpen(t *testing.T) {
 	}
 
 	_, err = model.Stream(context.Background(), llmagent.Request{
-		Agent: agent.Spec{Name: "coder"},
+		Agent: agent.Spec{Name: "assistant"},
 		Goal:  "hello",
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "server_error: boom") {
@@ -768,7 +768,7 @@ func TestStreamReturnsReadableProviderErrorWhenErrorEventIsEmpty(t *testing.T) {
 	}
 
 	_, err = model.Stream(context.Background(), llmagent.Request{
-		Agent: agent.Spec{Name: "coder"},
+		Agent: agent.Spec{Name: "assistant"},
 		Goal:  "hello",
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "provider returned an error without code or message") {
@@ -1087,7 +1087,7 @@ func TestStreamEventsKeepFunctionCallIDSeparateFromItemID(t *testing.T) {
 	if events := model.streamEvents(added, state); len(events) != 1 || events[0].ToolCallID != "call_real" {
 		t.Fatalf("added events = %#v, want function call id", events)
 	}
-	done := mustStreamEvent(t, `{"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","call_id":"call_real","name":"skill","arguments":"{\"actions\":[{\"action\":\"activate\",\"skill\":\"coder-mr-review\"}]}"}`)
+	done := mustStreamEvent(t, `{"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","call_id":"call_real","name":"skill","arguments":"{\"actions\":[{\"action\":\"activate\",\"skill\":\"assistant-mr-review\"}]}"}`)
 	events := model.streamEvents(done, state)
 	if len(events) != 1 || events[0].Kind != adapterllm.StreamToolCallDone || events[0].ToolCallID != "call_real" {
 		t.Fatalf("done events = %#v, want backend call id", events)
@@ -1097,7 +1097,7 @@ func TestStreamEventsKeepFunctionCallIDSeparateFromItemID(t *testing.T) {
 		"id": "resp_1",
 		"status": "completed",
 		"output": [
-			{"id":"fc_1","type":"function_call","call_id":"call_real","name":"skill","arguments":"{\"actions\":[{\"action\":\"activate\",\"skill\":\"coder-mr-review\"}]}"}
+			{"id":"fc_1","type":"function_call","call_id":"call_real","name":"skill","arguments":"{\"actions\":[{\"action\":\"activate\",\"skill\":\"assistant-mr-review\"}]}"}
 		]
 	}`)
 	resp = normalizeResponseOutputToolCallIDs(resp, state)

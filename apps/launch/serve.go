@@ -412,7 +412,7 @@ func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel
 				continue
 			}
 			if session.AppToken == "" {
-				slog.Warn("slack channel skipped because app_token is not connected", "channel", doc.Name, "instance", ref.InstanceName(), "hint", fmt.Sprintf("run coder auth connect --plugin slack --instance %s --method %s --field app_token=<value>", ref.InstanceName(), slack.TokenMethod))
+				slog.Warn("slack channel skipped because app_token is not connected", "channel", doc.Name, "instance", ref.InstanceName(), "hint", fmt.Sprintf("run fluxplane auth connect --plugin slack --instance %s --method %s --field app_token=<value>", ref.InstanceName(), slack.TokenMethod))
 				continue
 			}
 			sessionName := doc.Session

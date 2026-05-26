@@ -337,7 +337,7 @@ func TestLaunchDevWiresSessionHistoryDatasource(t *testing.T) {
 	}
 }
 
-func TestLaunchOpensCoderWebSearchDatasourceThroughCodingPlugin(t *testing.T) {
+func TestLaunchOpensWebSearchDatasourceThroughCodingPlugin(t *testing.T) {
 	withStateDir(t)
 	ctx := context.Background()
 	root := t.TempDir()

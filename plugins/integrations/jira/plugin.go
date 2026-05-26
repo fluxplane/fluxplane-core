@@ -28,9 +28,16 @@ import (
 const (
 	Name         = "jira"
 	OperationSet = Name
+
+	TokenMethod    = atlassian.TokenMethod
+	APITokenMethod = atlassian.APITokenMethod
+	OAuth2Method   = atlassian.OAuth2Method
 )
 
 const defaultPageSize = 50
+
+type Config = atlassian.Config
+type AuthConfig = atlassian.AuthConfig
 
 type Plugin struct {
 	pluginhost.Configurable[atlassian.Config]

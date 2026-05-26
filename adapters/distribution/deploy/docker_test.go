@@ -131,7 +131,7 @@ name: assistant
 
 	result, err := BuildDocker(context.Background(), DockerBuildOptions{
 		AppDir:      app,
-		BaseImage:   "example.com/coder-base:v1",
+		BaseImage:   "example.com/fluxplane-base:v1",
 		DryRun:      true,
 		KeepContext: true,
 	})
@@ -143,7 +143,7 @@ name: assistant
 	if err != nil {
 		t.Fatalf("ReadFile Dockerfile: %v", err)
 	}
-	if !strings.Contains(string(dockerfile), "FROM example.com/coder-base:v1") {
+	if !strings.Contains(string(dockerfile), "FROM example.com/fluxplane-base:v1") {
 		t.Fatalf("Dockerfile = %s", dockerfile)
 	}
 }
@@ -172,12 +172,12 @@ name: assistant
 	}
 }
 
-func TestBuildCoderBaseDockerDefaultsToCurrentExecutable(t *testing.T) {
+func TestBuildFluxplaneBaseDockerDefaultsToCurrentExecutable(t *testing.T) {
 	dir := t.TempDir()
-	coderPath := filepath.Join(dir, "coder")
-	writeTestFile(t, dir, "coder", "#!/bin/sh\n")
-	if err := os.Chmod(coderPath, 0o755); err != nil {
-		t.Fatalf("Chmod coder: %v", err)
+	fluxplanePath := filepath.Join(dir, "fluxplane")
+	writeTestFile(t, dir, "fluxplane", "#!/bin/sh\n")
+	if err := os.Chmod(fluxplanePath, 0o755); err != nil {
+		t.Fatalf("Chmod fluxplane: %v", err)
 	}
 	var gotName string
 	var gotArgs []string
@@ -187,15 +187,15 @@ func TestBuildCoderBaseDockerDefaultsToCurrentExecutable(t *testing.T) {
 		return nil
 	})
 
-	result, err := BuildCoderBaseDocker(context.Background(), BaseImageOptions{
-		BinaryPath:  coderPath,
-		Tags:        []string{"fluxplane/coder-base:test"},
+	result, err := BuildFluxplaneBaseDocker(context.Background(), BaseImageOptions{
+		BinaryPath:  fluxplanePath,
+		Tags:        []string{"fluxplane/fluxplane-base:test"},
 		DryRun:      true,
 		KeepContext: true,
 		Runner:      runner,
 	})
 	if err != nil {
-		t.Fatalf("BuildCoderBaseDocker: %v", err)
+		t.Fatalf("BuildFluxplaneBaseDocker: %v", err)
 	}
 	defer func() { _ = os.RemoveAll(result.ContextDir) }()
 	dockerfile, err := os.ReadFile(result.Dockerfile)
@@ -205,8 +205,8 @@ func TestBuildCoderBaseDockerDefaultsToCurrentExecutable(t *testing.T) {
 	text := string(dockerfile)
 	for _, want := range []string{
 		"FROM debian:bookworm-slim AS runtime",
-		"COPY coder /usr/local/bin/coder",
-		`ENTRYPOINT ["/usr/local/bin/coder"]`,
+		"COPY fluxplane /usr/local/bin/fluxplane",
+		`ENTRYPOINT ["/usr/local/bin/fluxplane"]`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("Dockerfile missing %q:\n%s", want, text)
@@ -215,21 +215,20 @@ func TestBuildCoderBaseDockerDefaultsToCurrentExecutable(t *testing.T) {
 	if strings.Contains(text, "go build") {
 		t.Fatalf("Dockerfile = %s, want binary base image without source build", text)
 	}
-	if _, err := os.Stat(filepath.Join(result.ContextDir, "coder")); err != nil {
-		t.Fatalf("copied coder executable: %v", err)
+	if _, err := os.Stat(filepath.Join(result.ContextDir, "fluxplane")); err != nil {
+		t.Fatalf("copied fluxplane executable: %v", err)
 	}
 	if gotName != "" || len(gotArgs) != 0 {
 		t.Fatalf("dry run executed runner: %s %v", gotName, gotArgs)
 	}
 }
 
-func TestBuildCoderBaseDockerFromRepoCopiesLocalReplaceModules(t *testing.T) {
+func TestBuildFluxplaneBaseDockerFromRepoCopiesLocalReplaceModules(t *testing.T) {
 	parent := t.TempDir()
-	repo := filepath.Join(parent, "projects", "agentsdk", "rewrite")
+	repo := filepath.Join(parent, "projects", "fluxplane", "fluxplane-core")
 	app := filepath.Join(repo, "examples", "sample")
 	writeTestFile(t, repo, "go.mod", "module github.com/fluxplane/fluxplane-core\n\nreplace github.com/codewandler/axon => ../../axon\n")
-	writeTestFile(t, repo, "apps/coder/go.mod", "module github.com/fluxplane/coder\n\ngo 1.26.1\n\nrequire github.com/fluxplane/fluxplane-core v0.0.0\n\nreplace github.com/fluxplane/fluxplane-core => ../..\n")
-	writeTestFile(t, repo, "apps/coder/cmd/coder/main.go", "package main\nfunc main() {}\n")
+	writeTestFile(t, repo, "cmd/fluxplane/main.go", "package main\nfunc main() {}\n")
 	writeTestFile(t, filepath.Join(parent, "projects"), "axon/go.mod", "module github.com/codewandler/axon\n")
 	writeTestFile(t, app, "fluxplane.yaml", `
 kind: app
@@ -243,13 +242,13 @@ kind: agent
 name: assistant
 `)
 
-	result, err := BuildCoderBaseDocker(context.Background(), BaseImageOptions{
+	result, err := BuildFluxplaneBaseDocker(context.Background(), BaseImageOptions{
 		RepoRoot:    repo,
 		DryRun:      true,
 		KeepContext: true,
 	})
 	if err != nil {
-		t.Fatalf("BuildCoderBaseDocker: %v", err)
+		t.Fatalf("BuildFluxplaneBaseDocker: %v", err)
 	}
 	defer func() { _ = os.RemoveAll(result.ContextDir) }()
 	dockerfile, err := os.ReadFile(result.Dockerfile)
@@ -259,10 +258,10 @@ name: assistant
 	if !strings.Contains(string(dockerfile), "COPY localmods/axon /axon") {
 		t.Fatalf("Dockerfile = %s", dockerfile)
 	}
-	if !strings.Contains(string(dockerfile), "WORKDIR /src/fluxplane/apps/coder") {
+	if !strings.Contains(string(dockerfile), "WORKDIR /src/fluxplane") {
 		t.Fatalf("Dockerfile = %s", dockerfile)
 	}
-	if !strings.Contains(string(dockerfile), "go build -trimpath -ldflags=\"-s -w\" -o /out/coder ./cmd/coder") {
+	if !strings.Contains(string(dockerfile), "go build -trimpath -ldflags=\"-s -w\" -o /out/fluxplane ./cmd/fluxplane") {
 		t.Fatalf("Dockerfile = %s", dockerfile)
 	}
 	if _, err := os.Stat(filepath.Join(result.ContextDir, "localmods", "axon", "go.mod")); err != nil {
@@ -270,19 +269,19 @@ name: assistant
 	}
 }
 
-func TestBuildCoderBaseDockerDryRunCleansContextByDefault(t *testing.T) {
+func TestBuildFluxplaneBaseDockerDryRunCleansContextByDefault(t *testing.T) {
 	dir := t.TempDir()
-	coderPath := filepath.Join(dir, "coder")
-	writeTestFile(t, dir, "coder", "#!/bin/sh\n")
-	if err := os.Chmod(coderPath, 0o755); err != nil {
-		t.Fatalf("Chmod coder: %v", err)
+	fluxplanePath := filepath.Join(dir, "fluxplane")
+	writeTestFile(t, dir, "fluxplane", "#!/bin/sh\n")
+	if err := os.Chmod(fluxplanePath, 0o755); err != nil {
+		t.Fatalf("Chmod fluxplane: %v", err)
 	}
-	result, err := BuildCoderBaseDocker(context.Background(), BaseImageOptions{
-		BinaryPath: coderPath,
+	result, err := BuildFluxplaneBaseDocker(context.Background(), BaseImageOptions{
+		BinaryPath: fluxplanePath,
 		DryRun:     true,
 	})
 	if err != nil {
-		t.Fatalf("BuildCoderBaseDocker: %v", err)
+		t.Fatalf("BuildFluxplaneBaseDocker: %v", err)
 	}
 	if _, err := os.Stat(result.ContextDir); !os.IsNotExist(err) {
 		t.Fatalf("dry-run base context dir was not cleaned: %v", err)

@@ -223,7 +223,7 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 	uiState := terminal.UIState{}
 	errOut := writerOr(opts.Err, os.Stderr)
 	stdout := writerOr(opts.Out, os.Stdout)
-	_, _ = fmt.Fprintf(errOut, "coder %s repl. Type /exit or /quit to stop. Ctrl+C cancels the current turn.\n", name)
+	_, _ = fmt.Fprintf(errOut, "fluxplane %s repl. Type /exit or /quit to stop. Ctrl+C cancels the current turn.\n", name)
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)
 	defer signal.Stop(interrupts)

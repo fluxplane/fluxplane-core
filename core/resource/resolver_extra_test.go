@@ -45,16 +45,16 @@ func TestResolverResolvesWithAlias(t *testing.T) {
 
 func TestResolverSetAliasAndResolve(t *testing.T) {
 	index := NewResourceIndex()
-	id := ResourceID{Kind: "agent", Name: "coder", Origin: "local"}
+	id := ResourceID{Kind: "agent", Name: "assistant", Origin: "local"}
 	index.Add(id)
 	r := NewResolver(ResolverConfig{Index: index})
-	r.SetAlias("default", "coder")
+	r.SetAlias("default", "assistant")
 	resolved, err := r.Resolve("agent", "default")
 	if err != nil {
 		t.Fatalf("Resolve after SetAlias: %v", err)
 	}
-	if resolved.Name != "coder" {
-		t.Fatalf("resolved.Name = %q, want coder", resolved.Name)
+	if resolved.Name != "assistant" {
+		t.Fatalf("resolved.Name = %q, want assistant", resolved.Name)
 	}
 }
 
@@ -142,18 +142,18 @@ func TestResolveInScopeNilFallsThrough(t *testing.T) {
 
 func TestResolveInScopeQualifiedRefSkipsScope(t *testing.T) {
 	index := NewResourceIndex()
-	id := ResourceID{Kind: "agent", Name: "coder", Origin: "embedded", Namespace: NewNamespace("apps")}
+	id := ResourceID{Kind: "agent", Name: "assistant", Origin: "embedded", Namespace: NewNamespace("apps")}
 	index.Add(id)
 	r := NewResolver(ResolverConfig{Index: index})
 	scope := ResourceID{Kind: "agent", Name: "main", Origin: "embedded", Namespace: NewNamespace("apps")}
 
 	// A qualified ref (contains ":") bypasses scope and falls through to Resolve.
-	resolved, err := r.ResolveInScope("agent", "embedded:apps:coder", scope)
+	resolved, err := r.ResolveInScope("agent", "embedded:apps:assistant", scope)
 	if err != nil {
 		t.Fatalf("ResolveInScope(qualified): %v", err)
 	}
-	if resolved.Name != "coder" {
-		t.Fatalf("resolved.Name = %q, want coder", resolved.Name)
+	if resolved.Name != "assistant" {
+		t.Fatalf("resolved.Name = %q, want assistant", resolved.Name)
 	}
 }
 

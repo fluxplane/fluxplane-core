@@ -47,7 +47,7 @@ func TestListenerRequiresTCPAuthAndEnforcesBearer(t *testing.T) {
 }
 
 func TestListenRemovesStaleUnixSocketFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "coder-local.sock")
+	path := filepath.Join(t.TempDir(), "fluxplane-local.sock")
 	stale, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatalf("Listen stale socket: %v", err)
@@ -73,7 +73,7 @@ func TestListenRemovesStaleUnixSocketFile(t *testing.T) {
 }
 
 func TestListenRefusesLiveUnixSocket(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "coder-local.sock")
+	path := filepath.Join(t.TempDir(), "fluxplane-local.sock")
 	live, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatalf("Listen live socket: %v", err)

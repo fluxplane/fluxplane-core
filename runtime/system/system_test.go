@@ -149,7 +149,7 @@ func TestHostWorkspaceGlobMaxResultsDoesNotLimitTraversal(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	target := filepath.Join("apps", "coder", "resources", ".agents", "commands", "reflect.yaml")
+	target := filepath.Join("apps", "assistant", "resources", ".agents", "commands", "reflect.yaml")
 	targetPath := filepath.Join(root, target)
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 		t.Fatal(err)
@@ -162,7 +162,7 @@ func TestHostWorkspaceGlobMaxResultsDoesNotLimitTraversal(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 
-	matches, truncated, err := sys.Workspace().Glob(context.Background(), "apps/coder/resources/.agents/**/reflect.yaml", GlobOptions{Base: ".", MaxResults: 1, MaxScanned: 200})
+	matches, truncated, err := sys.Workspace().Glob(context.Background(), "apps/assistant/resources/.agents/**/reflect.yaml", GlobOptions{Base: ".", MaxResults: 1, MaxScanned: 200})
 	if err != nil {
 		t.Fatalf("Glob reflect.yaml: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestHostWorkspaceGlobSkipsConfiguredNoisyDirs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	target := filepath.Join("apps", "coder", "resources", ".agents", "commands", "reflect.yaml")
+	target := filepath.Join("apps", "assistant", "resources", ".agents", "commands", "reflect.yaml")
 	targetPath := filepath.Join(root, target)
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 		t.Fatal(err)
@@ -198,7 +198,7 @@ func TestHostWorkspaceGlobSkipsConfiguredNoisyDirs(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 
-	matches, truncated, err := sys.Workspace().Glob(context.Background(), "apps/coder/resources/.agents/**/reflect.yaml", GlobOptions{Base: ".", MaxResults: 10, MaxScanned: 50, SkipDirs: []string{".cache"}})
+	matches, truncated, err := sys.Workspace().Glob(context.Background(), "apps/assistant/resources/.agents/**/reflect.yaml", GlobOptions{Base: ".", MaxResults: 10, MaxScanned: 50, SkipDirs: []string{".cache"}})
 	if err != nil {
 		t.Fatalf("Glob reflect.yaml: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestHostWorkspaceMoveFileLeavesSourceWhenDestinationWriteFails(t *testing.T
 
 func TestHostWorkspaceNamedRootAllowsLogicalAndAbsolutePaths(t *testing.T) {
 	root := t.TempDir()
-	tmp := filepath.Join(t.TempDir(), "fluxplane-coder")
+	tmp := filepath.Join(t.TempDir(), "fluxplane-assistant")
 	sys, err := NewHost(Config{
 		Root: root,
 		Workspace: WorkspaceConfig{Roots: []WorkspaceRootConfig{{

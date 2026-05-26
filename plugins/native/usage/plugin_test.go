@@ -17,7 +17,7 @@ import (
 func TestUsageDatasourceSearchesTokenUsageEvents(t *testing.T) {
 	ctx := context.Background()
 	store := newTestThreadStore(t)
-	snapshot, err := store.Create(ctx, corethread.CreateParams{ID: "thread_usage", Metadata: map[string]string{"session": "coder"}})
+	snapshot, err := store.Create(ctx, corethread.CreateParams{ID: "thread_usage", Metadata: map[string]string{"session": "assistant"}})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestUsageDatasourceSearchesTokenUsageEvents(t *testing.T) {
 	result, err := searcher.Search(ctx, coredatasource.SearchRequest{
 		Entity:  EntityRecord,
 		Query:   "gpt-5.5",
-		Filters: map[string]string{"session": "coder", "provider": "codex"},
+		Filters: map[string]string{"session": "assistant", "provider": "codex"},
 	})
 	if err != nil {
 		t.Fatalf("Search: %v", err)

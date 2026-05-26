@@ -338,11 +338,11 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 		} else if err := kubernetesClient.ApplyManifest(ctx, rendered.RegistryContent, out, errOut); err != nil {
 			return KubernetesResult{}, err
 		}
-		wait := []string{"kubectl", "rollout", "status", "deployment/coder-registry", "-n", namespace, "--timeout=120s"}
+		wait := []string{"kubectl", "rollout", "status", "deployment/fluxplane-registry", "-n", namespace, "--timeout=120s"}
 		result.Commands = append(result.Commands, wait)
 		if opts.DryRun {
 			_, _ = fmt.Fprintf(out, "command=%s\n", strings.Join(wait, " "))
-		} else if err := kubernetesClient.WaitDeployment(ctx, namespace, "coder-registry", 120*time.Second, out, errOut); err != nil {
+		} else if err := kubernetesClient.WaitDeployment(ctx, namespace, "fluxplane-registry", 120*time.Second, out, errOut); err != nil {
 			return KubernetesResult{}, err
 		}
 		portForward := kubernetesRegistryPortForwardCommand(namespace)
@@ -408,7 +408,7 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 type kubectlPortForwarder struct{}
 
 func kubernetesRegistryPortForwardCommand(namespace string) []string {
-	return []string{"kubectl", "port-forward", "-n", namespace, "--address", "127.0.0.1", "service/coder-registry", defaultRegistryPort + ":" + defaultRegistryPort}
+	return []string{"kubectl", "port-forward", "-n", namespace, "--address", "127.0.0.1", "service/fluxplane-registry", defaultRegistryPort + ":" + defaultRegistryPort}
 }
 
 type kubectlPortForward struct {
@@ -1091,12 +1091,12 @@ func kubernetesAppDeployment(namespace, name, image, imagePullPolicy, authPath s
 }
 
 func kubernetesRegistryContent(namespace string) string {
-	labels := map[string]string{"app.kubernetes.io/name": "coder-registry"}
+	labels := map[string]string{"app.kubernetes.io/name": "fluxplane-registry"}
 	return kubernetesYAML(
 		&corev1.Namespace{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"}, ObjectMeta: objectMeta("", namespace)},
 		&corev1.PersistentVolumeClaim{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "PersistentVolumeClaim"},
-			ObjectMeta: objectMeta(namespace, "coder-registry-data"),
+			ObjectMeta: objectMeta(namespace, "fluxplane-registry-data"),
 			Spec: corev1.PersistentVolumeClaimSpec{
 				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 				Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: quantity("5Gi")}},
@@ -1104,7 +1104,7 @@ func kubernetesRegistryContent(namespace string) string {
 		},
 		&appsv1.Deployment{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
-			ObjectMeta: objectMeta(namespace, "coder-registry"),
+			ObjectMeta: objectMeta(namespace, "fluxplane-registry"),
 			Spec: appsv1.DeploymentSpec{
 				Replicas: int32Ptr(1),
 				Selector: &metav1.LabelSelector{MatchLabels: labels},
@@ -1120,14 +1120,14 @@ func kubernetesRegistryContent(namespace string) string {
 						}},
 					}}, Volumes: []corev1.Volume{{
 						Name:         "data",
-						VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "coder-registry-data"}},
+						VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "fluxplane-registry-data"}},
 					}}},
 				},
 			},
 		},
 		&corev1.Service{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
-			ObjectMeta: objectMeta(namespace, "coder-registry"),
+			ObjectMeta: objectMeta(namespace, "fluxplane-registry"),
 			Spec: corev1.ServiceSpec{
 				Selector: labels,
 				Ports: []corev1.ServicePort{{
@@ -1254,7 +1254,7 @@ func kubernetesImageRefs(namespace, name, sourceImage, mode, registry string) ku
 		cluster := registry + "/" + repoTag
 		return kubernetesImageRefSet{Registry: registry, Push: cluster, Cluster: cluster}
 	case "namespace":
-		cluster := "coder-registry." + namespace + ".svc.cluster.local:" + defaultRegistryPort
+		cluster := "fluxplane-registry." + namespace + ".svc.cluster.local:" + defaultRegistryPort
 		push := "127.0.0.1:" + defaultRegistryPort
 		return kubernetesImageRefSet{Registry: cluster, Push: push + "/" + repoTag, Cluster: cluster + "/" + repoTag}
 	default:
@@ -1351,7 +1351,7 @@ func currentKubernetesContext(ctx context.Context) (string, error) {
 }
 
 func (c commandKubernetesClient) ApplyManifest(ctx context.Context, content string, stdout, stderr io.Writer) error {
-	tempFile, err := writeTempManifest("coder-kubernetes-apply-*.yaml", content)
+	tempFile, err := writeTempManifest("fluxplane-kubernetes-apply-*.yaml", content)
 	if err != nil {
 		return err
 	}
@@ -1360,7 +1360,7 @@ func (c commandKubernetesClient) ApplyManifest(ctx context.Context, content stri
 }
 
 func (c commandKubernetesClient) DeleteManifest(ctx context.Context, content string, stdout, stderr io.Writer) error {
-	tempFile, err := writeTempManifest("coder-kubernetes-delete-*.yaml", content)
+	tempFile, err := writeTempManifest("fluxplane-kubernetes-delete-*.yaml", content)
 	if err != nil {
 		return err
 	}
@@ -1493,7 +1493,7 @@ func (kubectlPortForwarder) Forward(ctx context.Context, namespace string, stdou
 	if err != nil {
 		return nil, fmt.Errorf("distribution deploy: create kubernetes client: %w", err)
 	}
-	service, err := typed.CoreV1().Services(namespace).Get(ctx, "coder-registry", metav1.GetOptions{})
+	service, err := typed.CoreV1().Services(namespace).Get(ctx, "fluxplane-registry", metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("distribution deploy: get registry service: %w", err)
 	}
@@ -1502,7 +1502,7 @@ func (kubectlPortForwarder) Forward(ctx context.Context, namespace string, stdou
 		return nil, fmt.Errorf("distribution deploy: list registry pods: %w", err)
 	}
 	if len(pods.Items) == 0 {
-		return nil, fmt.Errorf("distribution deploy: no registry pods found for service/coder-registry")
+		return nil, fmt.Errorf("distribution deploy: no registry pods found for service/fluxplane-registry")
 	}
 	transport, upgrader, err := spdy.RoundTripperFor(cfg)
 	if err != nil {

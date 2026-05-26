@@ -1047,7 +1047,7 @@ func TestComposeIndexesSessionProfiles(t *testing.T) {
 		Bundles: []resource.ContributionBundle{{
 			Source: source,
 			Sessions: []coresession.Spec{{
-				Name: "coder",
+				Name: "assistant",
 			}},
 		}},
 	})
@@ -1057,17 +1057,17 @@ func TestComposeIndexesSessionProfiles(t *testing.T) {
 	if len(composition.SessionCatalog) != 1 {
 		t.Fatalf("session catalog len = %d, want 1", len(composition.SessionCatalog))
 	}
-	if len(composition.SessionSpecs) != 1 || composition.SessionSpecs[0].Name != "coder" {
-		t.Fatalf("session specs = %#v, want coder", composition.SessionSpecs)
+	if len(composition.SessionSpecs) != 1 || composition.SessionSpecs[0].Name != "assistant" {
+		t.Fatalf("session specs = %#v, want assistant", composition.SessionSpecs)
 	}
-	id, err := composition.Resolver.Resolve("session", "demo:coder")
+	id, err := composition.Resolver.Resolve("session", "demo:assistant")
 	if err != nil {
-		t.Fatalf("Resolve demo:coder: %v", err)
+		t.Fatalf("Resolve demo:assistant: %v", err)
 	}
-	if got, want := id.Address(), "embedded:apps/demo:coder"; got != want {
+	if got, want := id.Address(), "embedded:apps/demo:assistant"; got != want {
 		t.Fatalf("resolved session = %q, want %q", got, want)
 	}
-	binding, err := composition.SessionCatalog.Resolve("demo:coder")
+	binding, err := composition.SessionCatalog.Resolve("demo:assistant")
 	if err != nil {
 		t.Fatalf("SessionCatalog.Resolve: %v", err)
 	}
@@ -1083,11 +1083,11 @@ func TestComposeRejectsDuplicateSessionProfilesWithSourceDiagnostic(t *testing.T
 		Bundles: []resource.ContributionBundle{
 			{
 				Source:   sourceA,
-				Sessions: []coresession.Spec{{Name: "coder"}},
+				Sessions: []coresession.Spec{{Name: "assistant"}},
 			},
 			{
 				Source:   sourceB,
-				Sessions: []coresession.Spec{{Name: "coder"}},
+				Sessions: []coresession.Spec{{Name: "assistant"}},
 			},
 		},
 	})

@@ -18,7 +18,7 @@ import (
 func TestSearchSessionHistoryOperations(t *testing.T) {
 	ctx := context.Background()
 	store := newTestThreadStore(t)
-	snapshot, err := store.Create(ctx, corethread.CreateParams{ID: "thread_test", Metadata: map[string]string{"session": "coder"}})
+	snapshot, err := store.Create(ctx, corethread.CreateParams{ID: "thread_test", Metadata: map[string]string{"session": "assistant"}})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestSearchSessionHistoryOperations(t *testing.T) {
 	result, err := searcher.Search(ctx, coredatasource.SearchRequest{
 		Entity:  EntityOperation,
 		Query:   "go_test",
-		Filters: map[string]string{"session": "coder", "status": "ok"},
+		Filters: map[string]string{"session": "assistant", "status": "ok"},
 	})
 	if err != nil {
 		t.Fatalf("Search: %v", err)

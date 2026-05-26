@@ -14,7 +14,7 @@ func TestContextForInboundCarriesSubjectsWithoutConfiguredPolicy(t *testing.T) {
 	ctx := ContextForInbound(context.Background(), policy.AuthorizationPolicy{}, channel.Inbound{
 		Actor: &actor,
 		Kind:  channel.InboundMessage,
-	}, agent.Spec{Name: "coder"}, false)
+	}, agent.Spec{Name: "assistant"}, false)
 
 	auth, ok := policy.AuthorizationFromContext(ctx)
 	if !ok {
@@ -26,7 +26,7 @@ func TestContextForInboundCarriesSubjectsWithoutConfiguredPolicy(t *testing.T) {
 	if !hasSubject(auth.Subjects, policy.SubjectUser, "timo@localhost") {
 		t.Fatalf("subjects = %#v, want local user", auth.Subjects)
 	}
-	if !hasSubject(auth.Subjects, policy.SubjectAgent, "coder") {
+	if !hasSubject(auth.Subjects, policy.SubjectAgent, "assistant") {
 		t.Fatalf("subjects = %#v, want agent", auth.Subjects)
 	}
 }

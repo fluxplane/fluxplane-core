@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added real Go examples for a minimal LLM-backed agent loop and a typed Slack
+  bot-style app configuration.
+- Added a typed plugin config helper for producing manifest-compatible plugin
+  config maps from Go structs.
+
 ### Changed
+- Renamed the local Docker base-image build surface to Fluxplane terminology and
+  removed stale legacy manifest filename compatibility.
+- Classified Go examples under the app layer in the architecture gate.
 - Made the tracked pre-push hook run full security and verification checks with
   gentler CPU, test, and IO scheduling defaults.
 - Tightened gitleaks allowlists for local IDE metadata and Claude Code beta

@@ -15,7 +15,7 @@ func TestCollectExposesActivationSets(t *testing.T) {
 		Bundles: []resource.ContributionBundle{{
 			Source: resource.SourceRef{Scope: resource.ScopeProject},
 			ActivationSets: []activation.Set{{
-				Name: "coder.local_editing",
+				Name: "assistant.local_editing",
 				Targets: []activation.Target{{
 					Kind:      activation.TargetOperation,
 					Operation: operation.Ref{Name: "file_read"},
@@ -27,11 +27,11 @@ func TestCollectExposesActivationSets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Collect() error = %v diag = %#v", err, diag)
 	}
-	if len(resources.ActivationSets) != 1 || resources.ActivationSets[0].Name != "coder.local_editing" {
+	if len(resources.ActivationSets) != 1 || resources.ActivationSets[0].Name != "assistant.local_editing" {
 		t.Fatalf("ActivationSets = %#v", resources.ActivationSets)
 	}
-	if _, ok := resources.ActivationSetCatalog["local:coder.local_editing"]; !ok {
-		t.Fatalf("ActivationSetCatalog = %#v, missing local:coder.local_editing", resources.ActivationSetCatalog)
+	if _, ok := resources.ActivationSetCatalog["local:assistant.local_editing"]; !ok {
+		t.Fatalf("ActivationSetCatalog = %#v, missing local:assistant.local_editing", resources.ActivationSetCatalog)
 	}
 }
 

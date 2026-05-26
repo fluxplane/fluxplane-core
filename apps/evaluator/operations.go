@@ -57,7 +57,7 @@ type TargetSubmitInput struct {
 	BaseURL      string `json:"base_url,omitempty" jsonschema:"description=HTTP base URL; use http://unix with unix_socket"`
 	UnixSocket   string `json:"unix_socket,omitempty" jsonschema:"description=Unix socket path for local target"`
 	BearerToken  string `json:"bearer_token,omitempty" jsonschema:"description=optional bearer token"`
-	TargetKind   string `json:"target_kind,omitempty" jsonschema:"description=human label such as coder, slack-bot, support-bot"`
+	TargetKind   string `json:"target_kind,omitempty" jsonschema:"description=human label such as code-agent, slack-bot, support-bot"`
 	Session      string `json:"session,omitempty" jsonschema:"description=target session name; omitted uses the target default"`
 	Conversation string `json:"conversation,omitempty" jsonschema:"description=conversation id"`
 	Prompt       string `json:"prompt" jsonschema:"description=message to submit to target,required"`

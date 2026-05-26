@@ -75,7 +75,7 @@ func TestClientSendsBearerToken(t *testing.T) {
 }
 
 func TestClientUsesUnixSocketTransport(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "agentsdk.sock")
+	socketPath := filepath.Join(t.TempDir(), "fluxplane.sock")
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatalf("Listen unix: %v", err)

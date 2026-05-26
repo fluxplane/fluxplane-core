@@ -9,7 +9,7 @@ func TestPatternMatch(t *testing.T) {
 		rel     string
 		want    bool
 	}{
-		{name: "brace alternation matches", pattern: ".agents/{designs,plans,reviews}/**/*", rel: ".agents/plans/coder.md", want: true},
+		{name: "brace alternation matches", pattern: ".agents/{designs,plans,reviews}/**/*", rel: ".agents/plans/assistant.md", want: true},
 		{name: "brace alternation other branch", pattern: ".agents/{designs,plans,reviews}/**/*", rel: ".agents/reviews/2026/review.md", want: true},
 		{name: "brace alternation rejects missing branch", pattern: ".agents/{designs,plans,reviews}/**/*", rel: ".agents/notes/review.md", want: false},
 		{name: "recursive globstar matches nested", pattern: "docs/**/*.md", rel: "docs/architecture/runtime.md", want: true},

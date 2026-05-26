@@ -14,7 +14,7 @@ func testRepo(t *testing.T, manifest string) (string, string) {
 	repo := t.TempDir()
 	writeTestFile(t, repo, "go.mod", "module github.com/fluxplane/fluxplane-core\n")
 	writeTestFile(t, repo, "cmd/fluxplane/main.go", "package main\nfunc main() {}\n")
-	writeTestFile(t, repo, "apps/coder/cmd/coder/main.go", "package main\nfunc main() {}\n")
+	writeTestFile(t, repo, "apps/assistant/cmd/assistant/main.go", "package main\nfunc main() {}\n")
 	app := filepath.Join(repo, "examples", "sample")
 	writeTestFile(t, app, "fluxplane.yaml", manifest)
 	return repo, app

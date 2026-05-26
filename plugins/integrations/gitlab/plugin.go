@@ -25,9 +25,12 @@ const (
 	OperationSet   = Name
 	defaultBaseURL = "https://gitlab.com"
 
+	PersonalAccessTokenMethod = "personal_access_token"
+	OAuth2Method              = "oauth2"
+
 	accessTokenPurpose           = "access_token"
-	personalAccessTokenMethod    = "personal_access_token"
-	oauth2Method                 = "oauth2"
+	personalAccessTokenMethod    = PersonalAccessTokenMethod
+	oauth2Method                 = OAuth2Method
 	gitlabTokenField             = "token"
 	gitlabURLField               = "url"
 	gitlabURLEnv                 = "GITLAB_URL"

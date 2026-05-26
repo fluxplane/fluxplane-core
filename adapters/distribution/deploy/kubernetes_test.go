@@ -382,8 +382,8 @@ name: assistant
 		"write=" + manifest,
 		"secret=sample-env external=true",
 		"command=kubectl apply -f <registry-manifest>",
-		"command=kubectl rollout status deployment/coder-registry -n sample --timeout=120s",
-		"command=kubectl port-forward -n sample --address 127.0.0.1 service/coder-registry 5000:5000",
+		"command=kubectl rollout status deployment/fluxplane-registry -n sample --timeout=120s",
+		"command=kubectl port-forward -n sample --address 127.0.0.1 service/fluxplane-registry 5000:5000",
 		"command=docker tag sample:test 127.0.0.1:5000/sample:test",
 		"command=docker push 127.0.0.1:5000/sample:test",
 		"command=kubectl apply -f " + manifest,
@@ -425,7 +425,7 @@ name: assistant
 	if err != nil {
 		t.Fatalf("DeployKubernetes: %v", err)
 	}
-	if result.Image != "coder-registry.sample.svc.cluster.local:5000/sample:test" {
+	if result.Image != "fluxplane-registry.sample.svc.cluster.local:5000/sample:test" {
 		t.Fatalf("image = %q", result.Image)
 	}
 	if forwarder.namespace != "sample" || !forwarder.closed {
@@ -437,7 +437,7 @@ name: assistant
 		"docker build -t fluxplane/fluxplane-base:local ",
 		"docker build -t sample:test -f " + filepath.Join(app, "Dockerfile") + " " + app,
 		"kubectl apply -f ",
-		"kubectl rollout status deployment/coder-registry -n sample --timeout=120s",
+		"kubectl rollout status deployment/fluxplane-registry -n sample --timeout=120s",
 		"docker tag sample:test 127.0.0.1:5000/sample:test",
 		"docker push 127.0.0.1:5000/sample:test",
 		"kubectl apply -f " + manifest,
@@ -461,8 +461,8 @@ name: assistant
 		t.Fatalf("ReadFile manifest: %v", err)
 	}
 	for _, want := range []string{
-		"  name: coder-registry",
-		"        image: coder-registry.sample.svc.cluster.local:5000/sample:test",
+		"  name: fluxplane-registry",
+		"        image: fluxplane-registry.sample.svc.cluster.local:5000/sample:test",
 	} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("manifest missing %q:\n%s", want, data)
@@ -512,7 +512,7 @@ name: assistant
 			t.Fatalf("commands missing %q:\n%s", want, joined)
 		}
 	}
-	if strings.Contains(joined, "coder-registry") || strings.Contains(joined, "127.0.0.1:5000") {
+	if strings.Contains(joined, "fluxplane-registry") || strings.Contains(joined, "127.0.0.1:5000") {
 		t.Fatalf("k3d deploy used namespace registry path:\n%s", joined)
 	}
 }
@@ -547,7 +547,7 @@ name: assistant
 	if result.Image != "123456789012.dkr.ecr.us-east-1.amazonaws.com/ai-bots/sample:test" {
 		t.Fatalf("image = %q", result.Image)
 	}
-	if strings.Contains(out.String(), "coder-registry") || strings.Contains(out.String(), "<registry-manifest>") {
+	if strings.Contains(out.String(), "fluxplane-registry") || strings.Contains(out.String(), "<registry-manifest>") {
 		t.Fatalf("external registry dry-run included namespace registry:\n%s", out.String())
 	}
 	manifest := filepath.Join(app, ".deploy", "kubernetes.yaml")
@@ -688,7 +688,7 @@ name: assistant
 	if strings.Contains(out.String(), "delete pvc") || strings.Contains(out.String(), "data-mysql-0") || strings.Contains(out.String(), "data-nats-0") {
 		t.Fatalf("dry-run should not delete shared runtime PVCs:\n%s", out.String())
 	}
-	if strings.Contains(out.String(), "coder-registry") {
+	if strings.Contains(out.String(), "fluxplane-registry") {
 		t.Fatalf("dry-run should not delete shared namespace registry:\n%s", out.String())
 	}
 	if !result.Volumes || len(result.Commands) != 1 {
@@ -744,7 +744,7 @@ name: assistant
 					t.Fatalf("teardown manifest should not delete shared runtime resource %q:\n%s", runtime, text)
 				}
 			}
-			if strings.Contains(text, "coder-registry") {
+			if strings.Contains(text, "fluxplane-registry") {
 				t.Fatalf("teardown manifest should not include shared namespace registry:\n%s", text)
 			}
 		}

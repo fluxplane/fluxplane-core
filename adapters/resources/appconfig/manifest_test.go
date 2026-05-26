@@ -22,14 +22,14 @@ import (
 func TestLoadFSLoadsManifestFromFilesystem(t *testing.T) {
 	file, err := LoadFSFile(context.Background(), fstest.MapFS{
 		"resources/agents.yaml": &fstest.MapFile{Data: []byte(`kind: agent
-name: coder
+name: assistant
 operations: [web_search]
 `)},
 	}, "resources/agents.yaml")
 	if err != nil {
 		t.Fatalf("LoadFSFile: %v", err)
 	}
-	if len(file.Bundle.Agents) != 1 || file.Bundle.Agents[0].Name != "coder" {
+	if len(file.Bundle.Agents) != 1 || file.Bundle.Agents[0].Name != "assistant" {
 		t.Fatalf("agents = %#v", file.Bundle.Agents)
 	}
 	if len(file.Bundle.Agents[0].Operations) != 1 || file.Bundle.Agents[0].Operations[0].Name != "web_search" {
@@ -58,7 +58,7 @@ func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
     "include_global_user_resources": true,
     "include_external_ecosystems": false,
     "allow_remote": false,
-    "trust_store_dir": ".agentsdk"
+    "trust_store_dir": ".fluxplane"
   },
   "model_policy": {
     "use_case": "agentic_coding",
@@ -98,8 +98,8 @@ func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
 	if !app.Discovery.IncludeGlobalUserResources || app.Discovery.IncludeExternalEcosystems || app.Discovery.AllowRemote {
 		t.Fatalf("discovery flags = %#v, want engineer defaults", app.Discovery)
 	}
-	if app.Discovery.TrustStoreDir != ".agentsdk" {
-		t.Fatalf("trust store dir = %q, want .agentsdk", app.Discovery.TrustStoreDir)
+	if app.Discovery.TrustStoreDir != ".fluxplane" {
+		t.Fatalf("trust store dir = %q, want .fluxplane", app.Discovery.TrustStoreDir)
 	}
 	if app.Model.UseCase != "agentic_coding" || app.Model.SourceAPI != "auto" {
 		t.Fatalf("model policy = %#v, want use_case/source_api", app.Model)
@@ -222,7 +222,7 @@ reactions:
       target: kubernetes
     actions:
       - kind: enable_activation_set
-        activation_set: coder.task_batch_monitor
+        activation_set: assistant.task_batch_monitor
 `))
 	if err != nil {
 		t.Fatalf("DecodeResourceFragment: %v", err)
@@ -236,7 +236,7 @@ reactions:
 	if len(bundle.AssertionDerivers) != 1 || bundle.AssertionDerivers[0].Name != "kubernetes.assertions" {
 		t.Fatalf("assertion derivers = %#v, want kubernetes.assertions", bundle.AssertionDerivers)
 	}
-	if len(bundle.Reactions) != 1 || bundle.Reactions[0].Actions[0].ActivationSet != "coder.task_batch_monitor" {
+	if len(bundle.Reactions) != 1 || bundle.Reactions[0].Actions[0].ActivationSet != "assistant.task_batch_monitor" {
 		t.Fatalf("reactions = %#v, want activation reaction", bundle.Reactions)
 	}
 }
@@ -602,7 +602,7 @@ daemon:
   listeners:
     - name: control
       type: http
-      addr: coder-slack-bot.sock
+      addr: fluxplane-slack-bot.sock
   channels:
     - name: slack-main
       type: slack
@@ -679,7 +679,7 @@ system: |
 	if len(file.Bundle.Datasources[0].Entities) != 1 || file.Bundle.Datasources[0].Entities[0] != "slack.user" {
 		t.Fatalf("datasource entities = %#v", file.Bundle.Datasources[0].Entities)
 	}
-	if len(file.Daemon.Listeners) != 1 || file.Daemon.Listeners[0].Addr != "coder-slack-bot.sock" {
+	if len(file.Daemon.Listeners) != 1 || file.Daemon.Listeners[0].Addr != "fluxplane-slack-bot.sock" {
 		t.Fatalf("listeners = %#v", file.Daemon.Listeners)
 	}
 	if len(file.Daemon.Channels) != 1 || file.Daemon.Channels[0].Access.AllowKinds[2] != "thread_reply" {
@@ -1442,42 +1442,6 @@ func TestLoadDirReadsYAMLManifest(t *testing.T) {
 	}
 	if bundle.Source.Location != filepath.Clean(path) {
 		t.Fatalf("source location = %q, want %q", bundle.Source.Location, filepath.Clean(path))
-	}
-}
-
-func TestLoadDirRejectsDeprecatedYMLManifest(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "agentsdk.app.yml")
-	if err := os.WriteFile(path, []byte("default_agent:\n  name: main\nsources:\n  - location: .agents\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	_, err := LoadDir(context.Background(), dir)
-	if err == nil || !strings.Contains(err.Error(), "no longer supported") || !strings.Contains(err.Error(), DefaultManifestName) {
-		t.Fatalf("LoadDir error = %v, want deprecated manifest diagnostic", err)
-	}
-}
-
-func TestLoadDirPrefersFluxplaneManifestOverDeprecatedManifest(t *testing.T) {
-	dir := t.TempDir()
-	jsonPath := filepath.Join(dir, "agentsdk.app.json")
-	yamlPath := filepath.Join(dir, "fluxplane.yaml")
-	if err := os.WriteFile(jsonPath, []byte(`{"default_agent":{"name":"json"},"sources":[{"location":".agents"}]}`), 0o600); err != nil {
-		t.Fatalf("WriteFile json: %v", err)
-	}
-	if err := os.WriteFile(yamlPath, []byte("default_agent:\n  name: yaml\nsources:\n  - location: .agents\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile yaml: %v", err)
-	}
-
-	bundle, err := LoadDir(context.Background(), dir)
-	if err != nil {
-		t.Fatalf("LoadDir: %v", err)
-	}
-	if bundle.Apps[0].DefaultAgent.Name != "yaml" {
-		t.Fatalf("default agent = %q, want yaml", bundle.Apps[0].DefaultAgent.Name)
-	}
-	if bundle.Source.Location != filepath.Clean(yamlPath) {
-		t.Fatalf("source location = %q, want %q", bundle.Source.Location, filepath.Clean(yamlPath))
 	}
 }
 

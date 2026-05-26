@@ -94,7 +94,7 @@ func TestCodexModelStreamFailsHardWithoutConversationKey(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	_, err = model.Stream(context.Background(), llmagent.Request{
-		Agent: agent.Spec{Name: "coder"},
+		Agent: agent.Spec{Name: "assistant"},
 		Goal:  "say ok",
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "conversation key is required") {
@@ -103,7 +103,7 @@ func TestCodexModelStreamFailsHardWithoutConversationKey(t *testing.T) {
 }
 
 func TestValidateCodexRequestRequiresConversationKey(t *testing.T) {
-	err := validateCodexRequest(llmagent.Request{Agent: agent.Spec{Name: "coder"}})
+	err := validateCodexRequest(llmagent.Request{Agent: agent.Spec{Name: "assistant"}})
 	if err == nil || !strings.Contains(err.Error(), "conversation key is required") {
 		t.Fatalf("validateCodexRequest error = %v, want hard conversation key failure", err)
 	}
@@ -271,7 +271,7 @@ func TestCodexModelStreamSendsCodexProtocolHeadersAndPayload(t *testing.T) {
 	}
 	resp, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:codex",
-		Agent:           agent.Spec{Name: "coder"},
+		Agent:           agent.Spec{Name: "assistant"},
 		Goal:            "say ok",
 		Protocol: llmagent.ProtocolMetadata{
 			Subagent:    "review",
@@ -372,7 +372,7 @@ func TestCodexModelSSESendsCodexProtocolHeadersAndPayload(t *testing.T) {
 	}
 	resp, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:sse",
-		Agent:           agent.Spec{Name: "coder"},
+		Agent:           agent.Spec{Name: "assistant"},
 		Goal:            "say ok",
 		Protocol:        llmagent.ProtocolMetadata{Subagent: "compact"},
 	}, nil)

@@ -24,7 +24,7 @@ const (
 	SessionName         = "evaluator"
 	DefaultModel        = "codex"
 	DefaultNamespace    = "apps/evaluator"
-	defaultConversation = "coder-evaluator"
+	defaultConversation = "fluxplane-evaluator"
 )
 
 // NewCommand returns the CLI command for the evaluator distribution.

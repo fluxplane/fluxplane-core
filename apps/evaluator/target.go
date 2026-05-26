@@ -29,8 +29,8 @@ type targetOptions struct {
 func newTargetCommand(dist distribution.Distribution) *cobra.Command {
 	opts := targetOptions{
 		baseURL:    "http://unix",
-		session:    "coder",
-		targetKind: "coder",
+		session:    "default",
+		targetKind: "target",
 		timeout:    "30s",
 		model:      DefaultModel,
 	}

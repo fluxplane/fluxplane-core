@@ -21,9 +21,18 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
-const Name = "confluence"
+const (
+	Name = "confluence"
+
+	TokenMethod    = atlassian.TokenMethod
+	APITokenMethod = atlassian.APITokenMethod
+	OAuth2Method   = atlassian.OAuth2Method
+)
 
 const defaultPageSize = 50
+
+type Config = atlassian.Config
+type AuthConfig = atlassian.AuthConfig
 
 var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
 

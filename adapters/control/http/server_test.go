@@ -22,14 +22,14 @@ func TestServerStatusAndSessions(t *testing.T) {
 		Client:    fakeClient{},
 		StartedAt: time.Date(2026, 5, 12, 1, 2, 3, 0, time.UTC),
 		SessionCatalog: session.SessionCatalog{
-			"embedded:apps/demo:coder": {
+			"embedded:apps/demo:assistant": {
 				ID: resource.ResourceID{
 					Kind:      "session",
 					Origin:    "embedded",
 					Namespace: resource.NewNamespace("apps/demo"),
-					Name:      "coder",
+					Name:      "assistant",
 				},
-				Spec: coresession.Spec{Name: "coder"},
+				Spec: coresession.Spec{Name: "assistant"},
 			},
 		},
 	})
@@ -69,7 +69,7 @@ func TestServerStatusAndSessions(t *testing.T) {
 	if err := json.Unmarshal(configuredResp.Body.Bytes(), &configured); err != nil {
 		t.Fatalf("Unmarshal configured sessions: %v", err)
 	}
-	if len(configured) != 1 || configured[0].Spec.Name != "coder" {
+	if len(configured) != 1 || configured[0].Spec.Name != "assistant" {
 		t.Fatalf("configured sessions = %#v", configured)
 	}
 }

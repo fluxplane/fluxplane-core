@@ -9,7 +9,7 @@ import (
 
 func TestSpecValidateAllowsDelegationPolicy(t *testing.T) {
 	spec := Spec{
-		Name: "coder",
+		Name: "assistant",
 		Agent: agent.Ref{
 			Name: "dev-agent",
 		},
@@ -27,7 +27,7 @@ func TestSpecValidateAllowsDelegationPolicy(t *testing.T) {
 
 func TestSpecValidateRejectsEmptyDelegationOperation(t *testing.T) {
 	err := Spec{
-		Name: "coder",
+		Name: "assistant",
 		Delegation: DelegationPolicy{
 			Operations: []operation.Ref{{}},
 		},
@@ -46,7 +46,7 @@ func TestSpecValidateRejectsEmptyName(t *testing.T) {
 
 func TestSpecValidateRejectsEmptyDelegationProfile(t *testing.T) {
 	err := Spec{
-		Name: "coder",
+		Name: "assistant",
 		Delegation: DelegationPolicy{
 			AllowedProfiles: []Ref{{}},
 		},

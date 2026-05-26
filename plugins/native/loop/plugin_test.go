@@ -34,7 +34,7 @@ func TestSessionCommandsContributesLoopHandler(t *testing.T) {
 func TestExecuteCommandRunsCountWithFreshConversations(t *testing.T) {
 	client := &loopFakeClient{outputs: []string{"first output", "second output"}}
 	s := session.Session{
-		Profile:     coresession.Spec{Name: "coder"},
+		Profile:     coresession.Spec{Name: "assistant"},
 		Thread:      corethread.Ref{ID: "parent-thread"},
 		SessionRuns: sessionrun.New(sessionrun.Config{Client: client}),
 	}
@@ -77,7 +77,7 @@ func TestExecuteCommandRequiresCountOrForever(t *testing.T) {
 func TestExecuteCommandStopsOnFirstError(t *testing.T) {
 	client := &loopFakeClient{failAt: map[int]error{1: errors.New("iteration failed")}}
 	s := session.Session{
-		Profile:     coresession.Spec{Name: "coder"},
+		Profile:     coresession.Spec{Name: "assistant"},
 		Thread:      corethread.Ref{ID: "parent-thread"},
 		SessionRuns: sessionrun.New(sessionrun.Config{Client: client}),
 	}
@@ -93,7 +93,7 @@ func TestExecuteCommandStopsOnFirstError(t *testing.T) {
 func TestExecuteCommandRequiresDelegationForDifferentSession(t *testing.T) {
 	client := &loopFakeClient{}
 	s := session.Session{
-		Profile:     coresession.Spec{Name: "coder"},
+		Profile:     coresession.Spec{Name: "assistant"},
 		SessionRuns: sessionrun.New(sessionrun.Config{Client: client}),
 	}
 	result := ExecuteCommand(s, context.Background(), loopInbound("run-loop", []string{"do", "work"}, map[string]any{"count": 1, "session": "worker"}), CommandSpec(), sessioncontrol.PolicyEvaluation{})

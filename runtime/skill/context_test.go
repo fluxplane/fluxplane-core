@@ -35,7 +35,7 @@ type toolAwareAgent struct {
 	tools []tool.Spec
 }
 
-func (a *toolAwareAgent) Spec() agent.Spec { return agent.Spec{Name: "coder"} }
+func (a *toolAwareAgent) Spec() agent.Spec { return agent.Spec{Name: "assistant"} }
 
 func (a *toolAwareAgent) Step(agent.Context, agent.StepInput) agent.StepResult {
 	return agent.StepResult{Status: agent.StatusOK}

@@ -45,7 +45,7 @@ func TestResponsesWebSocketWarmupThenRealRequestUsesPreviousResponseID(t *testin
 	}
 	resp, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:test",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "say ok",
 	}, nil)
 	if err != nil {
@@ -91,7 +91,7 @@ func TestResponsesWebSocketOffersCompression(t *testing.T) {
 	}
 	if _, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:compression",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "say ok",
 	}, nil); err != nil {
 		t.Fatalf("Stream: %v", err)
@@ -127,7 +127,7 @@ func TestResponsesWebSocketStreamEmitsUsageIncludingCachedTokens(t *testing.T) {
 	}
 	resp, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:usage",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "say ok",
 	}, nil)
 	if err != nil {
@@ -162,7 +162,7 @@ func TestResponsesWebSocketReturnsReadableProviderErrorWhenErrorEventIsEmpty(t *
 	}
 	_, err = model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:empty-error",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "say ok",
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "provider returned an error without code or message") {
@@ -195,7 +195,7 @@ func TestResponsesWebSocketExtractsNestedProviderErrorDetails(t *testing.T) {
 	}
 	_, err = model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:nested-error",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "say ok",
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "bad_previous_response: previous response is not usable") {
@@ -232,7 +232,7 @@ func TestResponsesWebSocketRetriesWrappedRetryableErrorBeforeProviderEvent(t *te
 	}
 	resp, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:retryable-wrapped-error",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "say ok",
 	}, nil)
 	if err != nil {
@@ -271,7 +271,7 @@ func TestResponsesWebSocketSkipsMalformedTextWhenConfigured(t *testing.T) {
 	}
 	resp, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:skip-malformed",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "say ok",
 	}, nil)
 	if err != nil {
@@ -283,8 +283,8 @@ func TestResponsesWebSocketSkipsMalformedTextWhenConfigured(t *testing.T) {
 }
 
 func TestResponsesWebSocketReviewToolResultUsesWireFunctionCallID(t *testing.T) {
-	const reviewPrompt = "Use the `coder-mr-review` skill to review the requested merge request(s).\n\nUser request / focus:"
-	const toolArgs = `{\"actions\":[{\"action\":\"activate\",\"skill\":\"coder-mr-review\"}]}`
+	const reviewPrompt = "Use the `assistant-mr-review` skill to review the requested merge request(s).\n\nUser request / focus:"
+	const toolArgs = `{\"actions\":[{\"action\":\"activate\",\"skill\":\"assistant-mr-review\"}]}`
 	server := newResponsesWebSocketTestServer(t, []string{
 		`{"type":"response.output_item.done","output_index":0,"item":{"id":"fc_review","type":"function_call","call_id":"call_review","name":"skill","arguments":"` + toolArgs + `"}}
 {"type":"response.completed","response":{"id":"resp-review","object":"response","status":"completed","model":"gpt-test","output":[{"id":"fc_review","type":"function_call","call_id":"call_review","name":"skill","arguments":"` + toolArgs + `"}]}}`,
@@ -318,7 +318,7 @@ func TestResponsesWebSocketReviewToolResultUsesWireFunctionCallID(t *testing.T) 
 	}
 	first, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:review-regression",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            reviewPrompt,
 		Tools:           []tool.Spec{skillTool},
 	}, nil)
@@ -332,7 +332,7 @@ func TestResponsesWebSocketReviewToolResultUsesWireFunctionCallID(t *testing.T) 
 		Kind:     coreconversation.ItemToolResult,
 		CallID:   first.Operations[0].ProviderCallID,
 		Name:     "skill",
-		Content:  `activate "coder-mr-review": activated` + "\n" + `active skills: coder, coder-mr-review`,
+		Content:  `activate "assistant-mr-review": activated` + "\n" + `active skills: assistant, assistant-mr-review`,
 		Metadata: map[string]string{"provider_call_type": "function_call"},
 	}
 	transcript := coreconversation.Transcript{
@@ -340,13 +340,13 @@ func TestResponsesWebSocketReviewToolResultUsesWireFunctionCallID(t *testing.T) 
 		Items: append([]coreconversation.Item{{
 			Kind:    coreconversation.ItemInput,
 			Role:    "user",
-			Content: promptFromRequest(llmagent.Request{Agent: agent.Spec{Name: "coder"}, Goal: reviewPrompt}),
+			Content: promptFromRequest(llmagent.Request{Agent: agent.Spec{Name: "assistant"}, Goal: reviewPrompt}),
 		}}, append(first.Transcript.Items, toolResult)...),
 		NewItems: []coreconversation.Item{toolResult},
 	}
 	second, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:review-regression",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Transcript:      &transcript,
 		Tools:           []tool.Spec{skillTool},
 	}, nil)
@@ -402,7 +402,7 @@ func TestResponsesWebSocketTranscriptCoversStreamedToolCallWhenCompletedOutputOm
 	}
 	resp, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:streamed-tool-transcript",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "edit AGENTS.md",
 		Tools:           []tool.Spec{fileEditTool},
 	}, nil)
@@ -453,7 +453,7 @@ func TestResponsesWebSocketReplaysStickyHandshakeHeaderOnReconnect(t *testing.T)
 	}
 	req := llmagent.Request{
 		ConversationKey: "thread:sticky",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "say one",
 	}
 	if _, err := model.Stream(context.Background(), req, nil); err != nil {
@@ -504,7 +504,7 @@ func TestResponsesWebSocketSendsResponseProcessed(t *testing.T) {
 	}
 	if _, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:processed",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "say ok",
 	}, nil); err != nil {
 		t.Fatalf("Stream: %v", err)
@@ -586,7 +586,7 @@ func TestResponsesWebSocketAnswersPingWhileIdle(t *testing.T) {
 	}
 	if _, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:idle-ping",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "say ok",
 	}, nil); err != nil {
 		t.Fatalf("Stream: %v", err)
@@ -600,8 +600,8 @@ func TestResponsesWebSocketAnswersPingWhileIdle(t *testing.T) {
 }
 
 func TestResponsesWebSocketRetriesAfterStaleCachedConnection(t *testing.T) {
-	const reviewPrompt = "Use the `coder-mr-review` skill to review the requested merge request(s).\n\nUser request / focus:"
-	const toolArgs = `{\"actions\":[{\"action\":\"activate\",\"skill\":\"coder-mr-review\"}]}`
+	const reviewPrompt = "Use the `assistant-mr-review` skill to review the requested merge request(s).\n\nUser request / focus:"
+	const toolArgs = `{\"actions\":[{\"action\":\"activate\",\"skill\":\"assistant-mr-review\"}]}`
 	server := newResponsesWebSocketTestServer(t, []string{
 		`{"type":"response.output_item.done","output_index":0,"item":{"id":"fc_review","type":"function_call","call_id":"call_review","name":"skill","arguments":"` + toolArgs + `"}}
 {"type":"response.completed","response":{"id":"resp-review","object":"response","status":"completed","model":"gpt-test","output":[{"id":"fc_review","type":"function_call","call_id":"call_review","name":"skill","arguments":"` + toolArgs + `"}]}}`,
@@ -636,7 +636,7 @@ func TestResponsesWebSocketRetriesAfterStaleCachedConnection(t *testing.T) {
 	}
 	first, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:stale-websocket",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            reviewPrompt,
 		Tools:           []tool.Spec{skillTool},
 	}, nil)
@@ -650,7 +650,7 @@ func TestResponsesWebSocketRetriesAfterStaleCachedConnection(t *testing.T) {
 		Kind:     coreconversation.ItemToolResult,
 		CallID:   first.Operations[0].ProviderCallID,
 		Name:     "skill",
-		Content:  `activate "coder-mr-review": activated` + "\n" + `active skills: coder, coder-mr-review`,
+		Content:  `activate "assistant-mr-review": activated` + "\n" + `active skills: assistant, assistant-mr-review`,
 		Metadata: map[string]string{"provider_call_type": "function_call"},
 	}
 	transcript := coreconversation.Transcript{
@@ -658,13 +658,13 @@ func TestResponsesWebSocketRetriesAfterStaleCachedConnection(t *testing.T) {
 		Items: append([]coreconversation.Item{{
 			Kind:    coreconversation.ItemInput,
 			Role:    "user",
-			Content: promptFromRequest(llmagent.Request{Agent: agent.Spec{Name: "coder"}, Goal: reviewPrompt}),
+			Content: promptFromRequest(llmagent.Request{Agent: agent.Spec{Name: "assistant"}, Goal: reviewPrompt}),
 		}}, append(first.Transcript.Items, toolResult)...),
 		NewItems: []coreconversation.Item{toolResult},
 	}
 	second, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:stale-websocket",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Transcript:      &transcript,
 		Tools:           []tool.Spec{skillTool},
 	}, nil)
@@ -733,9 +733,9 @@ func TestResponsesWebSocketRequestPayloadSendsDeltaWhenPrefixMatches(t *testing.
 }
 
 func TestResponsesWebSocketRequestPayloadSendsDeltaAfterToolCallWithWireCallID(t *testing.T) {
-	reviewInput := json.RawMessage(`{"type":"message","role":"user","content":"Agent:\ncoder\n\nGoal:\nUse the ` + "`" + `coder-mr-review` + "`" + ` skill to review the requested merge request(s).\n\nUser request / focus:"}`)
-	toolCall := json.RawMessage(`{"id":"fc_review","type":"function_call","call_id":"call_review","name":"skill","arguments":"{\"actions\":[{\"action\":\"activate\",\"skill\":\"coder-mr-review\"}]}"}`)
-	toolResult := json.RawMessage(`{"type":"function_call_output","call_id":"call_review","output":"activate \"coder-mr-review\": activated\nactive skills: coder, coder-mr-review"}`)
+	reviewInput := json.RawMessage(`{"type":"message","role":"user","content":"Agent:\ncoder\n\nGoal:\nUse the ` + "`" + `assistant-mr-review` + "`" + ` skill to review the requested merge request(s).\n\nUser request / focus:"}`)
+	toolCall := json.RawMessage(`{"id":"fc_review","type":"function_call","call_id":"call_review","name":"skill","arguments":"{\"actions\":[{\"action\":\"activate\",\"skill\":\"assistant-mr-review\"}]}"}`)
+	toolResult := json.RawMessage(`{"type":"function_call_output","call_id":"call_review","output":"activate \"assistant-mr-review\": activated\nactive skills: assistant, assistant-mr-review"}`)
 	session := &responsesWebSocketSession{
 		lastRequest: &responsesLogicalRequest{
 			payload: map[string]json.RawMessage{
@@ -944,7 +944,7 @@ func TestResponsesWebSocketUpgradeRequiredFallsBackToSSE(t *testing.T) {
 	}
 	resp, err := model.Stream(context.Background(), llmagent.Request{
 		ConversationKey: "thread:fallback",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "hello",
 	}, nil)
 	if err != nil {
@@ -985,7 +985,7 @@ func TestResponsesWebSocketSessionFallbackDisablesLaterAttempts(t *testing.T) {
 	}
 	req := llmagent.Request{
 		ConversationKey: "thread:fallback-disable",
-		Agent:           agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Agent:           agent.Spec{Name: "assistant", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:            "hello",
 	}
 	if _, err := model.Stream(context.Background(), req, nil); err != nil {

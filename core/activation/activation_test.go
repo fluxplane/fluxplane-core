@@ -115,7 +115,7 @@ func TestTargetValidateRejectsEmptyInlineContextContent(t *testing.T) {
 
 func TestSetJSONRoundTrip(t *testing.T) {
 	set := Set{
-		Name: "coder.local_editing",
+		Name: "assistant.local_editing",
 		Targets: []Target{{
 			Kind:      TargetOperation,
 			Operation: operation.Ref{Name: "file_read"},

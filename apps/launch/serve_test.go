@@ -128,7 +128,7 @@ func TestValidateServeLaunchRequiresEntryPointForManifest(t *testing.T) {
 
 func TestDefaultServeChannelClientAppliesDistributionDefaults(t *testing.T) {
 	base := &captureChannelClient{}
-	defaultSessionID := resource.ResourceID{Kind: "session", Origin: "embedded", Namespace: resource.NewNamespace("coder"), Name: "main"}
+	defaultSessionID := resource.ResourceID{Kind: "session", Origin: "embedded", Namespace: resource.NewNamespace("assistant"), Name: "main"}
 	sessionCatalog := orchestrationsession.SessionCatalog{
 		defaultSessionID.Address(): {ID: defaultSessionID},
 	}

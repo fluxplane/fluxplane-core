@@ -110,7 +110,7 @@ func renderMinimalManifest(name string) ([]byte, error) {
 		Socket string
 	}{
 		Name:   name,
-		Socket: "coder-" + slug(name) + ".sock",
+		Socket: "fluxplane-" + slug(name) + ".sock",
 	}
 	tpl, err := template.New("minimal-app.yaml").Funcs(template.FuncMap{
 		"quote": strconv.Quote,

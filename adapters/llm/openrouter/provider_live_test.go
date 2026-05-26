@@ -269,7 +269,7 @@ func postOpenRouterResponses(ctx context.Context, apiKey string, body liveRespon
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Title", "coder-openrouter-live-test")
+	req.Header.Set("X-Title", "fluxplane-openrouter-live-test")
 	resp, err := http.DefaultClient.Do(req)
 	return resp, raw, err
 }

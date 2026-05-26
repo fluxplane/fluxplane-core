@@ -16,7 +16,7 @@ func TestSpecValidateAllowsEngineerManifestShape(t *testing.T) {
 		Sources:      []SourceSpec{{Location: ".agents", Scope: "embedded", Ecosystem: "agents"}},
 		Discovery: DiscoveryPolicy{
 			IncludeGlobalUserResources: true,
-			TrustStoreDir:              ".agentsdk",
+			TrustStoreDir:              ".fluxplane",
 		},
 		Model: ModelPolicy{
 			UseCase:      "agentic_coding",

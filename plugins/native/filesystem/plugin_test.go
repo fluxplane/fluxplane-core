@@ -686,11 +686,11 @@ func TestGlobMaxScannedIsSeparateFromMaxResultsThroughPlugin(t *testing.T) {
 		for i := 0; i < 75; i++ {
 			env.WriteFile(t, fmt.Sprintf("padding/file-%03d.txt", i), []byte("padding"))
 		}
-		env.WriteFile(t, "apps/coder/resources/.agents/commands/reflect.yaml", []byte("reflect"))
+		env.WriteFile(t, "apps/assistant/resources/.agents/commands/reflect.yaml", []byte("reflect"))
 		op := env.Operation(t, GlobOp)
 
 		result := op.Run(operation.NewContext(context.Background(), event.Discard()), map[string]any{
-			"pattern":     "apps/coder/resources/.agents/**/reflect.yaml",
+			"pattern":     "apps/assistant/resources/.agents/**/reflect.yaml",
 			"max_results": 1,
 			"max_scanned": 200,
 		})
@@ -701,7 +701,7 @@ func TestGlobMaxScannedIsSeparateFromMaxResultsThroughPlugin(t *testing.T) {
 		if !ok {
 			t.Fatalf("output = %#v, want rendered", result.Output)
 		}
-		if !strings.Contains(rendered.Text, "apps/coder/resources/.agents/commands/reflect.yaml") {
+		if !strings.Contains(rendered.Text, "apps/assistant/resources/.agents/commands/reflect.yaml") {
 			t.Fatalf("glob text = %q, want reflect.yaml", rendered.Text)
 		}
 		if strings.Contains(rendered.Text, "Traversal truncated") {

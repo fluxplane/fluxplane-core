@@ -971,7 +971,7 @@ func TestExecuteInboundInputProjectsProviderTranscriptAcrossToolContinuation(t *
 		}, nil
 	})
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
 	}, model)
@@ -1063,7 +1063,7 @@ func TestExecuteInboundInputDoesNotDuplicateCommittedToolResultWhenToolFollowupC
 		}, nil
 	})
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
 		Turns:     agent.TurnPolicy{MaxSteps: 2},
@@ -1131,7 +1131,7 @@ func TestExecuteInboundInputDoesNotPersistOpenToolCallWhenTranscriptCommitFails(
 			},
 		}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -1187,7 +1187,7 @@ func TestExecuteInboundInputDoesNotSplitOperationCompletedFromToolResult(t *test
 			},
 		}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -1251,7 +1251,7 @@ func TestExecuteInboundInputDoesNotPartiallyPersistParallelOperationBatch(t *tes
 			},
 		}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -1297,7 +1297,7 @@ func TestExecuteInboundInputDoesNotPersistOpenToolCallWhenProviderCallIDMismatch
 			},
 		}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -1338,7 +1338,7 @@ func TestExecuteInboundInputDoesNotPersistOpenToolCallWhenOperationRequestMissin
 			},
 		}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -1371,7 +1371,7 @@ func TestExecuteInboundInputDoesNotPersistOpenToolCallOnTerminalDecision(t *test
 			},
 		}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -1445,7 +1445,7 @@ func TestExecuteInboundInputReplacesOversizedToolResult(t *testing.T) {
 		return llmagent.Response{Message: &agent.Message{Content: "done"}}, nil
 	})
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
 	}, model)
@@ -1535,7 +1535,7 @@ func TestExecuteInboundInputRendersContextOnlyWhenChanged(t *testing.T) {
 		}, nil
 	})
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
 	}, model, llmagent.WithContextProviders(contextProvider))
@@ -1592,7 +1592,7 @@ func TestExecuteInboundInputRendersSystemPlacementAsSystemTranscriptItem(t *test
 		return llmagent.Response{Message: &agent.Message{Content: "ok"}, Transcript: coreconversation.Transcript{Items: items}}, nil
 	})
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:   "coder",
+		Name:   "assistant",
 		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
 	}, model, llmagent.WithContextProviders(contextProvider))
 	if err != nil {
@@ -1631,7 +1631,7 @@ func TestExecuteInboundInputRendersDeveloperPlacementAsDeveloperTranscriptItem(t
 			Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)},
 		}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -1671,7 +1671,7 @@ func TestExecuteInboundInputPersistsContextUpdatesAndRemovals(t *testing.T) {
 		items = append(items, coreconversation.Item{Kind: coreconversation.ItemOutput, Role: "assistant", Content: "ok"})
 		return llmagent.Response{Message: &agent.Message{Content: "ok"}, Transcript: coreconversation.Transcript{Items: items}}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -1715,7 +1715,7 @@ func TestExecuteInboundInputDoesNotCommitContextWhenModelFails(t *testing.T) {
 		spec:   corecontext.ProviderSpec{Name: "docs"},
 		blocks: []corecontext.Block{{ID: "docs/current", Content: "rules"}},
 	}
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.ModelFunc(func(context.Context, llmagent.Request) (llmagent.Response, error) {
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.ModelFunc(func(context.Context, llmagent.Request) (llmagent.Response, error) {
 		return llmagent.Response{}, errors.New("model down")
 	}), llmagent.WithContextProviders(contextProvider))
 	if err != nil {
@@ -1754,14 +1754,14 @@ func TestExecuteInboundInputLoadsPriorContextRecordsAcrossSessionInstances(t *te
 		items = append(items, coreconversation.Item{Kind: coreconversation.ItemOutput, Role: "assistant", Content: "ok"})
 		return llmagent.Response{Message: &agent.Message{Content: "ok"}, Transcript: coreconversation.Transcript{Items: items}}, nil
 	})
-	firstAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
+	firstAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
 	if err != nil {
 		t.Fatalf("new first agent: %v", err)
 	}
 	if result := (Session{Agent: firstAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-context-resume"}}).ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "first"}}); result.Status != InputStatusOK {
 		t.Fatalf("first status = %q: %#v", result.Status, result)
 	}
-	secondAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
+	secondAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
 	if err != nil {
 		t.Fatalf("new second agent: %v", err)
 	}
@@ -1801,7 +1801,7 @@ func TestExecuteInboundInputContextRecordsAreBranchScoped(t *testing.T) {
 		items = append(items, coreconversation.Item{Kind: coreconversation.ItemOutput, Role: "assistant", Content: "ok"})
 		return llmagent.Response{Message: &agent.Message{Content: "ok"}, Transcript: coreconversation.Transcript{Items: items}}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
 	if err != nil {
 		t.Fatalf("new agent: %v", err)
 	}
@@ -1862,7 +1862,7 @@ func TestExecuteInboundInputToolFollowupContextUsesUpdatedObservations(t *testin
 			Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)},
 		}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Turns: agent.TurnPolicy{MaxSteps: 2}}, model, llmagent.WithContextProviders(contextProvider))
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Turns: agent.TurnPolicy{MaxSteps: 2}}, model, llmagent.WithContextProviders(contextProvider))
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -1904,7 +1904,7 @@ func TestExecuteInboundInputRunsTurnEnvironmentObserversAndDerivers(t *testing.T
 		},
 	}
 	agentInstance := &sequenceAgent{
-		spec: agent.Spec{Name: "coder"},
+		spec: agent.Spec{Name: "assistant"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
 			Decision: agent.Decision{Kind: agent.DecisionWait},
@@ -1956,7 +1956,7 @@ func TestExecuteInboundInputRunsSessionOpenEnvironmentOncePerThread(t *testing.T
 		},
 	}
 	agentInstance := &sequenceAgent{
-		spec: agent.Spec{Name: "coder"},
+		spec: agent.Spec{Name: "assistant"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
 			Decision: agent.Decision{Kind: agent.DecisionWait},
@@ -2066,7 +2066,7 @@ func TestExecuteInboundInputRunsLazyEnvironmentBeforeContextMaterialization(t *t
 			return []corecontext.Block{{ID: "lazy/current", Content: "lazy context"}}, nil
 		},
 	}
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -2138,7 +2138,7 @@ func TestExecuteInboundInputRunsToolFollowupEnvironmentPhase(t *testing.T) {
 			Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)},
 		}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Turns: agent.TurnPolicy{MaxSteps: 2}}, model)
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Turns: agent.TurnPolicy{MaxSteps: 2}}, model)
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -2196,7 +2196,7 @@ func TestExecuteInboundInputRunsOperationReactionBeforeAgentStep(t *testing.T) {
 		},
 	}
 	agentInstance := &sequenceAgent{
-		spec: agent.Spec{Name: "coder"},
+		spec: agent.Spec{Name: "assistant"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
 			Decision: agent.Decision{Kind: agent.DecisionWait},
@@ -2269,7 +2269,7 @@ func TestExecuteInboundInputSkipsApprovalRequiredOperationReaction(t *testing.T)
 		},
 	}
 	agentInstance := &sequenceAgent{
-		spec: agent.Spec{Name: "coder"},
+		spec: agent.Spec{Name: "assistant"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
 			Decision: agent.Decision{Kind: agent.DecisionWait},
@@ -2348,7 +2348,7 @@ func TestExecuteInboundInputRunsCommandReactionThroughDispatcher(t *testing.T) {
 		},
 	}
 	agentInstance := &sequenceAgent{
-		spec: agent.Spec{Name: "coder"},
+		spec: agent.Spec{Name: "assistant"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
 			Decision: agent.Decision{Kind: agent.DecisionWait},
@@ -2408,7 +2408,7 @@ func TestExecuteInboundInputRunsWorkflowReactionBeforeAgentStep(t *testing.T) {
 		},
 	}
 	agentInstance := &sequenceAgent{
-		spec: agent.Spec{Name: "coder"},
+		spec: agent.Spec{Name: "assistant"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
 			Decision: agent.Decision{Kind: agent.DecisionWait},
@@ -2558,7 +2558,7 @@ func TestExecuteInboundInputAppliesSkillReactionBeforeAgentStep(t *testing.T) {
 		},
 	}
 	agentInstance := &sequenceAgent{
-		spec: agent.Spec{Name: "coder"},
+		spec: agent.Spec{Name: "assistant"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
 			Decision: agent.Decision{Kind: agent.DecisionWait},
@@ -2657,7 +2657,7 @@ func TestExecuteInboundInputSkipsPersistedReactionAction(t *testing.T) {
 	}
 	var emitted []event.Name
 	result := (Session{
-		Agent:             runtimeskill.WrapAgent(&sequenceAgent{spec: agent.Spec{Name: "coder"}}, state),
+		Agent:             runtimeskill.WrapAgent(&sequenceAgent{spec: agent.Spec{Name: "assistant"}}, state),
 		ThreadStore:       threadStore,
 		Thread:            thread,
 		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
@@ -3038,18 +3038,18 @@ func TestResolveSurfaceTermsMatchesTypedResourcePhrases(t *testing.T) {
 		Operations:     ops,
 		OperationSets:  []operation.Set{{Name: "gitlab"}},
 		Datasources:    []coredatasource.Spec{{Name: "gitlab"}},
-		ActivationSets: []coreactivation.Set{{Name: "coder.mr_review", Aliases: []string{"mr"}}},
+		ActivationSets: []coreactivation.Set{{Name: "assistant.mr_review", Aliases: []string{"mr"}}},
 	}
 
 	resolved := s.resolveSurfaceTerms([]string{
-		"coder.mr_review surface",
+		"assistant.mr_review surface",
 		"gitlab datasource",
 		"gitlab operation set",
 		"gitlab_mr operation",
 	})
 
-	if len(resolved.ActivationSets) != 1 || resolved.ActivationSets[0] != "coder.mr_review" {
-		t.Fatalf("activation sets = %#v, want coder.mr_review", resolved.ActivationSets)
+	if len(resolved.ActivationSets) != 1 || resolved.ActivationSets[0] != "assistant.mr_review" {
+		t.Fatalf("activation sets = %#v, want assistant.mr_review", resolved.ActivationSets)
 	}
 	for _, want := range []coreactivation.ResolvedResource{
 		{Kind: coreactivation.TargetDatasource, Name: "gitlab"},
@@ -3518,7 +3518,7 @@ func TestExecuteInboundInputMaterializesActiveContextProvider(t *testing.T) {
 		}, nil
 	})
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
 	}, model)
@@ -3581,7 +3581,7 @@ func TestExecuteInboundCommandContextPreviewIsDryRun(t *testing.T) {
 		spec:   corecontext.ProviderSpec{Name: "docs"},
 		blocks: []corecontext.Block{{ID: "docs/current", Content: "rules"}},
 	}
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -3628,7 +3628,7 @@ func TestExecuteInboundCommandContextPreviewPassesIdentityScope(t *testing.T) {
 			}}, nil
 		},
 	}
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -3660,7 +3660,7 @@ func TestExecuteInboundCommandContextPreviewPassesIdentityScope(t *testing.T) {
 
 func TestExecuteInboundCommandWhoamiShowsResolvedIdentity(t *testing.T) {
 	ctx := context.Background()
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")})
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -3681,7 +3681,7 @@ func TestExecuteInboundCommandWhoamiShowsResolvedIdentity(t *testing.T) {
 		t.Fatalf("whoami command = %#v, want ok", result)
 	}
 	output := fmt.Sprint(result.Effect.Result.Output)
-	for _, want := range []string{"user: timo@company.org", "identity: slack:U123", "groups: admins", "trust: verified", "user:timo@company.org", "group:admins", "agent:coder"} {
+	for _, want := range []string{"user: timo@company.org", "identity: slack:U123", "groups: admins", "trust: verified", "user:timo@company.org", "group:admins", "agent:assistant"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output = %q, want %q", output, want)
 		}
@@ -3698,7 +3698,7 @@ func TestExecuteInboundInputPassesResolvedIdentityToContextProviders(t *testing.
 			return []corecontext.Block{{ID: "identity", Content: "identity"}}, nil
 		},
 	}
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -3775,7 +3775,7 @@ func TestExecuteInboundCommandContextPreviewFreshAndKey(t *testing.T) {
 	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
 		return llmagent.Response{Message: &agent.Message{Content: "ok"}, Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)}}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(docs, skills))
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "assistant", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(docs, skills))
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -3909,7 +3909,7 @@ func TestExecuteInboundCommandCompactAffectsNextReplay(t *testing.T) {
 		},
 	}
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
 	}, model)
@@ -4167,7 +4167,7 @@ func TestExecuteInboundInputAutoCompactionSkipsFailedTurn(t *testing.T) {
 	threadStore, ref := compactThread(t, ctx, "thread-auto-compact-skip-failed")
 	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:   "coder",
+		Name:   "assistant",
 		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{
 			Model: provider.Model,
@@ -4230,7 +4230,7 @@ func TestExecuteInboundInputAutoCompactionAffectsNextReplay(t *testing.T) {
 		},
 	}
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:   "coder",
+		Name:   "assistant",
 		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{
 			Model: provider.Model,
@@ -4305,7 +4305,7 @@ func TestExecuteInboundInputPersistsToolResultBeforeStepLimit(t *testing.T) {
 		}, nil
 	})
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
 		Turns:     agent.TurnPolicy{MaxSteps: 2},
@@ -4372,7 +4372,7 @@ func TestExecuteInboundInputPersistsToolResultWhenContinuationModelFails(t *test
 		return llmagent.Response{}, errors.New("continuation transport failed")
 	})
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
 		Turns: agent.TurnPolicy{Continuation: agent.ContinuationPolicy{
@@ -4536,7 +4536,7 @@ func TestExecuteInboundInputMaxContinuationsDoesNotLimitInnerToolLoop(t *testing
 		return llmagent.Response{Message: &agent.Message{Content: "done"}}, nil
 	})
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
 		Turns:     agent.TurnPolicy{MaxSteps: 3, Continuation: agent.ContinuationPolicy{MaxContinuations: 0}},
@@ -4698,7 +4698,7 @@ func TestExecuteInboundInputUsesDurableGoalContinuation(t *testing.T) {
 
 	agentInstance := &sequenceAgent{
 		spec: agent.Spec{
-			Name:  "coder",
+			Name:  "assistant",
 			Turns: agent.TurnPolicy{MaxSteps: 1},
 		},
 		results: []agent.StepResult{
@@ -4770,7 +4770,7 @@ func TestModelStopEvaluatorAcceptsToolDecision(t *testing.T) {
 
 	got, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
 		Agent: agent.Spec{
-			Name:      "coder",
+			Name:      "assistant",
 			Inference: agent.InferenceSpec{Model: "expensive-model", Thinking: "enabled"},
 		},
 		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
@@ -4792,7 +4792,7 @@ func TestModelStopEvaluatorAcceptsStopToolDecision(t *testing.T) {
 	})
 
 	got, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
-		Agent:     agent.Spec{Name: "coder"},
+		Agent:     agent.Spec{Name: "assistant"},
 		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
 	})
 	if err != nil {
@@ -4809,7 +4809,7 @@ func TestModelStopEvaluatorRejectsTextDecision(t *testing.T) {
 	})
 
 	_, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
-		Agent:     agent.Spec{Name: "coder"},
+		Agent:     agent.Spec{Name: "assistant"},
 		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
 	})
 	if err == nil || !strings.Contains(err.Error(), "must call continuation_decision") {
@@ -4826,7 +4826,7 @@ func TestModelStopEvaluatorRejectsWrongTool(t *testing.T) {
 	})
 
 	_, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
-		Agent:     agent.Spec{Name: "coder"},
+		Agent:     agent.Spec{Name: "assistant"},
 		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
 	})
 	if err == nil || !strings.Contains(err.Error(), "want \"continuation_decision\"") {
@@ -4843,7 +4843,7 @@ func TestModelStopEvaluatorRejectsMultipleDecisions(t *testing.T) {
 	})
 
 	_, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
-		Agent:     agent.Spec{Name: "coder"},
+		Agent:     agent.Spec{Name: "assistant"},
 		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
 	})
 	if err == nil || !strings.Contains(err.Error(), "exactly once") {
@@ -4860,7 +4860,7 @@ func TestModelStopEvaluatorRejectsInvalidDecisionAction(t *testing.T) {
 	})
 
 	_, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
-		Agent:     agent.Spec{Name: "coder"},
+		Agent:     agent.Spec{Name: "assistant"},
 		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
 	})
 	if err == nil || !strings.Contains(err.Error(), "stop evaluation action must be stop or continue") {
@@ -4877,7 +4877,7 @@ func TestModelStopEvaluatorRejectsMissingDecisionAction(t *testing.T) {
 	})
 
 	_, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
-		Agent:     agent.Spec{Name: "coder"},
+		Agent:     agent.Spec{Name: "assistant"},
 		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
 	})
 	if err == nil || !strings.Contains(err.Error(), "stop evaluation action must be stop or continue") {
@@ -4897,7 +4897,7 @@ func TestStopEvaluatorContextPolicyControlsEffectDetails(t *testing.T) {
 	}
 
 	summaryInput := input
-	summaryInput.Agent = agent.Spec{Name: "coder", Turns: agent.TurnPolicy{Continuation: agent.ContinuationPolicy{ContextPolicy: "summary"}}}
+	summaryInput.Agent = agent.Spec{Name: "assistant", Turns: agent.TurnPolicy{Continuation: agent.ContinuationPolicy{ContextPolicy: "summary"}}}
 	summaryGoal := sessioncontrol.StopEvaluatorGoal(summaryInput)
 	if strings.Contains(summaryGoal, "RAW_SECRET_OUTPUT") {
 		t.Fatalf("summary goal leaked raw effect output:\n%s", summaryGoal)
@@ -4907,7 +4907,7 @@ func TestStopEvaluatorContextPolicyControlsEffectDetails(t *testing.T) {
 	}
 
 	inheritInput := input
-	inheritInput.Agent = agent.Spec{Name: "coder", Turns: agent.TurnPolicy{Continuation: agent.ContinuationPolicy{ContextPolicy: "inherit"}}}
+	inheritInput.Agent = agent.Spec{Name: "assistant", Turns: agent.TurnPolicy{Continuation: agent.ContinuationPolicy{ContextPolicy: "inherit"}}}
 	inheritGoal := sessioncontrol.StopEvaluatorGoal(inheritInput)
 	if !strings.Contains(inheritGoal, "RAW_SECRET_OUTPUT") {
 		t.Fatalf("inherit goal = %q, want raw effect output", inheritGoal)
@@ -4991,7 +4991,7 @@ func TestExecuteInboundInputUsesStoredProviderContinuation(t *testing.T) {
 		}, nil
 	})
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
 	}, model)
@@ -5099,7 +5099,7 @@ func TestExecuteInboundInputUsesProviderContinuationWithPrefixedModel(t *testing
 		}, nil
 	})
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "openai/gpt-test"},
 	}, model)
@@ -5175,7 +5175,7 @@ func TestExecuteInboundInputUsesConcreteModelIdentityForReplay(t *testing.T) {
 		},
 	}
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "openrouter/minimax/minimax-m2.7"},
 	}, model)
@@ -5235,7 +5235,7 @@ func TestExecuteInboundInputDoesNotPersistProviderTranscriptWhenModelFails(t *te
 		},
 	}
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:      "coder",
+		Name:      "assistant",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
 	}, model)
@@ -5627,7 +5627,7 @@ func hasCompactedAssistantOutput(items []coreconversation.Item) bool {
 func compactTestAgent(t *testing.T, provider coreconversation.ProviderIdentity) agent.Agent {
 	t.Helper()
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:   "coder",
+		Name:   "assistant",
 		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{
 			Model: provider.Model,
@@ -5680,7 +5680,7 @@ func autoCompactAgentWithOptions(t *testing.T, provider coreconversation.Provide
 		annotations["llm.context_tokens"] = opts.ContextTokens
 	}
 	runtimeAgent, err := llmagent.New(agent.Spec{
-		Name:   "coder",
+		Name:   "assistant",
 		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{
 			Model:           provider.Model,

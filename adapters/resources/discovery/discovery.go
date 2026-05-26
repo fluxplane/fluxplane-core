@@ -78,14 +78,6 @@ func loadAppConfig(ctx context.Context, root string) (appconfig.File, bool, erro
 			return appconfig.File{}, false, err
 		}
 	}
-	for _, name := range appconfig.DeprecatedManifestNames {
-		if _, err := os.Stat(filepath.Join(root, name)); err == nil {
-			_, err := appconfig.LoadDirFile(ctx, root)
-			return appconfig.File{}, false, err
-		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return appconfig.File{}, false, err
-		}
-	}
 	return appconfig.File{}, false, nil
 }
 

@@ -22,7 +22,6 @@ import (
 const (
 	defaultAuthPath       = "/auth"
 	defaultBaseImage      = "fluxplane/fluxplane-base:local"
-	defaultCoderBaseImage = "fluxplane/coder-base:local"
 	defaultAppImage       = "fluxplane-app:latest"
 	defaultMySQLDSNEnv    = "FLUXPLANE_DATASTORE_MYSQL_DSN"
 	defaultNATSDSNEnv     = "FLUXPLANE_EVENTSTORE_NATS_DSN"

@@ -8,10 +8,10 @@ import (
 func TestTargetInputBuildsTargetDescription(t *testing.T) {
 	input, err := targetInput(targetOptions{
 		baseURL:      "http://unix",
-		socket:       "/tmp/coder.sock",
-		session:      "coder",
+		socket:       "/tmp/target.sock",
+		session:      "default",
 		conversation: "eval-thread",
-		targetKind:   "coder",
+		targetKind:   "target",
 		timeout:      "45s",
 		probe:        "Reply with ok",
 	})
@@ -20,10 +20,10 @@ func TestTargetInputBuildsTargetDescription(t *testing.T) {
 	}
 	for _, want := range []string{
 		"- base_url: http://unix",
-		"- unix_socket: /tmp/coder.sock",
-		"- session: coder",
+		"- unix_socket: /tmp/target.sock",
+		"- session: default",
 		"- conversation: eval-thread",
-		"- target_kind: coder",
+		"- target_kind: target",
 		"- timeout: 45s",
 		"Reply with ok",
 	} {
@@ -34,7 +34,7 @@ func TestTargetInputBuildsTargetDescription(t *testing.T) {
 }
 
 func TestTargetInputRequiresBaseURLAndSession(t *testing.T) {
-	if _, err := targetInput(targetOptions{session: "coder"}); err == nil {
+	if _, err := targetInput(targetOptions{session: "default"}); err == nil {
 		t.Fatalf("targetInput missing baseURL error = nil")
 	}
 	if _, err := targetInput(targetOptions{baseURL: "http://unix"}); err == nil {

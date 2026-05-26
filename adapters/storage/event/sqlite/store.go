@@ -330,12 +330,12 @@ func sleepSQLiteWriteRetry(ctx context.Context, attempt int) error {
 	}
 }
 
-type sqliteErrorCoder interface {
+type sqliteErrorCodeProvider interface {
 	Code() int
 }
 
 func sqliteErrorCode(err error) (int, bool) {
-	var coded sqliteErrorCoder
+	var coded sqliteErrorCodeProvider
 	if !errors.As(err, &coded) {
 		return 0, false
 	}

@@ -65,6 +65,23 @@ func DecodeConfig[T any](raw map[string]any) (T, error) {
 	return cfg, nil
 }
 
+// ConfigMap converts a typed plugin config into the raw map stored on
+// resource.PluginRef.
+func ConfigMap[T any](cfg T) (map[string]any, error) {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("encode plugin config: %w", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("encode plugin config: %w", err)
+	}
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	return raw, nil
+}
+
 // ConfigSchemaFor reflects T into a JSON Schema for plugin app-manifest config.
 func ConfigSchemaFor[T any]() ([]byte, error) {
 	typ := reflect.TypeOf((*T)(nil)).Elem()

@@ -877,31 +877,31 @@ func TestOpenSessionAppliesConfiguredSessionDefaults(t *testing.T) {
 	ctx := context.Background()
 	service, _ := testService(t)
 	service.sessionCatalog = session.SessionCatalog{
-		"embedded:apps/demo:coder": {
+		"embedded:apps/demo:assistant": {
 			ID: resource.ResourceID{
 				Kind:      "session",
 				Origin:    "embedded",
 				Namespace: resource.NewNamespace("apps/demo"),
-				Name:      "coder",
+				Name:      "assistant",
 			},
 			Spec: coresession.Spec{
-				Name:         "coder",
+				Name:         "assistant",
 				Channel:      channel.Ref{Name: "local"},
 				Conversation: channel.ConversationRef{ID: "devclient"},
-				Metadata:     map[string]string{"profile": "coder", "default": "yes"},
+				Metadata:     map[string]string{"profile": "assistant", "default": "yes"},
 			},
 		},
 	}
 
 	info, err := service.OpenSession(ctx, OpenSessionRequest{
-		Session:  coresession.Ref{Name: "demo:coder"},
+		Session:  coresession.Ref{Name: "demo:assistant"},
 		Metadata: map[string]string{"default": "override"},
 	})
 	if err != nil {
 		t.Fatalf("OpenSession: %v", err)
 	}
-	if info.Session.Name != "embedded:apps/demo:coder" {
-		t.Fatalf("session ref = %q, want embedded:apps/demo:coder", info.Session.Name)
+	if info.Session.Name != "embedded:apps/demo:assistant" {
+		t.Fatalf("session ref = %q, want embedded:apps/demo:assistant", info.Session.Name)
 	}
 	if info.Channel.Name != "local" {
 		t.Fatalf("channel = %q, want local", info.Channel.Name)
@@ -909,7 +909,7 @@ func TestOpenSessionAppliesConfiguredSessionDefaults(t *testing.T) {
 	if info.Conversation.ID != "devclient" {
 		t.Fatalf("conversation = %q, want devclient", info.Conversation.ID)
 	}
-	if info.Metadata["profile"] != "coder" || info.Metadata["default"] != "override" {
+	if info.Metadata["profile"] != "assistant" || info.Metadata["default"] != "override" {
 		t.Fatalf("metadata = %#v", info.Metadata)
 	}
 }
@@ -918,15 +918,15 @@ func TestOpenSessionProfilesSeparateSameConversation(t *testing.T) {
 	ctx := context.Background()
 	service, _ := testService(t)
 	service.sessionCatalog = session.SessionCatalog{
-		"embedded:apps/demo:coder": {
+		"embedded:apps/demo:assistant": {
 			ID: resource.ResourceID{
 				Kind:      "session",
 				Origin:    "embedded",
 				Namespace: resource.NewNamespace("apps/demo"),
-				Name:      "coder",
+				Name:      "assistant",
 			},
 			Spec: coresession.Spec{
-				Name:         "coder",
+				Name:         "assistant",
 				Channel:      channel.Ref{Name: "local"},
 				Conversation: channel.ConversationRef{ID: "devclient"},
 			},
@@ -946,31 +946,31 @@ func TestOpenSessionProfilesSeparateSameConversation(t *testing.T) {
 		},
 	}
 
-	coder, err := service.OpenSession(ctx, OpenSessionRequest{Session: coresession.Ref{Name: "coder"}})
+	assistant, err := service.OpenSession(ctx, OpenSessionRequest{Session: coresession.Ref{Name: "assistant"}})
 	if err != nil {
-		t.Fatalf("OpenSession coder: %v", err)
+		t.Fatalf("OpenSession assistant: %v", err)
 	}
 	reviewer, err := service.OpenSession(ctx, OpenSessionRequest{Session: coresession.Ref{Name: "reviewer"}})
 	if err != nil {
 		t.Fatalf("OpenSession reviewer: %v", err)
 	}
-	coderAgain, err := service.OpenSession(ctx, OpenSessionRequest{Session: coresession.Ref{Name: "coder"}})
+	coderAgain, err := service.OpenSession(ctx, OpenSessionRequest{Session: coresession.Ref{Name: "assistant"}})
 	if err != nil {
-		t.Fatalf("OpenSession coder again: %v", err)
+		t.Fatalf("OpenSession assistant again: %v", err)
 	}
-	coderQualified, err := service.OpenSession(ctx, OpenSessionRequest{Session: coresession.Ref{Name: "demo:coder"}})
+	coderQualified, err := service.OpenSession(ctx, OpenSessionRequest{Session: coresession.Ref{Name: "demo:assistant"}})
 	if err != nil {
-		t.Fatalf("OpenSession coder qualified: %v", err)
+		t.Fatalf("OpenSession assistant qualified: %v", err)
 	}
 
-	if coder.Thread.ID == reviewer.Thread.ID {
-		t.Fatalf("coder and reviewer share thread %q", coder.Thread.ID)
+	if assistant.Thread.ID == reviewer.Thread.ID {
+		t.Fatalf("assistant and reviewer share thread %q", assistant.Thread.ID)
 	}
-	if coder.Thread.ID != coderAgain.Thread.ID {
-		t.Fatalf("coder thread = %q, want resumed %q", coderAgain.Thread.ID, coder.Thread.ID)
+	if assistant.Thread.ID != coderAgain.Thread.ID {
+		t.Fatalf("assistant thread = %q, want resumed %q", coderAgain.Thread.ID, assistant.Thread.ID)
 	}
-	if coder.Thread.ID != coderQualified.Thread.ID {
-		t.Fatalf("qualified coder thread = %q, want resumed %q", coderQualified.Thread.ID, coder.Thread.ID)
+	if assistant.Thread.ID != coderQualified.Thread.ID {
+		t.Fatalf("qualified assistant thread = %q, want resumed %q", coderQualified.Thread.ID, assistant.Thread.ID)
 	}
 }
 
@@ -1122,10 +1122,10 @@ func TestHandleInboundContextCommandUsesAgentProvider(t *testing.T) {
 		ThreadStore: threadStore,
 	})
 	info, err := service.OpenSession(ctx, OpenSessionRequest{
-		Session: coresession.Ref{Name: "coder"},
+		Session: coresession.Ref{Name: "assistant"},
 		Profile: coresession.Spec{
-			Name:  "coder",
-			Agent: coreagent.Ref{Name: "coder"},
+			Name:  "assistant",
+			Agent: coreagent.Ref{Name: "assistant"},
 		},
 		Channel:      channel.Ref{Name: "local"},
 		Conversation: channel.ConversationRef{ID: "conv-context"},
@@ -1180,10 +1180,10 @@ func TestHandleInboundPromptCommandUsesAgentProvider(t *testing.T) {
 		ThreadStore: threadStore,
 	})
 	info, err := service.OpenSession(ctx, OpenSessionRequest{
-		Session: coresession.Ref{Name: "coder"},
+		Session: coresession.Ref{Name: "assistant"},
 		Profile: coresession.Spec{
-			Name:  "coder",
-			Agent: coreagent.Ref{Name: "coder"},
+			Name:  "assistant",
+			Agent: coreagent.Ref{Name: "assistant"},
 		},
 		Channel:      channel.Ref{Name: "local"},
 		Conversation: channel.ConversationRef{ID: "conv-prompt"},
@@ -1260,10 +1260,10 @@ func TestHandleInboundPromptCommandProjectsTools(t *testing.T) {
 		ThreadStore: threadStore,
 	})
 	info, err := service.OpenSession(ctx, OpenSessionRequest{
-		Session: coresession.Ref{Name: "coder"},
+		Session: coresession.Ref{Name: "assistant"},
 		Profile: coresession.Spec{
-			Name:  "coder",
-			Agent: coreagent.Ref{Name: "coder"},
+			Name:  "assistant",
+			Agent: coreagent.Ref{Name: "assistant"},
 		},
 		Channel:      channel.Ref{Name: "local"},
 		Conversation: channel.ConversationRef{ID: "conv-prompt-tools"},
@@ -1308,10 +1308,10 @@ func TestHandleInboundCompactCommandUsesAgentProvider(t *testing.T) {
 		ThreadStore: threadStore,
 	})
 	info, err := service.OpenSession(ctx, OpenSessionRequest{
-		Session: coresession.Ref{Name: "coder"},
+		Session: coresession.Ref{Name: "assistant"},
 		Profile: coresession.Spec{
-			Name:  "coder",
-			Agent: coreagent.Ref{Name: "coder"},
+			Name:  "assistant",
+			Agent: coreagent.Ref{Name: "assistant"},
 		},
 		Channel:      channel.Ref{Name: "local"},
 		Conversation: channel.ConversationRef{ID: "conv-compact"},
@@ -1385,10 +1385,10 @@ func TestHandleInboundCompactCommandRejectsMalformedProviderTranscript(t *testin
 		ThreadStore: threadStore,
 	})
 	info, err := service.OpenSession(ctx, OpenSessionRequest{
-		Session: coresession.Ref{Name: "coder"},
+		Session: coresession.Ref{Name: "assistant"},
 		Profile: coresession.Spec{
-			Name:  "coder",
-			Agent: coreagent.Ref{Name: "coder"},
+			Name:  "assistant",
+			Agent: coreagent.Ref{Name: "assistant"},
 		},
 		Channel:      channel.Ref{Name: "local"},
 		Conversation: channel.ConversationRef{ID: "conv-compact-invalid"},
@@ -1510,7 +1510,7 @@ type harnessContextAgent struct {
 }
 
 func (a harnessContextAgent) Spec() coreagent.Spec {
-	return coreagent.Spec{Name: "coder"}
+	return coreagent.Spec{Name: "assistant"}
 }
 
 func (a harnessContextAgent) Step(coreagent.Context, coreagent.StepInput) coreagent.StepResult {
@@ -1527,7 +1527,7 @@ type harnessProviderAgent struct {
 
 func (a harnessProviderAgent) Spec() coreagent.Spec {
 	return coreagent.Spec{
-		Name: "coder",
+		Name: "assistant",
 		Inference: coreagent.InferenceSpec{
 			Model: a.provider.Model,
 			Annotations: map[string]string{
@@ -1550,7 +1550,7 @@ type harnessPromptAgent struct {
 }
 
 func (a *harnessPromptAgent) Spec() coreagent.Spec {
-	return coreagent.Spec{Name: "coder"}
+	return coreagent.Spec{Name: "assistant"}
 }
 
 func (a *harnessPromptAgent) Step(_ coreagent.Context, input coreagent.StepInput) coreagent.StepResult {

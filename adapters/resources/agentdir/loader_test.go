@@ -405,7 +405,7 @@ func TestDecodeYAMLCommandTargetsPrompt(t *testing.T) {
 description: Review this session.
 target:
   prompt: |
-    Review the current coder session.
+    Review the current assistant session.
 `))
 	if err != nil {
 		t.Fatalf("DecodeCommand() error = %v", err)
@@ -413,7 +413,7 @@ target:
 	if spec.Target.Kind != invocation.TargetPrompt {
 		t.Fatalf("target kind = %q, want prompt", spec.Target.Kind)
 	}
-	if spec.Target.Prompt != "Review the current coder session." {
+	if spec.Target.Prompt != "Review the current assistant session." {
 		t.Fatalf("prompt = %q", spec.Target.Prompt)
 	}
 }

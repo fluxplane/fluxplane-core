@@ -315,7 +315,7 @@ func BuildDocker(ctx context.Context, opts DockerBuildOptions) (DockerBuildResul
 		return DockerBuildResult{}, err
 	}
 
-	tempDir, err := os.MkdirTemp(opts.TempDir, "coder-app-docker-build-*")
+	tempDir, err := os.MkdirTemp(opts.TempDir, "fluxplane-app-docker-build-*")
 	if err != nil {
 		return DockerBuildResult{}, fmt.Errorf("distribution build: create temp context: %w", err)
 	}
@@ -364,14 +364,6 @@ type baseImageRuntime struct {
 }
 
 var (
-	coderBaseRuntime = baseImageRuntime{
-		name:         "coder",
-		defaultTag:   defaultCoderBaseImage,
-		binaryName:   "coder",
-		buildWorkDir: "/src/fluxplane/apps/coder",
-		sourcePkg:    "./cmd/coder",
-		tempPattern:  "coder-base-docker-build-*",
-	}
 	fluxplaneBaseRuntime = baseImageRuntime{
 		name:         "fluxplane",
 		defaultTag:   defaultBaseImage,
@@ -381,11 +373,6 @@ var (
 		tempPattern:  "fluxplane-base-docker-build-*",
 	}
 )
-
-// BuildCoderBaseDocker builds the reusable Docker base image containing coder.
-func BuildCoderBaseDocker(ctx context.Context, opts BaseImageOptions) (BaseImageResult, error) {
-	return buildRuntimeBaseDocker(ctx, opts, coderBaseRuntime)
-}
 
 // BuildFluxplaneBaseDocker builds the reusable Docker base image containing fluxplane.
 func BuildFluxplaneBaseDocker(ctx context.Context, opts BaseImageOptions) (BaseImageResult, error) {

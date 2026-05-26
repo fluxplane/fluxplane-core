@@ -95,7 +95,7 @@ func TestReadModelApplyNamedCoversResolutionSkippedAndExpiry(t *testing.T) {
 	if err := model.ApplyNamed(EventSurfaceResolved, SurfaceResolved{
 		Resources: []ResolvedResource{
 			{Kind: TargetOperation, Name: "go_test"},
-			{Kind: TargetSkill, Alias: "coder"},
+			{Kind: TargetSkill, Alias: "assistant"},
 		},
 		UnmatchedTerms: []string{"missing"},
 		Skipped:        []Diagnostic{{Term: "bad", Reason: "disabled"}},

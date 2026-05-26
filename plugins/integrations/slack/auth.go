@@ -216,7 +216,7 @@ func resolveStoredOrEnvResolver(ctx context.Context, sys system.System, resolver
 	session.AppToken = firstNonEmpty(session.AppToken, envSession.AppToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.AppTokenEnv, defaultAppTokenEnv))))
 	session.UserToken = firstNonEmpty(session.UserToken, envSession.UserToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))))
 	if session.BotToken == "" && session.UserToken == "" {
-		return Session{}, fmt.Errorf("slackplugin: bot token or user token is not configured; run coder auth connect --plugin slack --method %s or configure %s/%s", TokenMethod, firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv), firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))
+		return Session{}, fmt.Errorf("slackplugin: bot token or user token is not configured; run fluxplane auth connect --plugin slack --method %s or configure %s/%s", TokenMethod, firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv), firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))
 	}
 	return session, nil
 }
@@ -242,7 +242,7 @@ func resolveOAuthResolver(ctx context.Context, sys system.System, resolver runti
 	session.AppToken = firstNonEmpty(session.AppToken, envSession.AppToken)
 	session.UserToken = firstNonEmpty(session.UserToken, envSession.UserToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))))
 	if session.BotToken == "" && session.UserToken == "" {
-		return Session{}, fmt.Errorf("slackplugin: oauth2 token or user token is not configured; run coder auth connect --plugin slack --method %s", OAuth2Method)
+		return Session{}, fmt.Errorf("slackplugin: oauth2 token or user token is not configured; run fluxplane auth connect --plugin slack --method %s", OAuth2Method)
 	}
 	return session, nil
 }

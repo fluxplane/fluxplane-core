@@ -15,7 +15,7 @@ func TestRunnerRunsSessionWithFreshConversationAndLifecycle(t *testing.T) {
 	var emitted []event.Event
 	result, err := runner.Run(context.Background(), Request{
 		ID:      "loop-1",
-		Session: coresession.Ref{Name: "coder"},
+		Session: coresession.Ref{Name: "assistant"},
 		Input:   "repeat this",
 		Events: event.SinkFunc(func(payload event.Event) {
 			emitted = append(emitted, payload)

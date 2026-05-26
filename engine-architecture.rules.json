@@ -8,7 +8,7 @@
     {"name": "orchestration", "prefixes": ["orchestration"]},
     {"name": "adapters", "prefixes": ["adapters"]},
     {"name": "plugins", "prefixes": ["plugins"]},
-    {"name": "apps", "prefixes": ["apps"]},
+    {"name": "apps", "prefixes": ["apps", "examples/go"]},
     {"name": "cmd", "prefixes": ["cmd"]}
   ],
   "dependencies": [

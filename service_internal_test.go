@@ -25,7 +25,7 @@ func TestResolverStopEvaluatorUsesParentAgentInference(t *testing.T) {
 
 	_, err := (resolverStopEvaluator{resolver: resolver}).EvaluateStopCondition(context.Background(), session.StopEvaluationInput{
 		Agent: agent.Spec{
-			Name:      "coder",
+			Name:      "assistant",
 			Inference: agent.InferenceSpec{Model: "expensive-model", Thinking: "enabled"},
 		},
 		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},

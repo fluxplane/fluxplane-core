@@ -71,7 +71,7 @@ func addSubjectForCaller(add func(policy.SubjectKind, string), caller policy.Cal
 }
 
 // LocalActor is the canonical local actor used by local distributions such as
-// coder.
+// agent.
 func LocalActor(username, rawID, hostname, uid string) user.Actor {
 	username = strings.TrimSpace(username)
 	if username == "" {
