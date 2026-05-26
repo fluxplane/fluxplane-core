@@ -1,6 +1,10 @@
 package policy
 
-import "testing"
+import (
+	"context"
+	"reflect"
+	"testing"
+)
 
 func TestEvaluateAuthorizationDefaultDeny(t *testing.T) {
 	got := EvaluateAuthorization(AuthorizationPolicy{}, AuthorizationRequest{
@@ -120,5 +124,79 @@ func TestEvaluateAuthorizationSecretResource(t *testing.T) {
 	})
 	if got.Decision != DecisionDeny {
 		t.Fatalf("decision = %#v, want deny", got)
+	}
+}
+
+func TestAuthorizationVocabulariesAndContext(t *testing.T) {
+	if got := Actions(); len(got) != 26 || got[0] != ActionDatasourceRead || got[len(got)-1] != ActionSecretAdmin {
+		t.Fatalf("Actions() = %#v", got)
+	}
+	if got, want := SubjectKinds(), []SubjectKind{SubjectUser, SubjectGroup, SubjectService, SubjectSystem, SubjectAgent}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("SubjectKinds() = %#v, want %#v", got, want)
+	}
+	if got := ResourceKinds(); len(got) != 12 || got[0] != ResourceDatasource || got[len(got)-1] != ResourceSecret {
+		t.Fatalf("ResourceKinds() = %#v", got)
+	}
+	if !(AuthorizationPolicy{}).IsZero() || (AuthorizationPolicy{Grants: []Grant{{}}}).IsZero() {
+		t.Fatal("AuthorizationPolicy.IsZero returned unexpected value")
+	}
+	if _, ok := AuthorizationFromContext(nil); ok {
+		t.Fatal("AuthorizationFromContext(nil) ok = true")
+	}
+	auth := AuthorizationContext{Subjects: []SubjectRef{{Kind: SubjectUser, ID: "u"}}, TraceAllows: true}
+	ctx := ContextWithAuthorization(nil, auth)
+	got, ok := AuthorizationFromContext(ctx)
+	if !ok || !reflect.DeepEqual(got, auth) {
+		t.Fatalf("AuthorizationFromContext() = %#v, %v; want %#v, true", got, ok, auth)
+	}
+	if _, ok := AuthorizationFromContext(context.Background()); ok {
+		t.Fatal("AuthorizationFromContext(background) ok = true")
+	}
+}
+
+func TestEvaluateAuthorizationRejectsNonMatchingGrantFields(t *testing.T) {
+	baseGrant := Grant{
+		Subjects:  []SubjectRef{{Kind: SubjectUser, ID: "user-*"}},
+		Resources: []ResourceRef{{Kind: ResourcePath, Path: "docs/*.md"}},
+		Actions:   []Action{ActionWorkspaceRead},
+	}
+	tests := []struct {
+		name   string
+		grant  Grant
+		req    AuthorizationRequest
+		reason string
+	}{
+		{name: "empty grant subjects", grant: Grant{Resources: baseGrant.Resources, Actions: baseGrant.Actions}, req: AuthorizationRequest{Subjects: []SubjectRef{{Kind: SubjectUser, ID: "user-a"}}, Resource: ResourceRef{Kind: ResourcePath, Path: "docs/readme.md"}, Action: ActionWorkspaceRead}, reason: "no_matching_grant"},
+		{name: "empty actual subjects", grant: baseGrant, req: AuthorizationRequest{Resource: ResourceRef{Kind: ResourcePath, Path: "docs/readme.md"}, Action: ActionWorkspaceRead}, reason: "no_matching_grant"},
+		{name: "subject kind mismatch", grant: baseGrant, req: AuthorizationRequest{Subjects: []SubjectRef{{Kind: SubjectGroup, ID: "user-a"}}, Resource: ResourceRef{Kind: ResourcePath, Path: "docs/readme.md"}, Action: ActionWorkspaceRead}, reason: "no_matching_grant"},
+		{name: "empty action", grant: baseGrant, req: AuthorizationRequest{Subjects: []SubjectRef{{Kind: SubjectUser, ID: "user-a"}}, Resource: ResourceRef{Kind: ResourcePath, Path: "docs/readme.md"}}, reason: "no_matching_grant"},
+		{name: "resource kind mismatch", grant: baseGrant, req: AuthorizationRequest{Subjects: []SubjectRef{{Kind: SubjectUser, ID: "user-a"}}, Resource: ResourceRef{Kind: ResourceDatasource, Path: "docs/readme.md"}, Action: ActionWorkspaceRead}, reason: "no_matching_grant"},
+		{name: "path mismatch", grant: baseGrant, req: AuthorizationRequest{Subjects: []SubjectRef{{Kind: SubjectUser, ID: "user-a"}}, Resource: ResourceRef{Kind: ResourcePath, Path: "src/main.go"}, Action: ActionWorkspaceRead}, reason: "no_matching_grant"},
+		{name: "insufficient trust skips grant", grant: Grant{Subjects: baseGrant.Subjects, Resources: baseGrant.Resources, Actions: baseGrant.Actions, RequiredTrust: TrustPrivileged}, req: AuthorizationRequest{Subjects: []SubjectRef{{Kind: SubjectUser, ID: "user-a"}}, Trust: Trust{Level: TrustVerified}, Resource: ResourceRef{Kind: ResourcePath, Path: "docs/readme.md"}, Action: ActionWorkspaceRead}, reason: "no_matching_grant"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := EvaluateAuthorization(AuthorizationPolicy{Grants: []Grant{tt.grant}}, tt.req)
+			if got.Decision != DecisionDeny || got.Reason != tt.reason {
+				t.Fatalf("EvaluateAuthorization() = %#v, want deny %q", got, tt.reason)
+			}
+		})
+	}
+}
+
+func TestEvaluateAuthorizationWildcardAndPathForms(t *testing.T) {
+	policy := AuthorizationPolicy{Grants: []Grant{
+		{Subjects: []SubjectRef{{Kind: SubjectUser, ID: "*"}}, Resources: []ResourceRef{{Kind: ResourcePath, Path: "docs/**"}}, Actions: []Action{"*"}},
+		{Subjects: []SubjectRef{{Kind: SubjectUser, ID: "u"}}, Resources: []ResourceRef{{Kind: ResourcePath, Path: "README.md"}}, Actions: []Action{ActionWorkspaceRead}},
+	}}
+	for _, path := range []string{"docs", "docs/readme.md", "docs/sub/readme.md"} {
+		got := EvaluateAuthorization(policy, AuthorizationRequest{Subjects: []SubjectRef{{Kind: SubjectUser, ID: "anyone"}}, Resource: ResourceRef{Kind: ResourcePath, Path: path}, Action: ActionWorkspaceWrite})
+		if got.Decision != DecisionAllow {
+			t.Fatalf("docs/** path %q decision = %#v, want allow", path, got)
+		}
+	}
+	got := EvaluateAuthorization(policy, AuthorizationRequest{Subjects: []SubjectRef{{Kind: SubjectUser, ID: "u"}}, Resource: ResourceRef{Kind: ResourcePath, Path: "README.md"}, Action: ActionWorkspaceRead})
+	if got.Decision != DecisionAllow {
+		t.Fatalf("literal path decision = %#v, want allow", got)
 	}
 }

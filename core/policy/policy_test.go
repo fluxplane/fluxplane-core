@@ -1,6 +1,9 @@
 package policy
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestNormalizeSensitivityEmpty(t *testing.T) {
 	got := NormalizeSensitivity("")
@@ -136,5 +139,37 @@ func TestEvaluateInvocationAllowOpenPolicy(t *testing.T) {
 	result := EvaluateInvocation(InvocationPolicy{}, caller, trust)
 	if result.Decision != DecisionAllow {
 		t.Fatalf("Decision = %q, want allow", result.Decision)
+	}
+}
+
+func TestPolicyVocabularies(t *testing.T) {
+	if got, want := CallerKinds(), []CallerKind{CallerUser, CallerAgent, CallerSystem}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("CallerKinds() = %#v, want %#v", got, want)
+	}
+	if got, want := TrustLevels(), []TrustLevel{TrustUntrusted, TrustVerified, TrustPrivileged, TrustSystem}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("TrustLevels() = %#v, want %#v", got, want)
+	}
+	if got, want := TrustKinds(), []TrustKind{TrustInvocation, TrustSource, TrustTarget}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("TrustKinds() = %#v, want %#v", got, want)
+	}
+	if got, want := Sensitivities(), []Sensitivity{SensitivityPublic, SensitivityInternal, SensitivityRestricted, SensitivityConfidential, SensitivitySecret}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Sensitivities() = %#v, want %#v", got, want)
+	}
+	if got, want := Decisions(), []Decision{DecisionAllow, DecisionDeny, DecisionApprovalRequired}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Decisions() = %#v, want %#v", got, want)
+	}
+}
+
+func TestEvaluateInvocationWildcardScopesAndUnknownTrust(t *testing.T) {
+	result := EvaluateInvocation(
+		InvocationPolicy{RequiredScopes: []Scope{"read", "write"}},
+		Caller{Kind: CallerAgent},
+		Trust{Kind: TrustInvocation, Level: TrustVerified, Scopes: []Scope{"*"}},
+	)
+	if result.Decision != DecisionAllow {
+		t.Fatalf("Decision = %#v, want allow", result)
+	}
+	if TrustSatisfies("mystery", TrustUntrusted) {
+		t.Fatal("unknown trust should not satisfy untrusted")
 	}
 }

@@ -308,3 +308,39 @@ func TestToolchainStatusWithDiagnostics(t *testing.T) {
 		t.Errorf("ToolchainStatus = %#v", status)
 	}
 }
+
+func TestProviderSpecValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		spec    ProviderSpec
+		wantErr string
+	}{
+		{name: "empty name", spec: ProviderSpec{Language: LanguageGo}, wantErr: "language: provider name is empty"},
+		{name: "empty language", spec: ProviderSpec{Name: "gopls"}, wantErr: "language: provider language is empty"},
+		{name: "valid", spec: ProviderSpec{Name: "gopls", Language: LanguageGo}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.spec.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tt.wantErr {
+				t.Fatalf("Validate() error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestToolchainSpecValidateWhitespaceBinaryName(t *testing.T) {
+	err := (ToolchainSpec{
+		ID:               "go",
+		RequiredBinaries: []ToolchainBinarySpec{{Name: "go"}, {Name: "  "}},
+	}).Validate()
+	if err == nil || err.Error() != `language: toolchain "go" binary[1] name is empty` {
+		t.Fatalf("Validate() error = %v, want binary[1] name error", err)
+	}
+}
