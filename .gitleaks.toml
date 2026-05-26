@@ -15,3 +15,27 @@ regexes = [
   '''client-key-data:\s+c2VjcmV0LWtleS1kYXRh''',
   '''secret-token",\s+"c2VjcmV0LWNlcnQtZGF0YQ==''',
 ]
+
+[[allowlists]]
+description = "Ignored IDE language server UUID setting"
+condition = "AND"
+targetRules = ["generic-api-key"]
+regexTarget = "match"
+paths = [
+  '''^\.idea/LanguageServersSettings\.xml$''',
+]
+regexes = [
+  '''key="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"''',
+]
+
+[[allowlists]]
+description = "Claude Code beta header test fixture"
+condition = "AND"
+targetRules = ["generic-api-key"]
+regexTarget = "match"
+paths = [
+  '''^adapters/llm/claudecode/model_test\.go$''',
+]
+regexes = [
+  '''oauth-2025-04-20",\s+"interleaved-thinking-2025-05-14''',
+]

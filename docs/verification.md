@@ -47,8 +47,22 @@ task hooks:install
 ```
 
 The tracked pre-commit hook runs the staged security scan and staged
-whitespace check. The tracked pre-push hook runs the full security scan,
-`task verify`, and the cross-platform binary build.
+whitespace check. The tracked pre-push hook runs the full security scan and
+`task verify`.
+
+The pre-push hook runs in gentle mode by default so it does not consume every
+available CPU core while pushing. Gentle mode applies lower Go parallelism,
+lower process priority through `nice`, and idle IO priority through `ionice`
+when available:
+
+- `FLUXPLANE_HOOK_GOMAXPROCS` defaults to `2`.
+- `FLUXPLANE_HOOK_GO_PACKAGES` defaults to `1`.
+- `FLUXPLANE_HOOK_TEST_PARALLEL` defaults to `1`.
+- `FLUXPLANE_HOOK_NICE` defaults to `10`.
+- `FLUXPLANE_HOOK_IONICE_CLASS` defaults to `3`.
+
+Set `FLUXPLANE_HOOK_GENTLE=0` to disable the hook wrapper for a single push, or
+override any individual value when the local machine can tolerate more load.
 
 ## Codegate Go Review
 

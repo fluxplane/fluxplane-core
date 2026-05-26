@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Made the tracked pre-push hook run full security and verification checks with
+  gentler CPU, test, and IO scheduling defaults.
+- Tightened gitleaks allowlists for local IDE metadata and Claude Code beta
+  header test fixtures so pre-push scans keep catching real leaks.
+
 ## [0.17.0] - 2026-05-26
 
 ### Added

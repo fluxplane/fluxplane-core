@@ -140,11 +140,11 @@ func TestAuthorizationVocabulariesAndContext(t *testing.T) {
 	if !(AuthorizationPolicy{}).IsZero() || (AuthorizationPolicy{Grants: []Grant{{}}}).IsZero() {
 		t.Fatal("AuthorizationPolicy.IsZero returned unexpected value")
 	}
-	if _, ok := AuthorizationFromContext(nil); ok {
+	if _, ok := AuthorizationFromContext(nil); ok { //nolint:staticcheck // nil context handling is the behavior under test.
 		t.Fatal("AuthorizationFromContext(nil) ok = true")
 	}
 	auth := AuthorizationContext{Subjects: []SubjectRef{{Kind: SubjectUser, ID: "u"}}, TraceAllows: true}
-	ctx := ContextWithAuthorization(nil, auth)
+	ctx := ContextWithAuthorization(nil, auth) //nolint:staticcheck // nil context handling is the behavior under test.
 	got, ok := AuthorizationFromContext(ctx)
 	if !ok || !reflect.DeepEqual(got, auth) {
 		t.Fatalf("AuthorizationFromContext() = %#v, %v; want %#v, true", got, ok, auth)

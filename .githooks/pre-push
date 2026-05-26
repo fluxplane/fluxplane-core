@@ -3,6 +3,43 @@ set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 
-bash "$repo_root/scripts/security-scan.sh" full
+if [[ "${FLUXPLANE_HOOK_GENTLE:-1}" != "0" ]]; then
+	: "${FLUXPLANE_HOOK_GOMAXPROCS:=2}"
+	: "${FLUXPLANE_HOOK_GO_PACKAGES:=1}"
+	: "${FLUXPLANE_HOOK_TEST_PARALLEL:=1}"
+	: "${FLUXPLANE_HOOK_NICE:=10}"
+	: "${FLUXPLANE_HOOK_IONICE_CLASS:=3}"
+
+	export GOMAXPROCS="${GOMAXPROCS:-$FLUXPLANE_HOOK_GOMAXPROCS}"
+	export FLUXPLANE_VERIFY_GOMAXPROCS="${FLUXPLANE_VERIFY_GOMAXPROCS:-$FLUXPLANE_HOOK_GOMAXPROCS}"
+	export FLUXPLANE_VERIFY_GO_PACKAGES="${FLUXPLANE_VERIFY_GO_PACKAGES:-$FLUXPLANE_HOOK_GO_PACKAGES}"
+	export FLUXPLANE_VERIFY_TEST_PARALLEL="${FLUXPLANE_VERIFY_TEST_PARALLEL:-$FLUXPLANE_HOOK_TEST_PARALLEL}"
+fi
+
+run_hook_command() {
+	local cmd=("$@")
+
+	if [[ "${FLUXPLANE_HOOK_GENTLE:-1}" != "0" ]]; then
+		if command -v ionice >/dev/null 2>&1; then
+			cmd=(ionice -c "$FLUXPLANE_HOOK_IONICE_CLASS" "${cmd[@]}")
+		fi
+		if command -v nice >/dev/null 2>&1; then
+			cmd=(nice -n "$FLUXPLANE_HOOK_NICE" "${cmd[@]}")
+		fi
+	fi
+
+	"${cmd[@]}"
+}
+
+if [[ "${FLUXPLANE_HOOK_GENTLE:-1}" != "0" ]]; then
+	printf 'pre-push: gentle mode enabled: GOMAXPROCS=%s packages=%s tests=%s nice=%s ionice=%s\n' \
+		"$FLUXPLANE_VERIFY_GOMAXPROCS" \
+		"$FLUXPLANE_VERIFY_GO_PACKAGES" \
+		"$FLUXPLANE_VERIFY_TEST_PARALLEL" \
+		"$FLUXPLANE_HOOK_NICE" \
+		"$FLUXPLANE_HOOK_IONICE_CLASS"
+fi
+
+run_hook_command bash "$repo_root/scripts/security-scan.sh" full
 cd "$repo_root"
-task verify
+run_hook_command task verify
