@@ -50,6 +50,7 @@ type Request struct {
 	Agent           agent.Spec                   `json:"agent"`
 	Driver          corellmagent.Spec            `json:"driver,omitempty"`
 	ConversationKey string                       `json:"conversation_key,omitempty"`
+	Protocol        ProtocolMetadata             `json:"protocol,omitempty"`
 	Tools           []tool.Spec                  `json:"tools,omitempty"`
 	Goal            string                       `json:"goal,omitempty"`
 	Objective       agent.Objective              `json:"objective,omitempty"`
@@ -57,6 +58,20 @@ type Request struct {
 	Context         []corecontext.Block          `json:"context,omitempty"`
 	Transcript      *coreconversation.Transcript `json:"transcript,omitempty"`
 	State           agent.StateRef               `json:"state,omitempty"`
+}
+
+// ProtocolMetadata carries provider protocol identity that is not model-visible
+// prompt content. Adapters may use it for transport headers or client metadata.
+type ProtocolMetadata struct {
+	WindowGeneration uint64            `json:"window_generation,omitempty"`
+	Subagent         string            `json:"subagent,omitempty"`
+	ParentThreadID   string            `json:"parent_thread_id,omitempty"`
+	TurnMetadata     string            `json:"turn_metadata,omitempty"`
+	TraceParent      string            `json:"trace_parent,omitempty"`
+	TraceState       string            `json:"trace_state,omitempty"`
+	BetaFeatures     string            `json:"beta_features,omitempty"`
+	Attestation      string            `json:"attestation,omitempty"`
+	ClientMetadata   map[string]string `json:"client_metadata,omitempty"`
 }
 
 // Response is the provider-neutral structured output of one model turn. The

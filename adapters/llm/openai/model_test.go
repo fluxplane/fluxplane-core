@@ -121,6 +121,38 @@ func TestResponseParamsDefaultsToMaxCaching(t *testing.T) {
 	}
 }
 
+func TestPromptCacheKeyPrefersStableConversationKey(t *testing.T) {
+	base := llmagent.Request{
+		ConversationKey: "thread:one:branch:main",
+		Agent:           agent.Spec{Name: "coder", System: "system one"},
+		Goal:            "first prompt",
+	}
+	changedPrompt := llmagent.Request{
+		ConversationKey: "thread:one:branch:main",
+		Agent:           agent.Spec{Name: "other-agent", System: "system two"},
+		Goal:            "second prompt",
+	}
+	first := promptCacheKey("codex", "gpt-5.5", base)
+	second := promptCacheKey("codex", "gpt-5.5", changedPrompt)
+	if first != second {
+		t.Fatalf("cache key changed across same conversation: %q != %q", first, second)
+	}
+	if want := "thread:one:branch:main"; first != want {
+		t.Fatalf("cache key = %q, want %q", first, want)
+	}
+	otherBranch := promptCacheKey("codex", "gpt-5.5", llmagent.Request{
+		ConversationKey: "thread:one:branch:review",
+		Agent:           agent.Spec{Name: "coder"},
+	})
+	if otherBranch == first {
+		t.Fatalf("cache key = %q for both branches, want branch-specific key", first)
+	}
+	fallback := promptCacheKey("codex", "gpt-5.5", llmagent.Request{Agent: agent.Spec{Name: "coder"}})
+	if want := "fluxplane:codex:gpt-5.5:coder"; fallback != want {
+		t.Fatalf("fallback cache key = %q, want %q", fallback, want)
+	}
+}
+
 func TestResponseParamsCacheAutoIsProviderNeutral(t *testing.T) {
 	model, err := New(Config{
 		Model: "gpt-5.5",
@@ -709,6 +741,72 @@ func TestStreamReturnsTerminalErrorWhenConnectionStaysOpen(t *testing.T) {
 	}
 }
 
+func TestStreamReturnsReadableProviderErrorWhenErrorEventIsEmpty(t *testing.T) {
+	failed := `data: {"type":"error","code":"","message":""}` + "\n\n"
+	model, err := New(Config{
+		Model:  "gpt-test",
+		APIKey: "test",
+		Runtime: ResponsesRuntimeConfig{
+			Cache:             ResponsesCacheOff,
+			Continuation:      ResponsesContinuationReplay,
+			StreamIdleTimeout: 10 * time.Millisecond,
+		},
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			_, _ = io.Copy(io.Discard, req.Body)
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Status:        "200 OK",
+				Header:        http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body:          io.NopCloser(io.MultiReader(strings.NewReader(failed), contextBlockingBody{ctx: req.Context()})),
+				ContentLength: -1,
+				Request:       req,
+			}, nil
+		})},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	_, err = model.Stream(context.Background(), llmagent.Request{
+		Agent: agent.Spec{Name: "coder"},
+		Goal:  "hello",
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "provider returned an error without code or message") {
+		t.Fatalf("Stream error = %v, want readable empty provider error", err)
+	}
+	if strings.Contains(err.Error(), "openai: :") {
+		t.Fatalf("Stream error = %q, want no empty code/message formatting", err.Error())
+	}
+}
+
+func TestProviderErrorFromEventExtractsNestedDetails(t *testing.T) {
+	var evt responses.ResponseStreamEventUnion
+	if err := json.Unmarshal([]byte(`{"type":"error","error":{"code":"bad_previous_response","message":"previous response is not usable"}}`), &evt); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	err := openAIProviderErrorFromEvent("openai", evt)
+	if err == nil || !strings.Contains(err.Error(), "bad_previous_response: previous response is not usable") {
+		t.Fatalf("provider error = %v, want nested provider error details", err)
+	}
+}
+
+func TestResponseFromOpenAIRejectsFailedResponseWithoutMessage(t *testing.T) {
+	resp := mustResponse(t, `{
+		"id": "resp_1",
+		"object": "response",
+		"status": "failed",
+		"error": {},
+		"output": []
+	}`)
+	_, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false, nil)
+	if err == nil || !strings.Contains(err.Error(), "provider returned an error without code or message") {
+		t.Fatalf("responseFromOpenAI error = %v, want readable failed response error", err)
+	}
+	if strings.Contains(err.Error(), "openai: :") {
+		t.Fatalf("responseFromOpenAI error = %q, want no empty code/message formatting", err.Error())
+	}
+}
+
 func TestResponseFromOpenAIConvertsText(t *testing.T) {
 	resp := mustResponse(t, `{
 		"id": "resp_1",
@@ -978,6 +1076,88 @@ func TestStreamEventsNormalizeThinkingAndToolCalls(t *testing.T) {
 	events = model.streamEvents(thinking, state)
 	if len(events) != 1 || events[0].Kind != adapterllm.StreamThinkingDelta || events[0].Text != "checking" {
 		t.Fatalf("thinking events = %#v, want thinking delta", events)
+	}
+}
+
+func TestStreamEventsKeepFunctionCallIDSeparateFromItemID(t *testing.T) {
+	model := &Model{}
+	state := &openAIStreamState{}
+
+	added := mustStreamEvent(t, `{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call_real","name":"skill","arguments":""}}`)
+	if events := model.streamEvents(added, state); len(events) != 1 || events[0].ToolCallID != "call_real" {
+		t.Fatalf("added events = %#v, want function call id", events)
+	}
+	done := mustStreamEvent(t, `{"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","call_id":"call_real","name":"skill","arguments":"{\"actions\":[{\"action\":\"activate\",\"skill\":\"coder-mr-review\"}]}"}`)
+	events := model.streamEvents(done, state)
+	if len(events) != 1 || events[0].Kind != adapterllm.StreamToolCallDone || events[0].ToolCallID != "call_real" {
+		t.Fatalf("done events = %#v, want backend call id", events)
+	}
+
+	resp := mustResponse(t, `{
+		"id": "resp_1",
+		"status": "completed",
+		"output": [
+			{"id":"fc_1","type":"function_call","call_id":"call_real","name":"skill","arguments":"{\"actions\":[{\"action\":\"activate\",\"skill\":\"coder-mr-review\"}]}"}
+		]
+	}`)
+	resp = normalizeResponseOutputToolCallIDs(resp, state)
+	out, err := responseFromOpenAI(resp, []adapterllm.ToolSpec{{
+		Name: "skill",
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: operation.Ref{Name: "skill"},
+		},
+	}}, openAIProviderIdentity("gpt-test"), true, nil)
+	if err != nil {
+		t.Fatalf("responseFromOpenAI: %v", err)
+	}
+	if len(out.Operations) != 1 || out.Operations[0].ProviderCallID != "call_real" {
+		t.Fatalf("operations = %#v, want call_real", out.Operations)
+	}
+	if len(out.Transcript.Items) != 1 || out.Transcript.Items[0].ID != "fc_1" || out.Transcript.Items[0].CallID != "call_real" || !strings.Contains(string(out.Transcript.Items[0].Native), `"id":"fc_1"`) || !strings.Contains(string(out.Transcript.Items[0].Native), `"call_id":"call_real"`) {
+		t.Fatalf("transcript items = %#v, want normalized call_real native", out.Transcript.Items)
+	}
+}
+
+func TestNormalizeResponseOutputToolCallIDsUsesWireState(t *testing.T) {
+	state := &openAIStreamState{}
+	state.rememberToolCallID(0, "item-123", "backend-call-456")
+	resp := mustResponse(t, `{
+		"id": "resp_1",
+		"status": "completed",
+		"output": [
+			{"id":"item-123","type":"function_call","call_id":"item-123","name":"skill","arguments":"{}"}
+		]
+	}`)
+	resp = normalizeResponseOutputToolCallIDs(resp, state)
+	if got := resp.Output[0].ID; got != "item-123" {
+		t.Fatalf("output id = %q, want item-123", got)
+	}
+	if got := resp.Output[0].AsFunctionCall().CallID; got != "backend-call-456" {
+		t.Fatalf("call_id = %q, want backend-call-456", got)
+	}
+	if raw := resp.Output[0].RawJSON(); !strings.Contains(raw, `"id":"item-123"`) || !strings.Contains(raw, `"call_id":"backend-call-456"`) {
+		t.Fatalf("raw = %s, want item id and backend call id", raw)
+	}
+}
+
+func TestResponseFromOpenAIRejectsFunctionCallWithoutCallID(t *testing.T) {
+	resp := mustResponse(t, `{
+		"id": "resp_1",
+		"status": "completed",
+		"output": [
+			{"id":"fc_1","type":"function_call","name":"skill","arguments":"{}"}
+		]
+	}`)
+	_, err := responseFromOpenAI(resp, []adapterllm.ToolSpec{{
+		Name: "skill",
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: operation.Ref{Name: "skill"},
+		},
+	}}, openAIProviderIdentity("gpt-test"), true, nil)
+	if err == nil || !strings.Contains(err.Error(), "function_call missing call_id") {
+		t.Fatalf("responseFromOpenAI error = %v, want missing call_id", err)
 	}
 }
 

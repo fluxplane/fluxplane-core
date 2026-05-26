@@ -57,14 +57,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added shared OpenAI Responses WebSocket streaming with Codex defaults,
   best-effort warmup, active-session `previous_response_id` continuation, and
   env-gated live Codex provider tests.
+- Added Codex WebSocket live-test coverage for provider usage reporting and
+  prompt-cache probing, with a strict cache-hit assertion enabled by
+  `TEST_CODEX_LIVE_REQUIRE_CACHE=1`.
+- Added Codex WebSocket live-test coverage for model tool calls followed by
+  provider-visible tool results, including local continuity validation before
+  the follow-up turn and a full session-loop persistence/projection check.
+- Added Codex WebSocket hardening for sticky turn-state handshakes,
+  best-effort `response.processed` acknowledgements, and session-scoped SSE
+  fallback after WebSocket transport failures.
 
 ### Changed
 - Increased the OpenAI-compatible Responses stream idle watchdog default from
   90 seconds to 5 minutes so long silent reasoning phases do not fail active
   Codex/OpenAI turns prematurely.
+- Changed OpenAI-compatible prompt cache keys to prefer the runtime
+  `ConversationKey` when present, matching Codex CLI's stable thread-key
+  request shape more closely while preserving the agent-name fallback.
+- Changed Codex Responses transport handling to use a strict Codex protocol
+  profile with required `ConversationKey`, Codex identity headers/client
+  metadata, explicit WebSocket payload shaping, and Codex-compatible full
+  request replay when provider continuation cannot be proven.
 - Made the distribution REPL collect continuation lines for slash commands with
   open quotes so pasted multi-line prompts are submitted as one command instead
   of being split into command errors and normal chat input.
+- Made OpenAI-compatible provider errors preserve nested/raw response details
+  instead of rendering empty `openai: :` messages when a stream error event has
+  no top-level code or message.
+- Hardened OpenAI-compatible Responses WebSocket sessions with a continuous
+  reader for ping/pong control frames, per-message deflate negotiation, and
+  stale-socket reconnects before any provider event, avoiding surfaced
+  abnormal-closure errors during Codex tool-result follow-up turns.
+- Made OpenAI-compatible WebSocket tool-call handling preserve Responses item
+  ids separately from function `call_id`s so Codex follow-up tool results can
+  keep provider continuation without sending mismatched call identifiers.
 - Renamed the published Go module and repository references to
   `github.com/fluxplane/fluxplane-core`.
 - Updated the Claude Code LLM provider headers and preflight identity to match

@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -37,6 +38,9 @@ var (
 	// ErrStreamIdleTimeout is returned when a Responses stream stops producing
 	// events before the model call completes.
 	ErrStreamIdleTimeout = errors.New("openai: stream idle timeout")
+	// ErrProviderRetryable marks provider errors that can be retried by an
+	// outer request policy.
+	ErrProviderRetryable = errors.New("openai: retryable provider error")
 )
 
 const defaultStreamIdleTimeout = 5 * time.Minute
@@ -109,32 +113,87 @@ type Config struct {
 	// handshakes. It is used for provider auth that may refresh tokens.
 	WebSocketHeaderFunc func(context.Context, http.Header) error
 
+	// WebSocketRequestHeaderFunc appends request-scoped dynamic headers to
+	// Responses websocket handshakes.
+	WebSocketRequestHeaderFunc func(context.Context, llmagent.Request, http.Header) error
+
+	// ValidateRequest rejects provider requests before transport setup.
+	ValidateRequest func(llmagent.Request) error
+
+	// PrepareRequestContext attaches provider request metadata for HTTP
+	// middleware that cannot otherwise see the model request.
+	PrepareRequestContext func(context.Context, llmagent.Request) (context.Context, error)
+
+	// PromptCacheKeyFunc returns the provider prompt-cache key for max-cache
+	// requests.
+	PromptCacheKeyFunc func(string, llmagent.Request) (string, error)
+
+	// ResponseParamsFunc may make provider-specific adjustments after the
+	// provider-neutral Responses params are assembled.
+	ResponseParamsFunc func(*responses.ResponseNewParams, llmagent.Request) error
+
 	// PayloadMutator may adjust raw Responses request payloads before they are
 	// sent over transports not owned by the OpenAI SDK.
 	PayloadMutator func(map[string]json.RawMessage)
+
+	// WebSocketPayloadFunc may adjust raw Responses websocket request payloads
+	// with request-scoped provider protocol fields.
+	WebSocketPayloadFunc func(llmagent.Request, map[string]json.RawMessage) error
+
+	// WebSocketWrappedErrorFunc decodes provider-specific websocket error
+	// envelopes before generic Responses event decoding.
+	WebSocketWrappedErrorFunc func([]byte) (error, bool)
+
+	// WebSocketSkipMalformedEvents skips non-Responses text frames instead of
+	// failing the stream.
+	WebSocketSkipMalformedEvents bool
+
+	// WebSocketStickyHeader captures this handshake response header and replays
+	// it on later handshakes for the same cached websocket session.
+	WebSocketStickyHeader string
+
+	// WebSocketResponseProcessed sends a best-effort response.processed frame
+	// after a completed websocket response has been consumed.
+	WebSocketResponseProcessed bool
+
+	// WebSocketSessionFallback disables websocket attempts for this model after
+	// a transport fallback and keeps using HTTP/SSE for the adapter lifetime.
+	WebSocketSessionFallback bool
 }
 
 // Model implements runtime/agent/llmagent.Model using OpenAI Responses.
 type Model struct {
-	client              openai.Client
-	model               string
-	baseURL             string
-	apiKey              string
-	provider            string
-	api                 string
-	runtime             ResponsesRuntimeConfig
-	maxOutputTokens     int
-	pricing             []corellm.PricingSpec
-	reasoningEffort     string
-	reasoningSummary    string
-	store               bool
-	parallelToolCalls   bool
-	redactor            adapterllm.Redactor
-	webSocketHeaders    http.Header
-	webSocketHeaderFunc func(context.Context, http.Header) error
-	payloadMutator      func(map[string]json.RawMessage)
-	webSocketMu         sync.Mutex
-	webSocketSessions   map[string]*responsesWebSocketSession
+	client                     openai.Client
+	model                      string
+	baseURL                    string
+	apiKey                     string
+	provider                   string
+	api                        string
+	runtime                    ResponsesRuntimeConfig
+	maxOutputTokens            int
+	pricing                    []corellm.PricingSpec
+	reasoningEffort            string
+	reasoningSummary           string
+	store                      bool
+	parallelToolCalls          bool
+	redactor                   adapterllm.Redactor
+	webSocketHeaders           http.Header
+	webSocketHeaderFunc        func(context.Context, http.Header) error
+	webSocketRequestHeaderFunc func(context.Context, llmagent.Request, http.Header) error
+	validateRequest            func(llmagent.Request) error
+	prepareRequestContext      func(context.Context, llmagent.Request) (context.Context, error)
+	promptCacheKeyFunc         func(string, llmagent.Request) (string, error)
+	responseParamsFunc         func(*responses.ResponseNewParams, llmagent.Request) error
+	payloadMutator             func(map[string]json.RawMessage)
+	webSocketPayloadFunc       func(llmagent.Request, map[string]json.RawMessage) error
+	webSocketWrappedErrorFunc  func([]byte) (error, bool)
+	webSocketSkipMalformed     bool
+	webSocketStickyHeader      string
+	webSocketResponseProcessed bool
+	webSocketSessionFallback   bool
+	webSocketMu                sync.Mutex
+	webSocketSessions          map[string]*responsesWebSocketSession
+	webSocketFallbackDisabled  map[string]bool
 }
 
 // New returns an OpenAI Responses API model adapter.
@@ -167,24 +226,36 @@ func New(cfg Config) (*Model, error) {
 		maxOutputTokens = corellm.DefaultMaxOutputTokens
 	}
 	return &Model{
-		client:              openai.NewClient(opts...),
-		model:               strings.TrimSpace(cfg.Model),
-		baseURL:             firstNonEmpty(strings.TrimSpace(cfg.BaseURL), defaultResponsesBaseURL),
-		apiKey:              apiKey,
-		provider:            normalizeProvider(cfg.ProviderName),
-		api:                 firstNonEmpty(strings.TrimSpace(cfg.APIName), "openai.responses"),
-		runtime:             runtime,
-		maxOutputTokens:     maxOutputTokens,
-		pricing:             append([]corellm.PricingSpec(nil), cfg.Pricing...),
-		reasoningEffort:     strings.TrimSpace(cfg.ReasoningEffort),
-		reasoningSummary:    firstNonEmpty(strings.TrimSpace(cfg.ReasoningSummary), string(shared.ReasoningSummaryAuto)),
-		store:               store,
-		parallelToolCalls:   cfg.ParallelToolCalls,
-		redactor:            cfg.Redactor,
-		webSocketHeaders:    cloneHeader(cfg.WebSocketHeaders),
-		webSocketHeaderFunc: cfg.WebSocketHeaderFunc,
-		payloadMutator:      cfg.PayloadMutator,
-		webSocketSessions:   map[string]*responsesWebSocketSession{},
+		client:                     openai.NewClient(opts...),
+		model:                      strings.TrimSpace(cfg.Model),
+		baseURL:                    firstNonEmpty(strings.TrimSpace(cfg.BaseURL), defaultResponsesBaseURL),
+		apiKey:                     apiKey,
+		provider:                   normalizeProvider(cfg.ProviderName),
+		api:                        firstNonEmpty(strings.TrimSpace(cfg.APIName), "openai.responses"),
+		runtime:                    runtime,
+		maxOutputTokens:            maxOutputTokens,
+		pricing:                    append([]corellm.PricingSpec(nil), cfg.Pricing...),
+		reasoningEffort:            strings.TrimSpace(cfg.ReasoningEffort),
+		reasoningSummary:           firstNonEmpty(strings.TrimSpace(cfg.ReasoningSummary), string(shared.ReasoningSummaryAuto)),
+		store:                      store,
+		parallelToolCalls:          cfg.ParallelToolCalls,
+		redactor:                   cfg.Redactor,
+		webSocketHeaders:           cloneHeader(cfg.WebSocketHeaders),
+		webSocketHeaderFunc:        cfg.WebSocketHeaderFunc,
+		webSocketRequestHeaderFunc: cfg.WebSocketRequestHeaderFunc,
+		validateRequest:            cfg.ValidateRequest,
+		prepareRequestContext:      cfg.PrepareRequestContext,
+		promptCacheKeyFunc:         cfg.PromptCacheKeyFunc,
+		responseParamsFunc:         cfg.ResponseParamsFunc,
+		payloadMutator:             cfg.PayloadMutator,
+		webSocketPayloadFunc:       cfg.WebSocketPayloadFunc,
+		webSocketWrappedErrorFunc:  cfg.WebSocketWrappedErrorFunc,
+		webSocketSkipMalformed:     cfg.WebSocketSkipMalformedEvents,
+		webSocketStickyHeader:      strings.TrimSpace(cfg.WebSocketStickyHeader),
+		webSocketResponseProcessed: cfg.WebSocketResponseProcessed,
+		webSocketSessionFallback:   cfg.WebSocketSessionFallback,
+		webSocketSessions:          map[string]*responsesWebSocketSession{},
+		webSocketFallbackDisabled:  map[string]bool{},
 	}, nil
 }
 
@@ -194,8 +265,16 @@ func (m *Model) Complete(ctx context.Context, req llmagent.Request) (llmagent.Re
 	if m == nil {
 		return llmagent.Response{}, errors.New("openai: model is nil")
 	}
+	var err error
+	if err = m.validateModelRequest(req); err != nil {
+		return llmagent.Response{}, err
+	}
 	httpUsage := newHTTPUsageCollector()
 	ctx = contextWithHTTPUsage(ctx, httpUsage)
+	ctx, err = m.prepareModelRequestContext(ctx, req)
+	if err != nil {
+		return llmagent.Response{}, err
+	}
 	params, tools, sentItems, err := m.responseParams(req)
 	if err != nil {
 		return llmagent.Response{}, err
@@ -222,13 +301,22 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 	if m == nil {
 		return llmagent.Response{}, errors.New("openai: model is nil")
 	}
+	var err error
+	if err = m.validateModelRequest(req); err != nil {
+		return llmagent.Response{}, err
+	}
 	httpUsage := newHTTPUsageCollector()
 	ctx = contextWithHTTPUsage(ctx, httpUsage)
+	ctx, err = m.prepareModelRequestContext(ctx, req)
+	if err != nil {
+		return llmagent.Response{}, err
+	}
 	params, tools, sentItems, err := m.responseParams(req)
 	if err != nil {
 		return llmagent.Response{}, err
 	}
-	if m.runtime.Transport == ResponsesTransportWebSocket {
+	provider := m.providerIdentity(m.modelName(req))
+	if m.runtime.Transport == ResponsesTransportWebSocket && !m.webSocketFallbackDisabledFor(provider) {
 		out, err := m.streamWebSocketWithParams(ctx, req, emit, params, tools, sentItems, httpUsage)
 		if err == nil {
 			return out, nil
@@ -236,8 +324,26 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 		if !errors.Is(err, errWebSocketFallback) {
 			return out, err
 		}
+		m.disableWebSocketFallback(provider)
 	}
 	return m.streamWithParams(ctx, req, emit, params, tools, sentItems, httpUsage)
+}
+
+func (m *Model) validateModelRequest(req llmagent.Request) error {
+	if m != nil && m.validateRequest != nil {
+		return m.validateRequest(req)
+	}
+	return nil
+}
+
+func (m *Model) prepareModelRequestContext(ctx context.Context, req llmagent.Request) (context.Context, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if m != nil && m.prepareRequestContext != nil {
+		return m.prepareRequestContext(ctx, req)
+	}
+	return ctx, nil
 }
 
 func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit llmagent.StreamFunc, params responses.ResponseNewParams, tools []adapterllm.ToolSpec, sentItems []coreconversation.Item, httpUsage *httpUsageCollector) (llmagent.Response, error) {
@@ -261,12 +367,14 @@ type responseEventStream interface {
 }
 
 func (m *Model) consumeResponseEventStream(req llmagent.Request, emit llmagent.StreamFunc, stream responseEventStream, tools []adapterllm.ToolSpec, sentItems []coreconversation.Item, httpUsage *httpUsageCollector, watchdog *streamIdleWatchdog, onComplete func(responses.Response)) (llmagent.Response, error) {
+	provider := m.providerIdentity(m.modelName(req))
 	streamState := openAIStreamState{
 		toolNames:    map[int]tool.Name{},
 		outputPhases: map[int]string{},
 	}
 	streamAssembler := adapterllm.NewToolCallAssembler(tools)
 	var streamedOperations []agent.OperationRequest
+	streamedToolItems := map[string]coreconversation.Item{}
 	var streamedOutputItems []responses.ResponseOutputItemUnion
 	var final responses.Response
 	var streamEventErr error
@@ -290,8 +398,7 @@ func (m *Model) consumeResponseEventStream(req llmagent.Request, emit llmagent.S
 			streamEventErr = fmt.Errorf("openai: response incomplete: %s", reason)
 			terminal = true
 		case "error":
-			eventErr := evt.AsError()
-			streamEventErr = fmt.Errorf("openai: %s: %s", eventErr.Code, eventErr.Message)
+			streamEventErr = openAIProviderErrorFromEvent("openai", evt)
 			terminal = true
 		}
 		if m.runtime.Output == ResponsesOutputStreamItems && evt.Type == "response.output_item.done" {
@@ -301,9 +408,13 @@ func (m *Model) consumeResponseEventStream(req llmagent.Request, emit llmagent.S
 			if normalized.Kind != adapterllm.StreamToolCallDelta {
 				// Responses done events carry the complete argument body; deltas
 				// are only for live display.
+				if item, ok := streamToolCallTranscriptItem(provider, normalized); ok {
+					if callID := strings.TrimSpace(item.CallID); callID != "" {
+						streamedToolItems[callID] = item
+					}
+				}
 				completed, err := streamAssembler.Apply(normalized)
 				if err != nil {
-					provider := m.providerIdentity(m.modelName(req))
 					items := append([]coreconversation.Item(nil), sentItems...)
 					if item, ok := streamToolCallTranscriptItem(provider, normalized); ok {
 						items = append(items, item)
@@ -344,9 +455,9 @@ func (m *Model) consumeResponseEventStream(req llmagent.Request, emit llmagent.S
 		}
 		return llmagent.Response{}, errors.New("openai: stream completed without final response")
 	}
-	provider := m.providerIdentity(m.modelName(req))
 	m.emitBufferedStreamContent(final, &streamState, emit)
 	source := responseForOutputMode(final, streamedOutputItems, m.runtime.Output)
+	source = normalizeResponseOutputToolCallIDs(source, &streamState)
 	if onComplete != nil {
 		onComplete(source)
 	}
@@ -357,9 +468,17 @@ func (m *Model) consumeResponseEventStream(req llmagent.Request, emit llmagent.S
 	usedStreamedOperations := len(out.Operations) == 0 && len(streamedOperations) > 0
 	out = applyStreamedOperationsFallback(out, streamedOperations)
 	if usedStreamedOperations {
-		out.Transcript.Items = append(out.Transcript.Items, streamedOperationTranscriptItems(provider, streamedOperations)...)
+		for _, item := range streamedOperationTranscriptItems(provider, streamedOperations) {
+			if callID := strings.TrimSpace(item.CallID); callID != "" {
+				streamedToolItems[callID] = item
+			}
+		}
 	}
 	out.Transcript.Items = append(sentItems, out.Transcript.Items...)
+	out, err = ensureOperationTranscriptCoverage(out, provider, streamedToolItems)
+	if err != nil {
+		return out, llmagent.PartialError(out, err)
+	}
 	out = applyStreamedContentFallback(out, provider, &streamState)
 	out.Usage = append(out.Usage, httpUsageRecord(provider, httpUsage)...)
 	return out, nil
@@ -459,7 +578,11 @@ func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParam
 		params.Reasoning.Effort = shared.ReasoningEffort(m.reasoningEffort)
 	}
 	if m.runtime.Cache == ResponsesCacheMax {
-		params.PromptCacheKey = openai.String(promptCacheKey(m.provider, model, req))
+		cacheKey, err := m.promptCacheKey(model, req)
+		if err != nil {
+			return responses.ResponseNewParams{}, nil, nil, err
+		}
+		params.PromptCacheKey = openai.String(cacheKey)
 		params.PromptCacheRetention = responses.ResponseNewParamsPromptCacheRetention24h
 		params.Include = append(params.Include, responses.ResponseIncludableReasoningEncryptedContent)
 	}
@@ -517,7 +640,19 @@ func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParam
 	if err != nil {
 		return responses.ResponseNewParams{}, nil, nil, err
 	}
+	if m.responseParamsFunc != nil {
+		if err := m.responseParamsFunc(&params, req); err != nil {
+			return responses.ResponseNewParams{}, nil, nil, err
+		}
+	}
 	return params, tools, sentItems, nil
+}
+
+func (m *Model) promptCacheKey(model string, req llmagent.Request) (string, error) {
+	if m != nil && m.promptCacheKeyFunc != nil {
+		return m.promptCacheKeyFunc(model, req)
+	}
+	return promptCacheKey(m.provider, model, req), nil
 }
 
 func (m *Model) modelName(req llmagent.Request) string {
@@ -734,10 +869,14 @@ func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, pr
 		switch item.Type {
 		case "function_call":
 			call := item.AsFunctionCall()
+			id := strings.TrimSpace(call.CallID)
+			if id == "" {
+				return llmagent.Response{}, llmagent.PartialError(llmagent.Response{Usage: recordedUsage, Transcript: transcript}, errors.New("openai: function_call missing call_id"))
+			}
 			reqs, err := assembler.Apply(adapterllm.StreamEvent{
 				Kind:       adapterllm.StreamToolCallDone,
 				Tool:       tool.Name(call.Name),
-				ToolCallID: callID(call, i),
+				ToolCallID: id,
 				CallType:   "function_call",
 				Index:      i,
 				Arguments:  call.Arguments,
@@ -748,10 +887,14 @@ func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, pr
 			operations = append(operations, reqs...)
 		case "custom_tool_call":
 			call := item.AsCustomToolCall()
+			id := strings.TrimSpace(call.CallID)
+			if id == "" {
+				return llmagent.Response{}, llmagent.PartialError(llmagent.Response{Usage: recordedUsage, Transcript: transcript}, errors.New("openai: custom_tool_call missing call_id"))
+			}
 			reqs, err := assembler.Apply(adapterllm.StreamEvent{
 				Kind:       adapterllm.StreamToolCallDone,
 				Tool:       tool.Name(call.Name),
-				ToolCallID: firstNonEmpty(call.CallID, call.ID),
+				ToolCallID: id,
 				CallType:   "custom_tool_call",
 				Index:      i,
 				Arguments:  call.Input,
@@ -776,10 +919,166 @@ func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, pr
 		out.Transcript = transcript
 		return out, nil
 	}
-	if resp.Error.Message != "" {
-		return llmagent.Response{}, fmt.Errorf("openai: %s: %s", resp.Error.Code, resp.Error.Message)
+	if fmt.Sprint(resp.Status) == "failed" || resp.Error.Code != "" || resp.Error.Message != "" {
+		return llmagent.Response{}, openAIProviderErrorFromResponse("openai: response failed", resp)
 	}
 	return llmagent.Response{Usage: recordedUsage, Transcript: transcript}, nil
+}
+
+func openAIProviderErrorFromEvent(prefix string, evt responses.ResponseStreamEventUnion) error {
+	eventErr := evt.AsError()
+	code := eventErr.Code
+	message := eventErr.Message
+	raw := strings.TrimSpace(evt.RawJSON())
+	if raw == "" {
+		raw = strings.TrimSpace(eventErr.RawJSON())
+	}
+	if code == "" || message == "" {
+		rawCode, rawMessage := openAIProviderErrorDetailsFromRaw(raw)
+		if code == "" {
+			code = rawCode
+		}
+		if message == "" {
+			message = rawMessage
+		}
+	}
+	return openAIProviderErrorWithRaw(prefix, code, message, raw)
+}
+
+func openAIProviderErrorFromResponse(prefix string, resp responses.Response) error {
+	code := string(resp.Error.Code)
+	message := resp.Error.Message
+	raw := strings.TrimSpace(resp.Error.RawJSON())
+	if raw == "" {
+		raw = strings.TrimSpace(resp.RawJSON())
+	}
+	if code == "" || message == "" {
+		rawCode, rawMessage := openAIProviderErrorDetailsFromRaw(raw)
+		if code == "" {
+			code = rawCode
+		}
+		if message == "" {
+			message = rawMessage
+		}
+	}
+	return openAIProviderErrorWithRaw(prefix, code, message, raw)
+}
+
+func openAIProviderErrorWithRaw(prefix, code, message, raw string) error {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "openai"
+	}
+	code = strings.TrimSpace(code)
+	message = strings.TrimSpace(message)
+	raw = compactProviderErrorRaw(raw)
+	switch {
+	case code != "" && message != "":
+		return fmt.Errorf("%s: %s: %s", prefix, code, message)
+	case code != "":
+		return fmt.Errorf("%s: %s", prefix, code)
+	case message != "":
+		return fmt.Errorf("%s: %s", prefix, message)
+	case raw != "":
+		return fmt.Errorf("%s: provider returned an error without code or message: %s", prefix, raw)
+	default:
+		return fmt.Errorf("%s: provider returned an error without code or message", prefix)
+	}
+}
+
+func openAIProviderErrorDetailsFromRaw(raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &root); err != nil {
+		return "", ""
+	}
+	code := jsonStringField(root, "code")
+	message := jsonStringField(root, "message")
+	if code != "" && message != "" {
+		return code, message
+	}
+	if nestedCode, nestedMessage := openAIProviderNestedErrorDetails(root["error"]); nestedCode != "" || nestedMessage != "" {
+		if code == "" {
+			code = nestedCode
+		}
+		if message == "" {
+			message = nestedMessage
+		}
+	}
+	if code != "" && message != "" {
+		return code, message
+	}
+	var response struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(root["response"], &response); err == nil {
+		nestedCode, nestedMessage := openAIProviderNestedErrorDetails(response.Error)
+		if code == "" {
+			code = nestedCode
+		}
+		if message == "" {
+			message = nestedMessage
+		}
+	}
+	return code, message
+}
+
+func openAIProviderNestedErrorDetails(raw json.RawMessage) (string, string) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return "", ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return "", text
+	}
+	var nested map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &nested); err != nil {
+		return "", ""
+	}
+	code := jsonStringField(nested, "code")
+	if code == "" {
+		code = jsonStringField(nested, "type")
+		if code == "error" {
+			code = ""
+		}
+	}
+	return code, jsonStringField(nested, "message")
+}
+
+func jsonStringField(obj map[string]json.RawMessage, key string) string {
+	if obj == nil {
+		return ""
+	}
+	raw := obj[key]
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return strings.TrimSpace(text)
+	}
+	return ""
+}
+
+func compactProviderErrorRaw(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	var compacted bytes.Buffer
+	if json.Compact(&compacted, []byte(raw)) == nil {
+		raw = compacted.String()
+	} else {
+		raw = strings.Join(strings.Fields(raw), " ")
+	}
+	const maxRaw = 2048
+	if len(raw) > maxRaw {
+		raw = raw[:maxRaw] + "...(truncated)"
+	}
+	return raw
 }
 
 func responseForOutputMode(final responses.Response, streamed []responses.ResponseOutputItemUnion, mode ResponsesOutputMode) responses.Response {
@@ -792,7 +1091,7 @@ func responseForOutputMode(final responses.Response, streamed []responses.Respon
 
 func responseTranscript(resp responses.Response, provider coreconversation.ProviderIdentity, store bool) coreconversation.Transcript {
 	items := make([]coreconversation.Item, 0, len(resp.Output))
-	for i, output := range resp.Output {
+	for _, output := range resp.Output {
 		item := coreconversation.Item{
 			Provider: provider,
 			Kind:     transcriptKindFromOutputType(output.Type),
@@ -809,7 +1108,7 @@ func responseTranscript(resp responses.Response, provider coreconversation.Provi
 		switch output.Type {
 		case "function_call":
 			call := output.AsFunctionCall()
-			id := callID(call, i)
+			id := strings.TrimSpace(call.CallID)
 			item.CallID = id
 			item.Name = call.Name
 			item.Metadata = map[string]string{"provider_call_type": output.Type}
@@ -821,7 +1120,7 @@ func responseTranscript(resp responses.Response, provider coreconversation.Provi
 			}}
 		case "custom_tool_call":
 			call := output.AsCustomToolCall()
-			id := firstNonEmpty(call.CallID, call.ID)
+			id := strings.TrimSpace(call.CallID)
 			item.CallID = id
 			item.Name = call.Name
 			item.Metadata = map[string]string{"provider_call_type": output.Type}
@@ -916,6 +1215,8 @@ func openAIProviderIdentity(model string) coreconversation.ProviderIdentity {
 
 type openAIStreamState struct {
 	toolNames          map[int]tool.Name
+	toolCallIDs        map[int]string
+	toolCallItemIDs    map[string]string
 	outputPhases       map[int]string
 	completedToolCalls map[int]bool
 	contentDeltas      map[int]*strings.Builder
@@ -929,6 +1230,12 @@ func (s *openAIStreamState) ensure() {
 	}
 	if s.toolNames == nil {
 		s.toolNames = map[int]tool.Name{}
+	}
+	if s.toolCallIDs == nil {
+		s.toolCallIDs = map[int]string{}
+	}
+	if s.toolCallItemIDs == nil {
+		s.toolCallItemIDs = map[string]string{}
 	}
 	if s.outputPhases == nil {
 		s.outputPhases = map[int]string{}
@@ -945,6 +1252,31 @@ func (s *openAIStreamState) ensure() {
 	if s.flushedUnphased == nil {
 		s.flushedUnphased = map[int]bool{}
 	}
+}
+
+func (s *openAIStreamState) rememberToolCallID(index int, itemID, callID string) {
+	if s == nil || strings.TrimSpace(callID) == "" {
+		return
+	}
+	s.ensure()
+	callID = strings.TrimSpace(callID)
+	s.toolCallIDs[index] = callID
+	if itemID = strings.TrimSpace(itemID); itemID != "" {
+		s.toolCallItemIDs[itemID] = callID
+	}
+}
+
+func (s *openAIStreamState) toolCallID(index int, itemID string) string {
+	if s == nil {
+		return ""
+	}
+	s.ensure()
+	if itemID = strings.TrimSpace(itemID); itemID != "" {
+		if callID := strings.TrimSpace(s.toolCallItemIDs[itemID]); callID != "" {
+			return callID
+		}
+	}
+	return strings.TrimSpace(s.toolCallIDs[index])
 }
 
 func (s *openAIStreamState) phase(index int) string {
@@ -1052,6 +1384,167 @@ func (s *openAIStreamState) finalContent() string {
 	return out.String()
 }
 
+func normalizeResponseOutputToolCallIDs(resp responses.Response, state *openAIStreamState) responses.Response {
+	if state == nil || len(resp.Output) == 0 {
+		return resp
+	}
+	for i, item := range resp.Output {
+		if item.Type != "function_call" && item.Type != "custom_tool_call" {
+			continue
+		}
+		current := outputItemCallID(item)
+		effective := firstNonEmpty(state.toolCallID(i, item.ID), current)
+		if effective == "" || effective == current {
+			continue
+		}
+		resp.Output[i] = normalizeResponseOutputItemCallID(item, effective)
+	}
+	return resp
+}
+
+func normalizeResponseOutputItemCallID(item responses.ResponseOutputItemUnion, callID string) responses.ResponseOutputItemUnion {
+	raw := strings.TrimSpace(item.RawJSON())
+	if raw == "" {
+		data, err := json.Marshal(item)
+		if err != nil {
+			return item
+		}
+		raw = string(data)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &obj); err != nil || obj == nil {
+		return item
+	}
+	obj["call_id"] = mustJSONRaw(callID)
+	data, err := json.Marshal(obj)
+	if err != nil {
+		return item
+	}
+	var normalized responses.ResponseOutputItemUnion
+	if err := json.Unmarshal(data, &normalized); err != nil {
+		return item
+	}
+	return normalized
+}
+
+func outputItemCallID(item responses.ResponseOutputItemUnion) string {
+	switch item.Type {
+	case "function_call":
+		return strings.TrimSpace(item.AsFunctionCall().CallID)
+	case "custom_tool_call":
+		return strings.TrimSpace(item.AsCustomToolCall().CallID)
+	default:
+		return strings.TrimSpace(item.CallID)
+	}
+}
+
+type responsesWireToolCall struct {
+	Index     int
+	ItemID    string
+	CallID    string
+	Type      string
+	Name      string
+	Arguments string
+}
+
+func decodeResponsesToolCallOutputItem(rawEvent string, fallback responses.ResponseOutputItemUnion, index int) responsesWireToolCall {
+	out := responsesWireToolCall{
+		Index:  index,
+		ItemID: strings.TrimSpace(fallback.ID),
+		CallID: outputItemCallID(fallback),
+		Type:   strings.TrimSpace(fallback.Type),
+		Name:   strings.TrimSpace(fallback.Name),
+	}
+	if fallback.Type == "custom_tool_call" {
+		out.Arguments = fallback.Input
+	} else {
+		out.Arguments = fallback.Arguments.OfString
+	}
+	rawEvent = strings.TrimSpace(rawEvent)
+	if rawEvent == "" {
+		return out
+	}
+	var event struct {
+		OutputIndex *int64 `json:"output_index"`
+		Item        struct {
+			ID        string          `json:"id"`
+			Type      string          `json:"type"`
+			CallID    string          `json:"call_id"`
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+			Input     string          `json:"input"`
+		} `json:"item"`
+	}
+	if err := json.Unmarshal([]byte(rawEvent), &event); err != nil {
+		return out
+	}
+	if event.OutputIndex != nil && *event.OutputIndex >= 0 {
+		out.Index = int(*event.OutputIndex)
+	}
+	if id := strings.TrimSpace(event.Item.ID); id != "" {
+		out.ItemID = id
+	}
+	if typ := strings.TrimSpace(event.Item.Type); typ != "" {
+		out.Type = typ
+	}
+	if callID := strings.TrimSpace(event.Item.CallID); callID != "" {
+		out.CallID = callID
+	}
+	if name := strings.TrimSpace(event.Item.Name); name != "" {
+		out.Name = name
+	}
+	if args := jsonRawString(event.Item.Arguments); args != "" {
+		out.Arguments = args
+	}
+	if event.Item.Input != "" {
+		out.Arguments = event.Item.Input
+	}
+	return out
+}
+
+func decodeResponsesToolCallEvent(rawEvent string, index int, itemID string) responsesWireToolCall {
+	out := responsesWireToolCall{Index: index, ItemID: strings.TrimSpace(itemID)}
+	rawEvent = strings.TrimSpace(rawEvent)
+	if rawEvent == "" {
+		return out
+	}
+	var event struct {
+		OutputIndex *int64          `json:"output_index"`
+		ItemID      string          `json:"item_id"`
+		CallID      string          `json:"call_id"`
+		Name        string          `json:"name"`
+		Arguments   json.RawMessage `json:"arguments"`
+		Input       string          `json:"input"`
+	}
+	if err := json.Unmarshal([]byte(rawEvent), &event); err != nil {
+		return out
+	}
+	if event.OutputIndex != nil && *event.OutputIndex >= 0 {
+		out.Index = int(*event.OutputIndex)
+	}
+	if id := strings.TrimSpace(event.ItemID); id != "" {
+		out.ItemID = id
+	}
+	out.CallID = strings.TrimSpace(event.CallID)
+	out.Name = strings.TrimSpace(event.Name)
+	out.Arguments = jsonRawString(event.Arguments)
+	if event.Input != "" {
+		out.Arguments = event.Input
+	}
+	return out
+}
+
+func jsonRawString(raw json.RawMessage) string {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text
+	}
+	return string(bytes.TrimSpace(raw))
+}
+
 func applyStreamedContentFallback(out llmagent.Response, provider coreconversation.ProviderIdentity, state *openAIStreamState) llmagent.Response {
 	if out.Message != nil || len(out.Operations) > 0 || out.Completion != nil {
 		return out
@@ -1118,6 +1611,44 @@ func streamedOperationTranscriptItems(provider coreconversation.ProviderIdentity
 	return out
 }
 
+func ensureOperationTranscriptCoverage(out llmagent.Response, provider coreconversation.ProviderIdentity, streamed map[string]coreconversation.Item) (llmagent.Response, error) {
+	if len(out.Operations) == 0 {
+		return out, nil
+	}
+	covered := transcriptToolCallIDs(out.Transcript.Items)
+	for i, request := range out.Operations {
+		callID := strings.TrimSpace(request.ProviderCallID)
+		if callID == "" {
+			return out, fmt.Errorf("openai: operation request %d for %s is missing provider call id", i, request.Operation.String())
+		}
+		if covered[callID] {
+			continue
+		}
+		item, ok := streamed[callID]
+		if !ok {
+			return out, fmt.Errorf("openai: operation request %d for %s has no transcript tool call %q", i, request.Operation.String(), callID)
+		}
+		if item.Provider.Provider == "" {
+			item.Provider = provider
+		}
+		out.Transcript.Items = append(out.Transcript.Items, item)
+		covered[callID] = true
+	}
+	return out, nil
+}
+
+func transcriptToolCallIDs(items []coreconversation.Item) map[string]bool {
+	out := map[string]bool{}
+	for _, item := range items {
+		for _, call := range item.ToolCallRefs() {
+			if callID := strings.TrimSpace(call.CallID); callID != "" {
+				out[callID] = true
+			}
+		}
+	}
+	return out
+}
+
 func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *openAIStreamState) []adapterllm.StreamEvent {
 	if state != nil {
 		state.ensure()
@@ -1164,14 +1695,17 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *open
 		if added.Item.Type != "function_call" && added.Item.Type != "custom_tool_call" {
 			return nil
 		}
-		name := tool.Name(added.Item.Name)
-		state.toolNames[int(added.OutputIndex)] = name
+		wire := decodeResponsesToolCallOutputItem(evt.RawJSON(), added.Item, int(added.OutputIndex))
+		name := tool.Name(wire.Name)
+		state.toolNames[wire.Index] = name
+		callID := firstNonEmpty(wire.CallID, state.toolCallID(wire.Index, wire.ItemID))
+		state.rememberToolCallID(wire.Index, wire.ItemID, callID)
 		return []adapterllm.StreamEvent{{
 			Kind:       adapterllm.StreamToolCallStart,
 			Tool:       name,
-			ToolCallID: firstNonEmpty(added.Item.CallID, added.Item.ID),
-			CallType:   added.Item.Type,
-			Index:      int(added.OutputIndex),
+			ToolCallID: callID,
+			CallType:   firstNonEmpty(wire.Type, added.Item.Type),
+			Index:      wire.Index,
 		}}
 	case "response.output_item.done":
 		done := evt.AsResponseOutputItemDone()
@@ -1186,85 +1720,108 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *open
 				return nil
 			}
 		}
-		if done.Item.Type != "function_call" && done.Item.Type != "custom_tool_call" || state.completedToolCalls[int(done.OutputIndex)] {
+		if done.Item.Type != "function_call" && done.Item.Type != "custom_tool_call" {
 			return nil
 		}
-		name := tool.Name(done.Item.Name)
+		wire := decodeResponsesToolCallOutputItem(evt.RawJSON(), done.Item, int(done.OutputIndex))
+		callID := firstNonEmpty(wire.CallID, state.toolCallID(wire.Index, wire.ItemID))
+		state.rememberToolCallID(wire.Index, wire.ItemID, callID)
+		if state.completedToolCalls[wire.Index] {
+			return nil
+		}
+		name := tool.Name(wire.Name)
 		if name == "" {
-			name = state.toolNames[int(done.OutputIndex)]
+			name = state.toolNames[wire.Index]
 		}
-		arguments := done.Item.Arguments.OfString
-		if done.Item.Type == "custom_tool_call" {
-			arguments = done.Item.Input
+		if callID == "" {
+			return nil
 		}
-		state.completedToolCalls[int(done.OutputIndex)] = true
+		state.completedToolCalls[wire.Index] = true
 		events := state.flushAllUnphased(adapterllm.StreamThinkingDelta)
 		events = append(events, adapterllm.StreamEvent{
 			Kind:       adapterllm.StreamToolCallDone,
 			Tool:       name,
-			ToolCallID: firstNonEmpty(done.Item.CallID, done.Item.ID),
-			CallType:   done.Item.Type,
-			Index:      int(done.OutputIndex),
-			Arguments:  arguments,
+			ToolCallID: callID,
+			CallType:   firstNonEmpty(wire.Type, done.Item.Type),
+			Index:      wire.Index,
+			Arguments:  wire.Arguments,
 			Final:      true,
 		})
 		return events
 	case "response.function_call_arguments.delta":
 		delta := evt.AsResponseFunctionCallArgumentsDelta()
+		wire := decodeResponsesToolCallEvent(evt.RawJSON(), int(delta.OutputIndex), delta.ItemID)
+		callID := firstNonEmpty(wire.CallID, state.toolCallID(wire.Index, wire.ItemID))
+		state.rememberToolCallID(wire.Index, wire.ItemID, callID)
 		return []adapterllm.StreamEvent{{
 			Kind:       adapterllm.StreamToolCallDelta,
-			Tool:       state.toolNames[int(delta.OutputIndex)],
-			ToolCallID: delta.ItemID,
+			Tool:       state.toolNames[wire.Index],
+			ToolCallID: firstNonEmpty(callID, wire.ItemID),
 			CallType:   "function_call",
-			Index:      int(delta.OutputIndex),
+			Index:      wire.Index,
 			Arguments:  delta.Delta,
 		}}
 	case "response.function_call_arguments.done":
 		done := evt.AsResponseFunctionCallArgumentsDone()
-		if state.completedToolCalls[int(done.OutputIndex)] {
+		wire := decodeResponsesToolCallEvent(evt.RawJSON(), int(done.OutputIndex), done.ItemID)
+		callID := firstNonEmpty(wire.CallID, state.toolCallID(wire.Index, wire.ItemID))
+		state.rememberToolCallID(wire.Index, wire.ItemID, callID)
+		if state.completedToolCalls[wire.Index] {
 			return nil
 		}
-		name := tool.Name(done.Name)
+		name := tool.Name(firstNonEmpty(wire.Name, done.Name))
 		if name == "" {
-			name = state.toolNames[int(done.OutputIndex)]
+			name = state.toolNames[wire.Index]
 		}
-		state.completedToolCalls[int(done.OutputIndex)] = true
+		if callID == "" {
+			return nil
+		}
+		state.completedToolCalls[wire.Index] = true
 		events := state.flushAllUnphased(adapterllm.StreamThinkingDelta)
 		events = append(events, adapterllm.StreamEvent{
 			Kind:       adapterllm.StreamToolCallDone,
 			Tool:       name,
-			ToolCallID: done.ItemID,
+			ToolCallID: callID,
 			CallType:   "function_call",
-			Index:      int(done.OutputIndex),
-			Arguments:  done.Arguments,
+			Index:      wire.Index,
+			Arguments:  firstNonEmpty(wire.Arguments, done.Arguments),
 			Final:      true,
 		})
 		return events
 	case "response.custom_tool_call_input.delta":
 		delta := evt.AsResponseCustomToolCallInputDelta()
+		wire := decodeResponsesToolCallEvent(evt.RawJSON(), int(delta.OutputIndex), delta.ItemID)
+		callID := firstNonEmpty(wire.CallID, state.toolCallID(wire.Index, wire.ItemID))
+		state.rememberToolCallID(wire.Index, wire.ItemID, callID)
 		return []adapterllm.StreamEvent{{
 			Kind:       adapterllm.StreamToolCallDelta,
-			Tool:       state.toolNames[int(delta.OutputIndex)],
-			ToolCallID: delta.ItemID,
+			Tool:       state.toolNames[wire.Index],
+			ToolCallID: firstNonEmpty(callID, wire.ItemID),
 			CallType:   "custom_tool_call",
-			Index:      int(delta.OutputIndex),
+			Index:      wire.Index,
 			Arguments:  delta.Delta,
 		}}
 	case "response.custom_tool_call_input.done":
 		done := evt.AsResponseCustomToolCallInputDone()
-		if state.completedToolCalls[int(done.OutputIndex)] {
+		wire := decodeResponsesToolCallEvent(evt.RawJSON(), int(done.OutputIndex), done.ItemID)
+		callID := firstNonEmpty(wire.CallID, state.toolCallID(wire.Index, wire.ItemID))
+		state.rememberToolCallID(wire.Index, wire.ItemID, callID)
+		if state.completedToolCalls[wire.Index] {
 			return nil
 		}
-		name := state.toolNames[int(done.OutputIndex)]
-		state.completedToolCalls[int(done.OutputIndex)] = true
+		name := state.toolNames[wire.Index]
+		if callID == "" {
+			return nil
+		}
+		state.completedToolCalls[wire.Index] = true
 		events := state.flushAllUnphased(adapterllm.StreamThinkingDelta)
 		events = append(events, adapterllm.StreamEvent{
 			Kind:       adapterllm.StreamToolCallDone,
 			Tool:       name,
-			ToolCallID: done.ItemID,
+			ToolCallID: callID,
 			CallType:   "custom_tool_call",
-			Index:      int(done.OutputIndex),
-			Arguments:  done.Input,
+			Index:      wire.Index,
+			Arguments:  firstNonEmpty(wire.Arguments, done.Input),
 			Final:      true,
 		})
 		return events
@@ -1289,16 +1846,6 @@ func (m *Model) emitBufferedStreamContent(final responses.Response, state *openA
 			emit(runtimeEvent)
 		}
 	}
-}
-
-func callID(call responses.ResponseFunctionToolCall, index int) string {
-	if call.CallID != "" {
-		return call.CallID
-	}
-	if call.ID != "" {
-		return call.ID
-	}
-	return fmt.Sprintf("index:%d", index)
 }
 
 func firstNonEmpty(values ...string) string {
@@ -1385,6 +1932,9 @@ func usageFromOpenAI(resp responses.Response, provider coreconversation.Provider
 }
 
 func promptCacheKey(provider, model string, req llmagent.Request) string {
+	if key := strings.TrimSpace(req.ConversationKey); key != "" {
+		return key
+	}
 	parts := []string{"fluxplane", normalizeProvider(provider), strings.TrimSpace(model)}
 	if req.Agent.Name != "" {
 		parts = append(parts, string(req.Agent.Name))
