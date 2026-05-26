@@ -318,16 +318,6 @@ func setEnv(env []string, key, value string) []string {
 	return append(env, prefix+value)
 }
 
-func getenvFrom(env []string, key string) string {
-	prefix := key + "="
-	for _, current := range env {
-		if strings.HasPrefix(current, prefix) {
-			return strings.TrimPrefix(current, prefix)
-		}
-	}
-	return ""
-}
-
 func quoteArgs(args []string) string {
 	quoted := make([]string, 0, len(args))
 	for _, arg := range args {
