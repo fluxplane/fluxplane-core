@@ -112,7 +112,7 @@ func compactLargeItems(items []coreconversation.Item, maxTokens int) int {
 		case items[i].Kind == coreconversation.ItemToolResult:
 			items[i] = compactToolResult(items[i], tokens)
 			changed++
-		case items[i].Kind == coreconversation.ItemOutput && strings.TrimSpace(items[i].CallID) == "":
+		case items[i].Kind == coreconversation.ItemOutput && len(items[i].ToolCallRefs()) == 0:
 			items[i] = compactAssistantOutput(items[i], tokens)
 			changed++
 		case items[i].Kind == coreconversation.ItemInput && items[i].Metadata["context"] == "diff" && strings.TrimSpace(items[i].Role) != "user":
@@ -219,17 +219,28 @@ func transcriptGroups(items []coreconversation.Item, preserveFrom int) []itemGro
 }
 
 func toolCallResultGroupEnd(items []coreconversation.Item, start int) int {
-	if start >= len(items) || items[start].Kind != coreconversation.ItemOutput || strings.TrimSpace(items[start].CallID) == "" {
+	if start >= len(items) || items[start].Kind != coreconversation.ItemOutput {
 		return start + 1
 	}
 	callIDs := map[string]bool{}
 	endCalls := start
 	for endCalls < len(items) && items[endCalls].Kind == coreconversation.ItemOutput {
-		callID := strings.TrimSpace(items[endCalls].CallID)
-		if callID == "" {
+		calls := items[endCalls].ToolCallRefs()
+		if len(calls) == 0 {
 			break
 		}
-		callIDs[callID] = true
+		added := false
+		for _, call := range calls {
+			callID := strings.TrimSpace(call.CallID)
+			if callID == "" {
+				continue
+			}
+			callIDs[callID] = true
+			added = true
+		}
+		if !added {
+			break
+		}
 		endCalls++
 	}
 	if len(callIDs) == 0 || endCalls >= len(items) {
@@ -270,7 +281,19 @@ func groupDroppable(items []coreconversation.Item) bool {
 }
 
 func matchingToolResult(call, result coreconversation.Item) bool {
-	return result.Kind == coreconversation.ItemToolResult && strings.TrimSpace(call.CallID) != "" && call.CallID == result.CallID
+	if result.Kind != coreconversation.ItemToolResult {
+		return false
+	}
+	resultCallID := strings.TrimSpace(result.CallID)
+	if resultCallID == "" {
+		return false
+	}
+	for _, ref := range call.ToolCallRefs() {
+		if strings.TrimSpace(ref.CallID) == resultCallID {
+			return true
+		}
+	}
+	return false
 }
 
 func compactionNotice(provider coreconversation.ProviderIdentity, omitted int) coreconversation.Item {

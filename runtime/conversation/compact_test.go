@@ -193,6 +193,46 @@ func TestCompactTranscriptDropsOldMultiToolCallGroupsTogether(t *testing.T) {
 	}
 }
 
+func TestCompactTranscriptGroupsToolCallsWithoutTopLevelCallID(t *testing.T) {
+	provider := coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses"}
+	transcript := coreconversation.Transcript{
+		Provider: provider,
+		Items: []coreconversation.Item{
+			{Kind: coreconversation.ItemInput, Role: "user", Content: strings.Repeat("old user ", 200)},
+			{
+				Kind: coreconversation.ItemOutput,
+				Name: "file_edit",
+				ToolCalls: []coreconversation.ToolCallRef{{
+					CallID: "call_1",
+					Name:   "file_edit",
+					Type:   "function_call",
+					Input:  `{"path":"AGENTS.md"}`,
+				}},
+				Native: []byte(strings.Repeat("tool call ", 400)),
+			},
+			{Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "file_edit", Content: strings.Repeat("tool result ", 400)},
+			{Kind: coreconversation.ItemInput, Role: "user", Content: "current"},
+		},
+		NewItems: []coreconversation.Item{{Kind: coreconversation.ItemInput, Role: "user", Content: "current"}},
+	}
+
+	result := CompactTranscript(transcript, CompactOptions{
+		MaxInputTokens:      128,
+		SafetyMarginTokens:  1,
+		LargeItemTokens:     64,
+		PreserveRecentItems: 1,
+	})
+	if result.OmittedItems == 0 {
+		t.Fatalf("omitted = %d, want old tool call/result group omitted", result.OmittedItems)
+	}
+	if hasCallID(result.Transcript.Items, "call_1") {
+		t.Fatalf("items = %#v, want tool call and result removed together", result.Transcript.Items)
+	}
+	if err := ValidateContinuity(result.Transcript.Items, ValidateOptions{Provider: provider}); err != nil {
+		t.Fatalf("compacted transcript continuity: %v", err)
+	}
+}
+
 func hasCompactionNotice(items []coreconversation.Item) bool {
 	for _, item := range items {
 		if item.Metadata["compaction"] == "transcript_omission" {
@@ -206,6 +246,11 @@ func hasCallID(items []coreconversation.Item, callID string) bool {
 	for _, item := range items {
 		if item.CallID == callID {
 			return true
+		}
+		for _, ref := range item.ToolCallRefs() {
+			if ref.CallID == callID {
+				return true
+			}
 		}
 	}
 	return false

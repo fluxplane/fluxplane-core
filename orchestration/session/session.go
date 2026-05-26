@@ -659,15 +659,10 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 			effects = append(effects, reactionEffects...)
 			lazyPrepared = true
 		}
-		contextResult, projectedPending, err := s.materializeContext(ctx, in, pending.Items, observations, reactions.Active)
+		contextResult, projected, err := s.materializeContext(ctx, in, pending, observations, reactions.Active)
 		if err != nil {
 			return innerTurnResult{Result: inputFailed("context_render_failed", err.Error(), nil), State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
-		committedCount := pending.CommittedCount
-		if pending.Committed && committedCount == 0 {
-			committedCount = len(pending.Items)
-		}
-		projected := transcriptPending{Items: projectedPending, Committed: pending.Committed, CommittedCount: committedCount}
 		transcript, err := s.transcriptForPending(ctx, projected, derefItems(in.LocalTranscript), derefHandle(in.LocalContinuation))
 		if err != nil {
 			return innerTurnResult{Result: inputFailed("conversation_projection_failed", err.Error(), nil), State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
@@ -2488,34 +2483,54 @@ func sortedNameBoolMapKeys[K ~string](values map[K]bool) []string {
 	return out
 }
 
-func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pending []coreconversation.Item, observations []coreevidence.Observation, active sessionenv.ActiveState) (corecontext.BuildResult, []coreconversation.Item, error) {
+func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pending transcriptPending, observations []coreevidence.Observation, active sessionenv.ActiveState) (corecontext.BuildResult, transcriptPending, error) {
 	providers := s.contextProviders(active)
+	reason := contextRenderReason(pending.Items, observations)
+	committedCount := normalizedPendingCommittedCount(pending)
 	if len(providers) == 0 {
-		return corecontext.BuildResult{}, oneShotUserContextPending(in.Inbound, pending, corecontext.RenderTurn), nil
+		projected := pending
+		projected.Items = oneShotUserContextPending(in.Inbound, pending.Items, reason)
+		projected.CommittedCount = committedCount
+		return corecontext.BuildResult{}, projected, nil
 	}
 	records, err := s.contextRenderRecords(ctx, in.LocalContextRecords)
 	if err != nil {
-		return corecontext.BuildResult{}, nil, err
+		return corecontext.BuildResult{}, transcriptPending{}, err
 	}
 	renderCtx := s.contextProviderContext(in.BaseContext, observations, active)
-	reason := contextRenderReason(pending, observations)
 	result, err := sessionenv.BuildContext(providers, records, renderCtx, corecontext.BuildRequest{
 		ThreadID:      string(s.Thread.ID),
 		BranchID:      string(s.Thread.BranchID),
 		TurnID:        in.ConversationTurnID,
 		Reason:        reason,
 		InputText:     inboundInputText(in.Inbound),
-		RecentContext: recentContextExcerpt(derefItems(in.LocalTranscript), pending),
+		RecentContext: recentContextExcerpt(derefItems(in.LocalTranscript), pending.Items),
 		Scope:         contextRequestScope(in.Inbound),
 		Observations:  append([]coreevidence.Observation(nil), observations...),
 		Previous:      records,
 	})
 	if err != nil {
-		return corecontext.BuildResult{}, nil, err
+		return corecontext.BuildResult{}, transcriptPending{}, err
 	}
-	projected := contextPendingItems(in.ProviderIdentity, pending, result)
-	projected = oneShotUserContextPending(in.Inbound, projected, reason)
+	projected := pending
+	projected.Items = contextPendingItems(in.ProviderIdentity, pending.Items, result, committedCount)
+	projected.Items = oneShotUserContextPending(in.Inbound, projected.Items, reason)
+	projected.CommittedCount = committedCount
 	return result, projected, nil
+}
+
+func normalizedPendingCommittedCount(pending transcriptPending) int {
+	committedCount := pending.CommittedCount
+	if pending.Committed && committedCount == 0 {
+		committedCount = len(pending.Items)
+	}
+	if committedCount < 0 {
+		return 0
+	}
+	if committedCount > len(pending.Items) {
+		return len(pending.Items)
+	}
+	return committedCount
 }
 
 const inboundUserContextMetadataKey = "user_context"
@@ -2854,11 +2869,18 @@ func (s Session) commitContextRender(ctx context.Context, result corecontext.Bui
 	return s.appendThreadEvents(ctx, events...)
 }
 
-func contextPendingItems(provider coreconversation.ProviderIdentity, pending []coreconversation.Item, result corecontext.BuildResult) []coreconversation.Item {
-	out := append([]coreconversation.Item(nil), pending...)
+func contextPendingItems(provider coreconversation.ProviderIdentity, pending []coreconversation.Item, result corecontext.BuildResult, committedCount int) []coreconversation.Item {
 	if result.EmptyDiff() {
-		return out
+		return append([]coreconversation.Item(nil), pending...)
 	}
+	if committedCount < 0 {
+		committedCount = 0
+	}
+	if committedCount > len(pending) {
+		committedCount = len(pending)
+	}
+	out := append([]coreconversation.Item(nil), pending[:committedCount]...)
+	tail := append([]coreconversation.Item(nil), pending[committedCount:]...)
 	var prefix []coreconversation.Item
 	if text, ok := sessionenv.RenderDiff(result, corecontext.PlacementSystem); ok {
 		prefix = append(prefix, contextTranscriptItem(provider, "system", text))
@@ -2867,12 +2889,12 @@ func contextPendingItems(provider coreconversation.ProviderIdentity, pending []c
 		prefix = append(prefix, contextTranscriptItem(provider, "developer", text))
 	}
 	if len(prefix) > 0 {
-		out = append(prefix, out...)
+		tail = append(prefix, tail...)
 	}
 	if text, ok := sessionenv.RenderDiff(result, corecontext.PlacementUser); ok {
-		out = addUserContextDiff(provider, out, text)
+		tail = addUserContextDiff(provider, tail, text)
 	}
-	return out
+	return append(out, tail...)
 }
 
 func contextTranscriptItem(provider coreconversation.ProviderIdentity, role, content string) coreconversation.Item {

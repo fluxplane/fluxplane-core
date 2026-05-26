@@ -165,6 +165,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `error-policy`, and `idempotency-key`; use snake_case fields instead.
 
 ### Fixed
+- Kept Codex/OpenAI streamed tool calls paired with durable transcript tool-call
+  items before executing tool results, and made compaction preserve or drop
+  tool-call/result groups together even when the assistant item only carries
+  `ToolCalls` metadata.
+- Fixed session projection after a committed tool result when tool-followup
+  context changes, so the next provider request does not replay the same
+  `tool_result` as an unpaired pending item.
 - Kept task finalizer step evidence compaction on valid UTF-8 rune boundaries
   so non-ASCII worker output is not corrupted before being sent to follow-up
   worker prompts.

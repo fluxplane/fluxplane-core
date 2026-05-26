@@ -283,6 +283,9 @@ func AppendCompaction(ctx context.Context, store corethread.Store, ref corethrea
 			return fmt.Errorf("conversation: compaction item %d: %w", i, err)
 		}
 	}
+	if err := ValidateContinuity(items, ValidateOptions{Provider: provider}); err != nil {
+		return fmt.Errorf("conversation: compaction continuity: %w", err)
+	}
 	payload := coreconversation.CompactionStored{
 		TurnID:   turnID,
 		Provider: provider,

@@ -568,6 +568,30 @@ func TestProjectIgnoresIncompatibleCompactionCheckpoint(t *testing.T) {
 	}
 }
 
+func TestAppendCompactionRejectsInvalidToolResultCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	store := newThreadStore(t)
+	ref := createThread(t, ctx, store)
+	provider := coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses", Model: "gpt-test"}
+
+	err := AppendCompaction(ctx, store, ref, "compact-1", provider,
+		[]coreconversation.Item{{
+			Provider: provider,
+			Kind:     coreconversation.ItemToolResult,
+			CallID:   "call_1",
+			Name:     "file_edit",
+			Content:  "ok",
+		}},
+		coreconversation.CompactionStats{Compacted: true},
+	)
+	if err == nil {
+		t.Fatal("AppendCompaction succeeded, want continuity error")
+	}
+	if !strings.Contains(err.Error(), "tool result without open assistant tool call") {
+		t.Fatalf("error = %v, want tool result continuity failure", err)
+	}
+}
+
 func newThreadStore(t *testing.T) corethread.Store {
 	t.Helper()
 	store, err := runtimethread.NewStore(eventstore.NewMemoryStore())

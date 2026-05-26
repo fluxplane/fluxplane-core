@@ -1009,6 +1009,85 @@ func TestExecuteInboundInputProjectsProviderTranscriptAcrossToolContinuation(t *
 	}
 }
 
+func TestExecuteInboundInputDoesNotDuplicateCommittedToolResultWhenToolFollowupContextChanges(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := newSessionThread(t, ctx, "thread-tool-followup-context-committed")
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{
+		Provider: "openai",
+		API:      "openai.responses",
+		Family:   "responses",
+		Model:    "gpt-test",
+	}
+	contextProvider := &scriptedContextProvider{
+		spec: corecontext.ProviderSpec{Name: "detect", DefaultPlacement: corecontext.PlacementSystem},
+		build: func(_ context.Context, req corecontext.Request) ([]corecontext.Block, error) {
+			return []corecontext.Block{{
+				ID:      "detect/current",
+				Content: fmt.Sprintf("observations:%d", len(req.Observations)),
+			}}, nil
+		},
+	}
+	var transcripts []coreconversation.Transcript
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		if req.Transcript == nil {
+			t.Fatalf("transcript is nil")
+		}
+		transcripts = append(transcripts, *req.Transcript)
+		if len(transcripts) == 1 {
+			return llmagent.Response{
+				Operations: []agent.OperationRequest{{Operation: opRef, Input: "A100", ProviderCallID: "call_1"}},
+				Transcript: coreconversation.Transcript{
+					Provider: provider,
+					Items: append(append([]coreconversation.Item(nil), req.Transcript.NewItems...),
+						coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "lookup"}),
+				},
+			}, nil
+		}
+		return llmagent.Response{
+			Message: &agent.Message{Content: "done"},
+			Transcript: coreconversation.Transcript{
+				Provider: provider,
+				Items: append(append([]coreconversation.Item(nil), req.Transcript.NewItems...),
+					coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, Role: "assistant", Content: "done"}),
+			},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:      "coder",
+		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{Model: "gpt-test"},
+		Turns:     agent.TurnPolicy{MaxSteps: 2},
+	}, model, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), ThreadStore: threadStore, Thread: ref}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup A100"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if len(transcripts) != 2 {
+		t.Fatalf("transcripts len = %d, want 2", len(transcripts))
+	}
+	if got := countToolResultCallID(transcripts[1].Items, "call_1"); got != 1 {
+		t.Fatalf("second transcript items have %d tool results for call_1, want one: %#v", got, transcripts[1].Items)
+	}
+	if got := countToolResultCallID(transcripts[1].NewItems, "call_1"); got != 0 {
+		t.Fatalf("second transcript new items have %d committed tool results, want none: %#v", got, transcripts[1].NewItems)
+	}
+	if !hasContextDiffContent(transcripts[1].NewItems, "observations:") {
+		t.Fatalf("second transcript new items = %#v, want changed follow-up context", transcripts[1].NewItems)
+	}
+}
+
 func TestExecuteInboundInputDoesNotPersistOpenToolCallWhenTranscriptCommitFails(t *testing.T) {
 	ctx := context.Background()
 	threadStore, ref := newSessionThread(t, ctx, "thread-assistant-commit-fails")
@@ -5487,6 +5566,16 @@ func hasToolResultCallID(items []coreconversation.Item, callID string) bool {
 	return ok
 }
 
+func countToolResultCallID(items []coreconversation.Item, callID string) int {
+	var count int
+	for _, item := range items {
+		if item.Kind == coreconversation.ItemToolResult && item.CallID == callID {
+			count++
+		}
+	}
+	return count
+}
+
 func toolResultByCallID(items []coreconversation.Item, callID string) (coreconversation.Item, bool) {
 	for _, item := range items {
 		if item.Kind == coreconversation.ItemToolResult && item.CallID == callID {
@@ -5494,6 +5583,15 @@ func toolResultByCallID(items []coreconversation.Item, callID string) (coreconve
 		}
 	}
 	return coreconversation.Item{}, false
+}
+
+func hasContextDiffContent(items []coreconversation.Item, content string) bool {
+	for _, item := range items {
+		if item.Metadata["context"] == "diff" && strings.Contains(valueText(item.Content), content) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasTranscriptUserContent(items []coreconversation.Item, content string) bool {
