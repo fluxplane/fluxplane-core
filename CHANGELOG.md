@@ -7,164 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-05-26
+
 ### Added
-- Added public helpers for cloning contribution bundles, merging workspace
-  launch configs, deriving core datasource catalog specs from plugin data sources,
-  decoding resource fragments, and contributing a native interruptible sleep
-  plugin.
-- Added shared session-run orchestration for fresh-context helper session
-  executions and a native `/loop` session command plugin for repeating prompts
-  sequentially.
-- Added named `distribution.build.targets` and `distribution.deploy.targets`
-  so apps can separately build reusable artifacts and deploy targets that
-  reference those artifacts.
-- Added build target kinds for embedded binaries, Helm charts, and generated
-  capability documentation, alongside Dockerfile, Docker image, Docker Compose,
-  and Kubernetes manifest artifacts.
-- Added a `runtime-stack` build target kind for temporary MySQL/NATS runtime
-  dependencies that are deployed separately from app artifacts.
-- Added a `.deploy/fluxplane-build.json` artifact index and `fluxplane deploy
-  --build-policy auto|always|never` for target deployments.
-- Added `fluxplane targets` plus `fluxplane build --list-targets` and
-  `fluxplane deploy --list-targets` to inspect available build and deploy
-  targets.
-- Added `env_secret_name` for Kubernetes manifest and Helm chart build targets
-  so generated production artifacts can reference platform-managed Kubernetes
-  Secrets.
-- Added `fluxplane config schema` to write the base `fluxplane.yaml` JSON
-  Schema to `.fluxplane/schema.json` for editor integration, including
-  descriptions for manifest fields, typed plugin config schemas, and
-  context-aware completions for resources declared by the current manifest.
-- Added agent `uses` manifest syntax that expands through contributed
-  activation sets, keeping plugin-owned capability wiring out of app manifests.
-- Added app `defaults` and descriptive `profiles`, plus profile-scoped
-  `kind: runtime` documents and `--profile` selection for run, serve, build,
-  and deploy.
-- Added datasource config schemas to data source specs so manifest JSON Schema
-  generation can type datasource config and entity choices from the resolved
-  bundle without hard-coded datasource knowledge in the appconfig adapter.
-- Added agent-level manifest trigger shorthand so `kind: agent` documents can
-  declare scheduled or startup prompts that expand to daemon triggers and
-  generated workflows.
-- Added Slack plugin search policy for bot-mode Slack message indexing,
-  including configured channel allowlists, history windows, and optional thread
-  reply indexing.
-- Added canonical Slack permalinks to bot-token indexed Slack message records
-  so datasource search hits can be linked back to the source message.
-- Added a default idle timeout for OpenAI-compatible streaming model requests
-  so silent SSE connections fail instead of hanging indefinitely.
-- Added the native usage datasource to local `--dev` launches, alongside the
-  existing dev session-history datasource.
-- Added `cmd/claude-middleman`, a local capture proxy for comparing Claude Code
-  CLI request headers and Messages payloads against the Fluxplane Claude Code
-  provider.
-- Added shared OpenAI Responses WebSocket streaming with Codex defaults,
-  best-effort warmup, active-session `previous_response_id` continuation, and
-  env-gated live Codex provider tests.
-- Added Codex WebSocket live-test coverage for provider usage reporting and
-  prompt-cache probing, with a strict cache-hit assertion enabled by
-  `TEST_CODEX_LIVE_REQUIRE_CACHE=1`.
-- Added Codex WebSocket live-test coverage for model tool calls followed by
-  provider-visible tool results, including local continuity validation before
-  the follow-up turn and a full session-loop persistence/projection check.
-- Added Codex WebSocket hardening for sticky turn-state handshakes,
-  best-effort `response.processed` acknowledgements, and session-scoped SSE
-  fallback after WebSocket transport failures.
+- Added shared product integration helpers for contribution bundles, workspace
+  launch config merging, plugin datasource catalog derivation, resource fragment
+  decoding, and the native interruptible sleep plugin.
+- Added shared session-run orchestration for fresh-context helper sessions and
+  a native `/loop` command plugin for repeating prompts sequentially.
+- Added named build/deploy targets, build artifact indexes, target listing
+  commands, `--build-policy`, and build target kinds for Docker, Docker
+  Compose, Kubernetes manifests, Helm charts, embedded binaries, generated
+  capability docs, and reusable `runtime-stack` dependencies.
+- Added `fluxplane config schema`, context-aware manifest completions,
+  datasource config schemas, typed plugin config schemas, and schema-backed
+  validation for raw manifest documents.
+- Added agent `uses` activation syntax, app defaults/profiles, profile-scoped
+  runtime documents, `--profile` selection, and agent-level trigger shorthand
+  for scheduled/startup prompts.
+- Added Slack bot-mode indexing policy, canonical Slack permalinks in indexed
+  records, and the native usage datasource for local dev launches.
+- Added OpenAI Responses WebSocket streaming with Codex defaults, warmup,
+  active-session continuation, Codex live tests, and `cmd/claude-middleman` for
+  comparing Claude Code subscription requests.
 
 ### Changed
-- Increased the OpenAI-compatible Responses stream idle watchdog default from
-  90 seconds to 5 minutes so long silent reasoning phases do not fail active
-  Codex/OpenAI turns prematurely.
-- Changed OpenAI-compatible prompt cache keys to prefer the runtime
-  `ConversationKey` when present, matching Codex CLI's stable thread-key
-  request shape more closely while preserving the agent-name fallback.
-- Changed Codex Responses transport handling to use a strict Codex protocol
-  profile with required `ConversationKey`, Codex identity headers/client
-  metadata, explicit WebSocket payload shaping, and Codex-compatible full
-  request replay when provider continuation cannot be proven.
-- Made the distribution REPL collect continuation lines for slash commands with
-  open quotes so pasted multi-line prompts are submitted as one command instead
-  of being split into command errors and normal chat input.
-- Made OpenAI-compatible provider errors preserve nested/raw response details
-  instead of rendering empty `openai: :` messages when a stream error event has
-  no top-level code or message.
-- Hardened OpenAI-compatible Responses WebSocket sessions with a continuous
-  reader for ping/pong control frames, per-message deflate negotiation, and
-  stale-socket reconnects before any provider event, avoiding surfaced
-  abnormal-closure errors during Codex tool-result follow-up turns.
-- Made OpenAI-compatible WebSocket tool-call handling preserve Responses item
-  ids separately from function `call_id`s so Codex follow-up tool results can
-  keep provider continuation without sending mismatched call identifiers.
 - Renamed the published Go module and repository references to
   `github.com/fluxplane/fluxplane-core`.
-- Updated the Claude Code LLM provider headers and preflight identity to match
-  the current interactive Claude Code subscription request path more closely.
-- Standardized generated runtime backend DSN environment variable defaults on
-  the `FLUXPLANE_*` prefix.
-- Standardized the default NATS event stream and subject on
-  `FLUXPLANE_EVENTS` / `fluxplane.events.log`.
-- Standardized generated MySQL runtime backend credentials and database names
-  on `fluxplane`.
+- Raised the default agentic coding max output token budget to 32768.
 - Replaced list-style app manifest plugin declarations with map-style plugin
   instances; `plugins.<name>` is now the instance name, `kind` defaults to that
   name, and `enabled: false` omits the plugin from runtime refs.
-- Made `fluxplane deploy --target docker-compose` run Docker Compose by default
-  and reuse an existing Fluxplane-managed Docker network when the internal
-  Docker Engine deploy backend is used.
-- Reworked `fluxplane deploy` to resolve named deploy targets and invoke Docker
-  Compose, `kubectl`, or Helm against build artifacts instead of mixing
-  artifact generation and backend-specific deploy flags in the CLI.
-- Simplified `fluxplane build` and `fluxplane deploy` flags so target-specific
-  image, container runtime, model, platform, and Helm/Kubernetes settings live
-  on named manifest targets instead of command-line overrides.
-- Made `fluxplane deploy` require declared manifest deploy targets; the default
-  target name remains `local`, but missing targets now fail instead of falling
-  back to implicit Docker Compose or Kubernetes behavior.
-- Made Docker image build targets refresh the managed
-  `fluxplane/fluxplane-base:local` image automatically, and made deploy
-  `auto` rebuild Docker image targets instead of trusting image-only artifact
-  index entries.
-- Kept managed `fluxplane/fluxplane-base:local` refreshes local even when the
-  app Docker image target is configured with `push: true`.
-- Fixed native Docker pushes to use credentials stored by `docker login` when
-  the Docker config stores credentials in the standard `auth` field.
-- Stopped generated Docker Compose and native Docker deploy artifacts from
-  hard-wiring `OPENROUTER_API_KEY` into app container environments.
-- Added root workspace `env_files` to generated Docker Compose app services
-  through Compose `env_file` entries.
-- Added `docker compose up --wait --wait-timeout 30` to Docker Compose deploys
-  so deploy waits briefly for services to become healthy.
-- Changed Kubernetes manifest and Helm chart artifacts to reference external
-  Kubernetes Secrets for `env_files` instead of rendering literal env-file
-  values into generated production artifacts.
-- Changed Kubernetes manifest and Helm chart app artifacts to reference
-  runtime backend DSNs through an external runtime Secret instead of rendering
-  MySQL/NATS resources or backend credentials directly.
-- Changed generated runtime backend defaults to the namespace-shared
-  `fluxplane-stack` name so multiple apps can reuse one runtime stack.
-- Changed generated Helm templates to use `.Values.namespace` instead of
-  hard-coding the namespace rendered at build time.
-- Changed Docker Compose artifacts to reference local runtime backend
-  credentials through environment placeholders; `fluxplane deploy` creates an
-  ignored `.deploy/docker-compose.runtime.env` with random local credentials on
-  first use.
-- Fixed app-level Kubernetes teardown so it no longer deletes shared
-  `runtime-stack` MySQL/NATS resources or PVCs.
-- Fixed Docker Compose undeploy to pass the generated runtime env file and to
-  merge newly required keys into existing `.deploy/docker-compose.runtime.env`
-  files.
-- Changed generated Helm charts to omit `Namespace` resources so namespaces can
-  remain owned by platform bootstrap, Argo CD, or the operator running Helm.
-- Changed generated Docker Compose YAML to use two-space indentation.
-- Inferred `default_agent` for app manifests that declare exactly one local
-  agent and do not set a default explicitly.
-- Moved manifest schema enums, defaults, and duration validation for appconfig
-  primitives onto typed Go fields so generated schemas stay aligned with
-  manifest decoding.
-- Added context-aware manifest schema completions for agent operation, tool,
-  datasource, skill, and context provider selectors.
-- Made `fluxplane config validate` validate every raw manifest document against
-  the same generated context-aware schema used by IDEs.
+- Reworked `fluxplane build` and `fluxplane deploy` around declared targets and
+  build artifacts, moving target-specific image, runtime, model, platform, and
+  Helm/Kubernetes settings out of command-line flags.
+- Made Docker Compose the default Docker Compose deploy backend, added health
+  waits, reused Fluxplane-managed Docker networks, refreshed
+  `fluxplane/fluxplane-base:local` automatically, and kept local base-image
+  refreshes local even when app images are pushed.
+- Standardized generated runtime backend environment names, MySQL credentials,
+  database names, NATS subjects, Docker Compose runtime env files, and the
+  namespace-shared `fluxplane-stack` runtime dependency name.
+- Changed Kubernetes manifest and Helm artifacts to reference external Secrets
+  for env files and runtime backend DSNs, use `.Values.namespace`, and omit
+  generated `Namespace` resources.
+- Changed generated Docker Compose artifacts to use environment placeholders,
+  root workspace `env_files`, and two-space YAML indentation.
+- Inferred `default_agent` for single-agent manifests and moved appconfig enum,
+  default, and duration validation onto typed Go fields.
+- Increased the OpenAI-compatible Responses stream idle watchdog default to
+  five minutes, preserved nested provider error details, and made prompt cache
+  keys prefer runtime `ConversationKey` values.
+- Hardened Codex/OpenAI Responses transport with strict Codex protocol shaping,
+  Codex identity metadata, full request replay when continuation cannot be
+  proven, continuous WebSocket control-frame reads, per-message deflate,
+  stale-socket reconnects, and separate Responses item ids for tool results.
+- Updated Claude Code provider headers, preflight identity, and model aliases
+  so generic Claude family aliases route through the subscription provider
+  while explicit `anthropic/<family>` aliases keep Anthropic API-key behavior.
+- Made the distribution REPL collect open-quote slash-command continuation
+  lines so pasted multi-line slash commands submit as one command.
+
+### Removed
 - Removed dashed workflow manifest field aliases such as `depends-on`,
   `error-policy`, and `idempotency-key`; use snake_case fields instead.
 
@@ -172,38 +76,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed host process stdout/stderr capture so short-lived commands cannot exit
   before their output is drained, avoiding flaky shell output events and empty
   git command results.
-- Kept Codex/OpenAI streamed tool calls paired with durable transcript tool-call
-  items before executing tool results, and made compaction preserve or drop
-  tool-call/result groups together even when the assistant item only carries
-  `ToolCalls` metadata.
-- Fixed session projection after a committed tool result when tool-followup
-  context changes, so the next provider request does not replay the same
-  `tool_result` as an unpaired pending item.
-- Kept task finalizer step evidence compaction on valid UTF-8 rune boundaries
-  so non-ASCII worker output is not corrupted before being sent to follow-up
-  worker prompts.
-- Rendered `/loop` session-run lifecycle events in the terminal REPL and made
-  the final loop summary use markdown lists so status counts and target session
-  stay readable.
-- Fixed Claude streamed tool-use finalization so durable `tool_use` transcript
-  blocks remain paired with operation requests when Anthropic stream side-state
-  is missing or stale.
-- Normalized LLM usage token buckets so Anthropic cache creation is reported as
-  cache-write input tokens and OpenAI cached input is subtracted from standard
+- Fixed streamed tool-call/result continuity across OpenAI-compatible, Codex,
+  Claude, and OpenRouter projections, including provider-prefixed model ids,
+  reused call ids, committed tool-result follow-ups, and compaction of paired
+  tool-call/result groups.
+- Fixed task finalizer evidence, artifact text, datasource detection, mirror
+  storage, verbose logs, session-control text, Slack observer text, and other
+  truncation paths to preserve valid UTF-8 boundaries.
+- Fixed LLM usage accounting so Anthropic cache creation is reported as
+  cache-write input tokens and OpenAI cached input is excluded from standard
   input tokens before usage events and cost enrichment.
-- Changed the generic `claude/opus`, `claude/sonnet`, and `claude/haiku`
-  model aliases to use the Claude Code subscription provider instead of the
-  plain Anthropic API-key provider.
-- Added bare `opus`, `sonnet`, and `haiku` aliases for Claude Code
-  subscription models while keeping explicit `anthropic/<family>` aliases for
-  Anthropic API-key models.
-- Normalized provider-prefixed model identities during provider transcript
-  projection so OpenRouter tool calls such as `openrouter/...` models remain
-  paired with their tool results.
-- Allowed providers that reuse call IDs after completed tool-call/result pairs
-  to project and compact conversation transcripts without false duplicate-call
-  continuity failures.
-- Restored the OpenAI-compatible streaming idle timeout default to 90 seconds.
+- Fixed lower-level hardening issues in OpenRouter and Anthropic non-streaming
+  response body limits, OAuth2 token response limits, nil outbound message
+  content, YAML frontmatter list coercion, SQL row error checks, trigger and
+  subscriber watcher cleanup, and atomic secret file writes.
+- Fixed agentdir loading so recoverable resource errors do not abort the whole
+  load and malformed optional list items are ignored safely.
+- Fixed semantic datasource result ordering, memory pagination, compacted-item
+  counts, blocked task dependency projection, and deterministic continuity
+  error reporting.
+- Fixed Docker and deploy edge cases including custom Dockerfile path
+  resolution, Docker login auth parsing, app-level Kubernetes teardown of
+  shared runtime resources, Docker Compose undeploy runtime env merging, and
+  nil Kubernetes deployment replica counts.
+- Fixed secret and operation runtime cleanup by propagating secret resolver
+  contexts, cleaning scratch directories after replacement failures, preserving
+  backslashes for unknown env-value escapes, and returning clear missing
+  instance-selector errors.
+- Rendered `/loop` session-run lifecycle events in the terminal REPL and made
+  loop summaries use markdown lists so status counts and target sessions stay
+  readable.
 
 ### Documentation
 - Documented additional `fluxplane` CLI commands and clarified the Go quality
@@ -224,621 +126,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.16.0] - 2026-05-23
 
 ### Added
-- Added daemon scheduled triggers that can submit structured trigger events in
-  `serve` mode and run configured workflow, operation, or command actions
-  through the existing reaction execution path.
-- Added `examples/scheduled-trigger`, a runnable `serve` example that fires a
-  scheduled workflow every minute.
-- Added `fluxplane serve --verbose` to print live served session events for
-  background trigger, agent, operation, and run progress.
-- Wired workflow step `input_map` so later workflow steps can consume the
-  workflow input and previous step outputs.
-- Added native `notify_send`/`notify` operations for OS desktop notifications,
-  preset tones, and local text-to-speech from workflows or agents.
-- Added workflow `when` condition execution so scheduled workflows can skip
-  notification steps when classifier output says no action is needed.
-- Added startup daemon triggers for one-shot serve startup actions.
-- Added native Jira issue creation and comment posting operations that convert
-  Markdown bodies to Jira ADF using the same converter as `dex jira`.
-- Added a native `usage` datasource plugin that exposes persisted
-  `usage.recorded` runtime events for token, cost, request, byte, and wall-time
-  inspection.
+- Added daemon scheduled and startup triggers, `fluxplane serve --verbose`, and
+  structured trigger execution through workflow, operation, and command actions.
+- Added workflow `input_map` and `when` condition support so scheduled workflows
+  can consume prior step outputs and skip notification steps when appropriate.
+- Added native `notify_send`/`notify` desktop notification operations with
+  preset tones and local text-to-speech.
+- Added a native usage datasource exposing persisted `usage.recorded` events.
+- Added durable thread goals, the native goal plugin, isolated goal-reviewer
+  verification sessions, activation sets, `/surface`, `/activate`, and
+  model-facing surface inspection/preparation/call tools.
+- Added GitLab merge request review context, GitLab datasource and operation
+  parity for review, pipeline, snippet, repository, CI, discussion, approval,
+  blame, compare, and job-trace workflows.
+- Added `fluxplane op run --allow-private-network` for direct operation smoke
+  tests against private or VPN-hosted integrations.
+
+### Changed
+- Replaced the architecture score gate with codegate rules, hard failure
+  categories, and review-oriented Go assessment operations.
+- Centralized local launch plugin auth context construction across run, serve,
+  datasource indexing, and direct operation execution.
+- Made background shell/process starts detach from the initiating operation
+  context and let `process_wait` control wait time without killing the process.
+- Hardened task scheduling with stale worker recovery, stricter running-task
+  status transitions, web-search access for task agents, and better task phrase
+  detection.
+- Refreshed Go dependencies and task verification guidance for the repository
+  after the product split.
+
+### Fixed
+- Fixed CLI REPL interrupt handling so Ctrl+C cancels only the active turn.
+- Fixed direct-channel event draining so local REPL sessions cannot hang after a
+  turn result is available.
+- Fixed Kubernetes and Loki datasource connectivity for local runs, including
+  request-scoped Kubernetes context/namespace filters and managed Loki
+  port-forwards.
+- Fixed Jira Markdown conversion for native issue and comment operations.
+- Fixed daemon trigger activity tracking, notification environment forwarding,
+  bounded notification speech text, embedded Piper TTS use, and zero-value
+  session event forwarding.
+- Fixed GitLab datasource smoke paths for MR refs, blob search, pathless diff
+  lines, and repository-file colon ids.
 
 ### Documentation
-- Added `docs/README.md` as an audience-grouped index of all documentation.
-- Expanded `docs/fluxplane.md` from a flat command list into per-command
-  sections with common flows for `init`, `run`, `serve`, `build/deploy`,
-  `config`, `describe`, `discover`, `auth`, and `datasource index`.
-- Tightened `README.md`: the 30-second quickstart no longer installs both
-  `coder` and `fluxplane`, and the "Start here" links point at the docs
-  index and the external `coder` repository.
-- Trimmed the AGENTS.md preamble: the duplicated architecture-reference list
-  now appears once under `Architecture References`, and the missing blank
-  line before `## Layer Rules` is fixed.
-- Marked `docs/migration-from-agent-sdk.md`,
-  `docs/constant-self-evolvement.md`, and `docs/observations-and-reactions.md`
-  as design notes so users do not read them as user guides.
-- Clarified `docs/evaluation.md` audience as developers smoke-testing a
-  running app over the HTTP/SSE channel.
+- Added `docs/README.md` as the documentation index, expanded `docs/fluxplane.md`,
+  tightened the README quickstart, and marked migration/design notes as such.
+- Clarified `docs/evaluation.md` for developers smoke-testing a running app over
+  the HTTP/SSE channel.
 
-### Changed
-- Changed the distribution CLI REPL so Ctrl+C cancels only the active turn and
-  leaves the REPL open for the next prompt.
-- Bounded direct-channel run event draining after a turn result is available so
-  local coder REPL sessions cannot hang indefinitely waiting for a missed run
-  completion event.
-- Restored live Kubernetes and Loki observability connectivity for local coder
-  runs: Kubernetes datasource calls now honor request-scoped context/namespace
-  filters and list deployments, while Loki discovery can use managed local
-  port-forwards for in-cluster Kubernetes service candidates.
-- Replaced the active architecture score gate with a released codegate
-  assessment gate, added root `engine-architecture.rules.json`, and exposed
-  codegate-backed Go assessment/review operations from the Go language plugin.
-- Added a detailed goal-refinement design and the first durable thread-goal
-  implementation: the native goal plugin now owns `/goal`
-  set/status/pause/resume/clear lifecycle state, contributes ambient goal
-  context, and goal continuation writes review results back to the thread.
-- Added isolated goal verification: active durable goals now spawn a
-  `goal-reviewer` helper session whose bound review decision controls whether
-  the parent session stops or continues with reviewer suggestions.
-- Raised the default large tool-result replacement threshold to 512 KiB so
-  bounded reads can return their advertised payload size before spooling.
-- Added datasource prewarming for plugin-declared detectors and introduced an
-  explicit Slack thread reply operation for permalink-targeted replies.
-- Gave native task worker and explorer agents the `web_search` operation so
-  web-search tasks can use the dedicated search tool instead of generic HTTP
-  fetches.
-- Added native task phrase detection for parallel-work requests such as "at the
-  same time" or "in parallel", enabling task scheduling operations and guiding
-  read-only threads into separate explorer-assigned scheduled tasks.
-- Hardened task scheduler recovery so stale worker capacity registrations do
-  not interrupt executions while their execution lease is still valid.
-- Rejected model-side `task_modify set_status` resets from running tasks back
-  to ready or draft so stale worker outputs are not caused by premature retries.
-- Made background shell/process starts detach from the initiating operation
-  context and ignore `timeout_ms` as a process lifetime, so `process_wait`
-  controls wait time without killing the started process.
-- Made one-shot terminal runs print completed background task result artifacts
-  after waiting for task completion.
-- Made GitLab datasource filters accept common model-produced shapes for merge
-  request pipelines, merge-request listing, and repository file lookups.
-- Added inert activation set specs, resource catalog wiring, focus/surface trace
-  events, `/surface`, and `/activate` as the foundation for prepared work
-  surfaces.
-- Added model-facing `session_focus`, `surface_info`, `surface_prepare`, and
-  `surface_call` tools for inspecting, preparing, and invoking the active work
-  surface.
-- Added native GitLab pipeline and personal snippet operations, moved pipeline
-  retry/cancel out of the merge-request operation, and documented the native
-  GitLab datasource/operation workflow.
-- Centralized local launch plugin auth context construction so run, serve,
-  datasource indexing, and `op run` share stored-credential and opt-in
-  process-environment resolution.
-- Added `fluxplane op run --allow-private-network` so direct operation smoke
-  tests can intentionally reach private/VPN integration hosts.
-- Added a focused TruffleHog false-positive allowlist for the GitLab award
-  emoji test fixture so staged secret scanning remains enabled.
-- Added GitLab personal snippet datasource entities with metadata-only snippet
-  records and explicit bounded file-content retrieval.
-- Added GitLab Dex-parity read surfaces for activity, project languages and
-  contributors, compare, blame, blob search, MR approvals, MR changes,
-  discussions, award emoji, parsed diff lines, and searchable job traces.
-- Made GitLab merge-request review records listable by MR filters, made MR
-  approvals/changes directly gettable, and normalized scalar datasource filter
-  values.
-- Hardened GitLab smoke-test ergonomics for MR-ref pipeline searches, blob
-  search result retrieval, pathless diff-line searches, and repository-file
-  colon id variants.
-- Extended the GitLab merge-request operation with edit controls, inline
-  comments with diff-position validation, discussion replies/resolution, and
-  award emoji reactions.
-- Refreshed Go module dependencies to current compatible releases.
-- Updated the README branding to use a centered transparent Fluxplane logo
-  asset.
-- Added a focused gitleaks allowlist for Kubernetes redaction test fixtures so
-  release pushes keep scanning active without flagging intentional dummy values.
-- Renamed the root facade package to `fluxplane`.
-- Added the `fluxplane` app-manifest CLI and moved generic app lifecycle
-  commands out of `coder app`, while keeping coder-scoped auth, datasource, and
-  inspection commands on the coder product.
-- Renamed authored app manifests to `fluxplane.yaml`, made old
-  `agentsdk.app.*` names fail with an explicit rename diagnostic, and moved
-  generated app Docker/Compose/Kubernetes launchers to the Fluxplane CLI and
-  base image.
-- Split the coder product into the nested `github.com/fluxplane/coder` module
-  under `apps/coder`, moving its entrypoint to `apps/coder/cmd/coder` while
-  keeping engine and coder tests/build tasks explicit.
-- Documented Engine/Coder repository extraction readiness and added a
-  coder-module architecture test that blocks imports of engine internals,
-  engine command packages, and the retired in-engine coder package path.
-- Added GitLab write operations for merge requests, repository files, branches,
-  tags, commits, and project CI/CD variables, with GitLab named-plugin
-  instances projected as a single logical tool that only exposes an `instance`
-  selector when more than one configured instance is available.
-- Removed the default low-risk model tool projection cap; local runtime
-  commands now expose `--allow-max-tool-risk` to opt into a maximum visible tool
-  risk when needed.
-- Gated GitLab write-operation projection on the current token exposing the
-  required `api` scope, hiding those tools when token scopes cannot be
-  confirmed.
-- Replaced coder's top-level `connect` auth setup command with the reusable
-  `auth connect`, `auth info`, and `auth status` command group for native
-  plugin credentials.
-- Made Slack daemon channel API token selection configurable, defaulting to bot
-  token with user-token fallback while keeping Socket Mode app tokens required.
-- Renamed Slack's stored auth method to `token`, keeping `bot_token`,
-  `user_token`, and `app_token` as setup fields.
-- Collapsed `coder auth status` into per-plugin readiness with non-secret field
-  presence for the selected method, and added auth readiness evidence for
-  integration activation.
-- Changed `coder auth status` to run non-interactive live connection checks by
-  default, with `--no-test` for readiness-only output.
-- Added first-class Atlassian `api_token` auth for Jira and Confluence with
-  email/token setup fields and live current-user auth tests, while preserving
-  legacy bearer `token` auth for existing service-account manifests.
-- Moved Jira and Confluence environment-backed auth resolution out of the
-  integrations so they consume injected secret resolvers instead of reading the
-  runtime system environment directly.
-- Made Atlassian API-token readiness require `site_url` or `base_url` for Basic
-  auth while still reporting `ATLASSIAN_CLOUD_ID` and product-specific cloud ID
-  env aliases as metadata.
-- Added non-secret auth method metadata and documented the difference between
-  Atlassian scoped access tokens, Basic API tokens, and OAuth2 token flows.
-- Allowed coder's auth-test plugin registry to reach private/VPN network
-  targets so GitLab, Jira, and Confluence connection tests work against
-  intranet hosts.
-- Scoped `coder auth` to the plugins declared by the active coder app resources,
-  reusing pluginhost auth target resolution instead of a hard-coded first-party
-  auth plugin list.
-- Added wildcard operation selectors and auth-evidence-gated coder integration
-  activation for GitLab, Jira, Confluence, and Slack datasource/tool surfaces.
-- Gated process-environment plugin auth behind `--allow-plugin-auth-env` for
-  local coder/app launches and generated app containers.
-- Extended `--allow-plugin-auth-env` and resolver-aware integration plugin
-  assembly to `coder datasource index` commands so authenticated datasource
-  indexing sees the same declared integrations as the coder runtime.
-- Added `coder --allow-private-network` so the built-in coder runtime can
-  explicitly opt into private/VPN network targets without changing the default
-  network boundary.
-- Removed the GitLab-specific `coder datasource gitlab check` diagnostic
-  command; generic datasource tooling remains under `coder datasource index`.
-- Removed the legacy external connectors runtime, connector provider
-  contributions, connector manifest fields, connector authorization resources,
-  and `--connectors-path`; native plugin auth now uses `--auth-path`.
-- Extracted the coder product out of the engine repository; engine tasks and
-  docs now target the Fluxplane CLI while `github.com/fluxplane/coder` owns the
-  coder binary and product module.
-- Clarified agent verification guidance so `task verify` is reserved for
-  explicit requests, commit preparation, or broad changes, with focused package
-  checks preferred during normal iteration.
-- Removed Taskfile-local Go cache and temp-directory overrides so tasks use the
-  normal host Go cache configuration.
-- Updated the coder self-improvement runner to reuse the host Go build cache
-  instead of creating a per-run build cache.
-- Documented strict conversation continuity rules and removed the stale
-  provider transcript repair path in favor of fail-fast validation.
-- Batched assistant tool-call transcript writes with their matching tool
-  results so failed operation turns cannot persist open provider tool calls.
-- Reworked architecture evaluation from the earlier `archreport` score model to
-  codegate rules, hard failure categories, and review-oriented findings, and
-  removed the legacy `apps/archreport` and `internal/architecture` checker.
-- Improved coder shell responsiveness by batching stream repaints, caching
-  transcript rendering incrementally, bounding rendered history, showing
-  completion loading state, and passing shell input as raw command text.
-- Improved coder shell discoverability by adding mode-aware prompt hints,
-  completion picker control hints, and richer `coder shell --help` guidance.
-- Further improved coder shell onboarding with empty-prompt placeholders, new-session
-  timeline tips, completion counts/details, escape-to-close completion behavior, and
-  running-state cancel hints.
-- Added coder shell line-editing affordances for word jumps, word deletion,
-  delete-under-cursor, kill-to-end, visible edit shortcuts, and quieter empty
-  submits.
-- Refined coder shell UI with lower-padding Monokai styling, removed empty
-  input placeholders, added a compact tab strip, bounded completion selector
-  rows with enter-to-accept, and clearer tool/process execution status lines.
-- Expanded `/env/explain` to show current observations, derived assertions, and
-  matching reaction actions in addition to configured observers and active
-  session state.
-- Reduced coder's always-on default tool surface by moving Go, Markdown, and
-  Docker-backed code execution tools behind existing evidence/reaction
-  activation, and by gating Loki/MySQL endpoint tools behind endpoint
-  availability evidence, browser/image tools behind stable runtime/provider
-  availability, and memory mutation tools behind stable memory-store
-  availability while keeping those operations composed for reactive enablement.
-- Completed the evidence/assertion vocabulary migration: `core/evidence` owns
-  observations, assertions, subjects, observers, and assertion derivers;
-  `runtime/evidence` owns observer and assertion-deriver execution; project
-  inventory signals are now hints; and channel signal submissions are now
-  triggers.
-- Reorganized first-party plugin packages from the flat `plugins/*plugin`
-  layout into categorized `bundles`, `native`, `languages`, `integrations`,
-  `support`, `internal`, and `examples` directories with suffix-free package
-  names.
-- Reorganized first-party adapter packages from a flat `adapters/*` layout into
-  domain directories for LLMs, resources, channels, control, storage, system,
-  auth, content, embeddings, and terminal UI.
-- Refactored distribution deploy internals into Docker, Docker Compose, and
-  Kubernetes boundaries, with native Docker Engine and Kubernetes client paths
-  for image, local stack, and manifest deployment operations.
-- Moved the `go-refactor` developer CLI into `apps/go-refactor`, leaving the
-  Go language plugin tree to carry reusable refactor logic instead of a host
-  filesystem entrypoint.
-
-### Fixed
-- Made Slack message indexing skip configured channels the bot cannot read
-  instead of failing the whole message index run with `not_in_channel`.
-- Decoded YAML-authored workflow `when.step_id` conditions so scheduled
-  workflows can run notification steps when classifier output matches.
-- Counted daemon trigger submissions as inbound session activity so repeated
-  trigger-only sessions do not rerun session-open preparation on every tick.
-- Forwarded desktop session environment variables through managed local
-  processes so `notify_send` can reach the user's notification/audio buses.
-- Sanitized and bounded `notify_send` speech text so TTS does not read raw
-  Markdown or unbounded notification bodies aloud.
-- Switched `notify_send` speech from espeak/spd-say fallback to embedded Piper
-  TTS with the Jenny voice.
-- Stopped session event subscribers from forwarding zero-value events if their
-  internal input channel closes, preventing runaway background task event loops.
-- Restored coder shell's agentic input mode as the default and kept timeline
-  dimensions stable when switching between agent and shell input.
-- Cleaned generated Docker build contexts after dry-run app/base image builds
-  unless callers explicitly keep the context for inspection.
-- Added configurable deploy Docker build temp roots so local and test deploys
-  can avoid quota-limited system temp directories.
-- Restored Kubernetes namespace-registry deploys for real clusters while
-  keeping k3d image-import deploys available through auto-detection or
-  `--registry-mode k3d`.
-- Resolved host environment substitutions before native Docker Compose deploys
-  so required provider credentials are passed to containers correctly.
-- Kept Kubernetes undeploy from deleting shared namespace registry resources
-  that may be owned by another app or registry mode.
-- Routed Kubernetes and Atlassian plugin host access through runtime system
-  boundaries instead of direct environment, filesystem, or default HTTP client
-  fallbacks.
+## [0.15.0] - 2026-05-22
 
 ### Added
-- Added `scripts/coder-self-improve.sh` for local coder self-improvement
-  batches that run isolated goal/reflection sessions, capture debug JSONL,
-  score reports, and distill findings into a plan.
-- Added a `go-refactor` developer CLI for moving Go package directories,
-  renaming package clauses, and rewriting internal imports during package
-  layout migrations.
-- Added `core/evidence` and `runtime/evidence` packages with typed assertion
-  subjects, assertion fingerprints, baseline observation, and template
-  assertion-deriver support.
-- Added Kubernetes app deploy RBAC generation for apps that declare the
-  Kubernetes plugin, including a dedicated ServiceAccount and read-only access
-  to configured namespaces.
-- Added a MySQL query plugin for discovered endpoints, with Kubernetes
-  Secret-backed credential resolution and read-only SQL execution.
-- Added a first-slice OpenAPI plugin that loads OpenAPI 3.x specs and
-  generates HTTP operations, documentation datasource records, and auth method
-  declarations.
-- Added a first-slice Loki plugin with endpoint discovery, connection testing,
-  bounded LogQL query operations, recent-log helpers, and Loki datasource
-  entities.
-- Added shared endpoint discovery registries, Kubernetes-backed Loki endpoint
-  providers, and global discovery/endpoint introspection operations.
-- Added automatic semantic datasource context injection for allowed indexed
-  datasource entities, including a datasource-facing memory bridge for semantic
-  indexing and retrieval.
-- Added deterministic Slack conversation/thread resumption and bounded raw
-  Slack history context injection for first bot entry into an existing Slack
-  thread or channel window.
-- Added first-slice structured memory support with core memory contracts,
-  hybrid event/data-store projection, scoped memory operations, and an opt-in
-  memory plugin.
-- Enabled the memory plugin by default in the embedded coder app so the main
-  `coder` agent has structured memory operations available.
-- Added a sanitized `kubernetes.cluster` datasource entity for discovering
-  configured Kubernetes contexts and cluster targets without exposing kubeconfig
-  credentials.
-- Exposed the existing `file_delete` filesystem operation to coder's projected
-  tool surface alongside `file_create` and `file_edit` by treating plain delete
-  effects as approval-free medium-risk operations while keeping destructive and
-  irreversible effects approval-gated.
-
-
-- Enabled the GitLab plugin by default in the embedded coder app so GitLab
-  datasource access and merge request operations are available automatically.
-
-- Added shell and process lifecycle tooling with script execution, shell
-  discovery, labeled background processes, ensure/wait/stop operations, and
-  process-management documentation.
-- Added an embedded coder skill with a reference guide for writing and
-  reviewing `fluxplane.yaml` app manifests.
-
-- Added plugin-contributed post-edit checks so active plugins can run
-  formatter or diagnostic operations immediately after matching file edits.
-
-- Added Docker project inventory facets and a dedicated Docker observer plugin
-  for CLI/daemon availability signals.
-
-- Added an observations and reactions design note for unifying project signals,
-  toolchain probes, skill triggers, environment facts, and configurable signal
-  reactions.
-
-- Added core environment signal and reaction rule/action specs as the first
-  implementation slice for the observations and reactions model.
-
-- Added a pure runtime reaction planner for matching environment signals,
-  on-change/every-turn rule evaluation, and idempotent action planning.
-
-- Added observer, signal-deriver, and reaction contribution surfaces for
-  resource bundles and selected plugins.
-
-- Added runtime environment observer and signal-deriver contracts with pure
-  helpers for phase-filtered observation and signal derivation.
-
-- Added active observations to context provider build requests so providers can
-  consume observations directly during context materialization.
-
-- Carried selected plugin observers, signal derivers, and reaction rules through
-  app composition for later session scheduling and reaction application.
-
-- Passed composed observers, signal derivers, and reaction rules through the
-  in-process facade and harness into session runtime configuration.
-
-- Ran composed turn-phase environment observers and signal derivers during
-  session input execution so plugin observations can feed context providers and
-  agent step input.
-
-- Applied planned `activate_skill` and `activate_reference` reactions during
-  session input execution through the existing skill activation state and
-  replayable skill events.
-
-- Added replayable reaction action-applied events and persisted reaction
-  idempotency replay so applied signal reactions are not repeated across inbound
-  turns.
-
-- Added Kubernetes plugin environment observations and signal derivation for
-  non-secret selected-context and namespace availability facts.
-
-- Added `k8s_port_forward` to the Kubernetes plugin, starting or reusing
-  managed `kubectl port-forward` background processes through the runtime
-  process boundary and inferring target ports only when Kubernetes resources
-  expose exactly one port.
-
-- Routed native Kubernetes client-go datasource requests through the runtime
-  system network boundary while preserving client-go authentication wrappers.
-
-- Added replayable reaction planned, skipped, and diagnostic events for
-  inspecting why signal reactions did or did not run.
-
-- Added app manifest decoding for observation and reaction resources, including
-  top-level `observations`/`reactions` and multi-document observer,
-  signal-deriver, and reaction documents.
-
-- Added `.coder.yaml` parsing for top-level observation and reaction
-  declarations so local coder config can carry environment observer,
-  signal-deriver, and reaction specs.
-
-- Wired bundle-authored reaction rules and `.coder.yaml` reaction declarations
-  into session composition for local coder launches.
-
-- Added template-backed signal derivation for app/user-authored
-  `SignalDeriverSpec` declarations so declarative observation-to-signal mapping
-  can run without plugin-specific code.
-
-- Added a baseline runtime environment observer for cheap non-secret local
-  facts such as time, locale, and username.
-
-- Refined the observations and reactions design with explicit plugin authoring,
-  conditional activation migration, and existing app manifest impact rules.
-
-- Added composition diagnostics for unavailable environment observers and
-  signal derivers, and made plugin-authored signal-deriver templates executable
-  when no custom deriver is selected.
-
-- Added reaction-driven context-provider activation so
-  `enable_context_provider` actions can expose selected context providers during
-  the same turn before context materialization.
-
-- Added `tool_followup` observation scheduling after operation results so
-  follow-up observations can derive signals and activate context before the next
-  model step.
-
-- Routed `run_operation` reaction actions through the existing session operation
-  execution path, including operation events, safety/approval checks, and result
-  observations before the agent step.
-
-- Routed `run_command` reaction actions through the existing session command
-  dispatcher so command policy and command target execution are reused for
-  effectful reactions.
-
-- Routed `run_workflow` reaction actions through the existing workflow executor
-  and exposed workflow results as observations before the agent step.
-
-- Added a built-in `env explain` session command that reports configured
-  observers, signal derivers, reaction rules, replayed active state, and applied
-  reaction count.
-
-- Added `session_open` observation scheduling before the first model turn for a
-  stored thread, including signal derivation and reaction application.
-
-- Added `startup` observation scheduling at harness construction, with
-  precomputed startup observations and signals passed into session turns.
-
-- Added `lazy` observation scheduling immediately before context materialization
-  when context providers are present.
-
-- Added app/user observer override support for selected executable observers,
-  including phase narrowing and `observable_kinds` filtering.
-
-- Added `disabled: true` observer config semantics so app/user config can remove
-  selected executable observers without enabling missing plugins.
-
-- Added project inventory observations and signal derivation, plus initial Coder
-  language-detected reactions for Go parser and Markdown operation-set
-  activation.
-
-- Removed the old Coder `ActivationInput` and runtime language
-  `SignalMatcher` activation helpers now that language activation is represented
-  through environment signals and reactions.
-
-- Replaced session-local skill trigger activation with generated skill trigger
-  signal derivation and reaction rules.
-
-- Added Go toolchain status observations and signal derivation, plus a Coder
-  `toolchain.available` reaction for the Go toolchain operation set.
-
-- Removed datasource detection context side channels; detected datasource
-  context now derives from provider request observations.
-
-- Added an AWS environment observer plugin that derives non-secret integration
-  configured/available signals from profile, region, and credential presence.
-
-- Removed the old project signal and language toolchain observation event types
-  after moving those facts into environment observations and signals.
-
-- Fixed reaction `every_turn` planning so replayed idempotency keys do not
-  suppress stable matching signals on later turns.
-
-- Fixed effectful reaction actions so `require_approval: true` skips
-  `run_operation`, `run_command`, and `run_workflow` before execution.
-
-- Improved `/env explain` output so terminal clients show a readable environment
-  summary instead of a raw Go struct dump.
-
-- Added composition diagnostics for reaction actions that reference resources
-  outside the selected app/plugin/resource graph.
-
-- Added replayable active session state for `enable_operation_set` and
-  `enable_datasource` reactions, including datasource access-policy integration.
-
-- Projected reaction-activated operation sets into per-turn model-visible tools.
-
-- Added `coder app deploy --target kubernetes` for plain kubectl manifest
-  deployments, including local k3d image import, external registry mode,
-  generated Kubernetes resources for app runtime MySQL/NATS backends, and
-  Kubernetes Secrets generated from manifest-declared root workspace env files.
-
-- Added `coder app undeploy` for Docker Compose and plain Kubernetes manifest
-  teardown, preserving volumes/PVCs by default with opt-in `--volumes` deletion.
-
-- Changed generated Kubernetes manifests to default to `.deploy/kubernetes.yaml`
-  and automatically ignore `.deploy/`, keeping rendered Secret values out of
-  normal app-root files.
-
-- Added Atlassian API-token env support for native Jira and Confluence auth,
-  including `JIRA_API_TOKEN`/`CONFLUENCE_API_TOKEN` aliases for scoped
-  service-account bearer tokens and optional account-email Basic auth against
-  site REST endpoints.
-- Added a `max_scanned` glob operation option and separated glob scan limits
-  from returned match limits so low `max_results` values do not hide later
-  matches.
+- Added the generic `fluxplane` app-manifest CLI, renamed authored manifests to
+  `fluxplane.yaml`, and moved generic app lifecycle commands out of `coder app`.
+- Added GitLab write operations, GitLab membership mirroring, GitLab plugin
+  default enablement for the embedded coder app, and auth-evidence-gated
+  integration activation for GitLab, Jira, Confluence, and Slack.
+- Added reusable native plugin auth commands/status, non-secret auth method
+  metadata, Atlassian API-token support, and scoped `--allow-plugin-auth-env`
+  handling for runtime and datasource indexing.
+- Added observations and reactions, evidence assertion vocabulary, environment
+  observers, signal derivation, reaction planning/execution, `/env explain`, and
+  reaction-activated operations, datasources, skills, context providers,
+  workflows, and commands.
+- Added endpoint discovery, Kubernetes port-forwarding, Loki, OpenAPI, MySQL,
+  Kubernetes cluster, memory, datasource mirror, semantic datasource context,
+  shell/process lifecycle, post-edit checks, glob scan limits, and `file_delete`
+  projection support.
+- Added Docker/Kubernetes app deploy and undeploy support, Kubernetes app RBAC,
+  generated runtime backend resources, and Docker build/deploy target plumbing.
+- Added `scripts/coder-self-improve.sh`, the `go-refactor` developer CLI,
+  embedded coder resources, coder shell UX improvements, and the coder app
+  configuration skill.
 
 ### Changed
-
-- Expanded datasource index warmup progress logs with page counters, cumulative
-  totals, cursor details, elapsed time, and stale-running checkpoint warnings.
-
-- Cached GitLab membership source discovery during datasource indexing and
-  increased default membership corpus pages to reduce tiny GitLab API calls.
-
-- Changed `gitlab.user_membership` indexing to mirror direct GitLab group and
-  project membership edges, while indexing archived projects for completeness
-  and hiding archived project records and archived project membership edges
-  from default datasource search/list results.
-
-- Reworked the experimental coder shell header into a unified workspace,
-  session, and observed-environment fact strip.
-
-- Polished the coder shell TUI with a shared Monokai palette and removed the
-  placeholder startup copy from the transcript.
-
-- Separated the coder shell prompt input from the footer help so the input reads
-  as a distinct field and narrow terminals no longer strand `quit` on its own
-  line.
-
-- Kept the coder shell title readable in narrow Ghostty layouts and softened
-  facet styling so metadata no longer looks like accidental text selection.
-
-- Streamed live coder shell agent, operation, and process activity into the TUI
-  while a run is still in progress.
-
-- Moved coder shell usage totals into the bottom footer, removed the outer TUI
-  padding and footer hints, and changed mode switching to typed `!`/`?`
-  markers instead of `alt+tab`.
-
-- Added coder shell slash-command completion backed by the session command
-  dispatcher's available command specs, including built-in command flags.
-
-- Added per-tab coder shell input history that restores both submitted text and
-  input mode when navigating with Up/Down.
+- Renamed the reusable module toward the engine/Fluxplane split and extracted
+  the coder product into its own module/repository boundary.
+- Split and reorganized first-party plugin and adapter packages into domain
+  directories, and refactored deploy internals around Docker, Docker Compose,
+  and Kubernetes boundaries.
+- Replaced connector-based auth/data paths with native plugin auth and runtime
+  system boundaries, including private-network opt-ins and resolver-aware plugin
+  assembly.
+- Reduced coder's default always-on tool surface by moving language, Docker,
+  endpoint, browser, image, and memory tools behind evidence/reaction
+  activation.
+- Reworked coder shell rendering, prompt editing, completion, input history,
+  stream repainting, mode hints, and live activity display.
+- Moved the `go-refactor` developer CLI under `apps/go-refactor` so reusable Go
+  refactor logic stays in the language plugin tree.
 
 ### Removed
-
-- Removed the unused declarative agent agency profile from agent specs, SDK
-  builders, app bundles, and distribution describe output.
+- Removed the legacy external connectors runtime, connector manifest fields,
+  connector authorization resources, and `--connectors-path`; native plugin auth
+  now uses `--auth-path`.
+- Removed the default low-risk model tool projection cap in favor of explicit
+  `--allow-max-tool-risk` opt-in.
+- Removed the stale provider transcript repair path in favor of fail-fast
+  conversation continuity validation.
 
 ### Fixed
-- Preserved kubeconfig TLS settings when Kubernetes datasource/discovery
-  requests pass through the runtime network boundary, avoiding spurious x509
-  failures against clusters with custom CAs.
+- Fixed conversation continuity, assistant tool-call/result persistence, and
+  provider transcript handling for failed or interrupted operation turns.
+- Fixed raw slash-command submissions, prompt-target slash commands, task worker
+  registration freshness, generated directory glob scans, shell discovery
+  through authorized systems, and `file_delete` tool projection.
+- Fixed Slack conversation resumption, datasource mirror batching/indexing,
+  canonical Jira/Confluence links, GitLab nested MR URL parsing, Confluence v1
+  bearer-token reads, and Atlassian site URL discovery.
+- Fixed Docker/Kubernetes deploy handling, generated Docker build cleanup,
+  Docker build temp roots, namespace registry deploys, host env substitution,
+  Kubernetes undeploy safety, and runtime-boundary routing for Kubernetes and
+  Atlassian access.
+- Fixed coder shell lifecycle, input filtering, prompt editing, mode rendering,
+  terminal mouse/modifier handling, and default agentic input mode.
 
-- Kept manual/background task scheduler worker registrations fresh while
-  long-running worker steps execute so peer schedulers do not interrupt active
-  tasks as expired workers.
-
-- Fixed raw slash-command submissions so `coder --input '/task ...'`, terminal
-  one-shot turns, and coder shell `/task ...` input route through the session
-  command dispatcher and authorize the task helper session agent.
-
-- Retried OpenRouter GPT-5.5 Responses streams that fail before emitting model
-  output and fall back to a non-streaming Responses call while preserving
-  provider error details.
-- Persisted operation tool results before follow-up model turns so interrupted
-  Slack continuations do not replay assistant tool calls without matching tool
-  outputs.
-
-- Defaulted omitted memory operation access scopes to the current user, falling
-  back to the current thread, so separate coder processes share local user
-  memory without reopening unscoped cross-scope reads.
-
-- Batched datasource field-index and data-store writes during corpus indexing
-  and added a SQLite mirror scan index to reduce GitLab mirror/index runtime.
-
-- Skipped noisy generated directories such as `.cache/` during glob operation
-  traversal so repo-local Go build caches do not exhaust `max_scanned` before
-  later workspace matches are reached.
-
-- Fixed shell discovery through authorized system wrappers so `shell` and
-  `shell_info` operations no longer panic when resolving available shells.
-
-- Filtered leaked mouse scroll escape packets from coder shell prompt input.
-
-- Kept coder shell slash commands routed through command dispatch even when the
-  prompt is in agent/ask mode.
-
-- Prevented unhandled Alt-modified key events from writing modifier text into
-  the coder shell prompt.
-
-- Stripped leaked terminal modifier artifacts such as `+alt` from coder shell
-  prompt input when terminals emit them as literal text during mouse bursts.
-
-- Upgraded the coder shell TUI to Bubble Tea v2 event handling so printable
-  input is accepted through `Key.Text` while mouse wheel events are routed as
-  mouse messages instead of prompt text.
-
-- Added cursor-aware coder shell prompt editing with Home/End and left/right
-  navigation, and limited `!`/`?` mode-switch markers to the cursor-at-start
-  position so recalled history can be retargeted without editing the text.
-
-- Fixed prompt-target slash commands so they project the same model-visible tools
-  as normal session input before re-entering the input execution path.
-
-- Emitted canonical Jira and Confluence web-app links for datasource records
-  when Atlassian token auth is configured with only a cloud ID, and stopped
-  rendering Jira REST API `self` URLs and Slack avatar image URLs as record
-  links.
-
-- Preserved nested GitLab project paths when detecting merge request URLs so
-  links like `/ai/agents/slack-bot/-/merge_requests/2310` resolve to
-  `ai/agents/slack-bot!2310` instead of losing the parent namespace.
-
-- Routed native Confluence bearer-token sessions through Confluence's v1 REST
-  endpoints so scoped service-account API tokens can read pages and spaces.
+### Documentation
+- Documented repository extraction readiness, product split planning, coder app
+  configuration, Kubernetes port-forwarding, and removal of local Go cache
+  overrides.
 
 ## [0.14.1] - 2026-05-19
 
@@ -847,16 +254,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   operations, including `git_push`, can authenticate through the user's SSH
   agent instead of hanging on passkey prompts.
 
-## [0.14.0] - 2026-05-19
+## 0.14.0 - 2026-05-19
 
 ### Added
 - Added Go dependency toolchain operations `go_get` and `go_mod_tidy`, both
   defaulting to dry-run previews before updating module files.
-
 - Added a Kubernetes datasource plugin and enabled coder to list, search, and
   retrieve live Kubernetes namespaces, pods, services, and containers through
   the default datasource tool surface.
-
 - Added NATS JetStream-backed launch event store selection for app runtime
   sessions through `runtime.events.store` configuration.
 - Added first-class channel operation submissions and wired `coder shell`
@@ -957,7 +362,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added approval evidence events for requested, granted, and denied operation
   approvals, including authorization checks for `approval.grant` when a
   security policy is active.
-
 - Added canonical inbound actor plumbing with `core/user` groups, identities,
   resolved actors, an orchestration identity resolver hook, and context-provider
   scope metadata for current user, identity, caller, and trust.
@@ -999,7 +403,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   toolchain-gated operation activation.
 
 ### Changed
-
 - Coder app configuration now lives under `apps/coder/app` package
   `coderapp`, shell code uses package `codershell`, and `coder shell` local
   mode uses an in-process direct channel client instead of starting a local
@@ -1106,7 +509,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.13.0] - 2026-05-17
 
 ### Added
-
 - Added a first-class event-sourced task system: `core/task`, `runtime/task`,
   `plugins/taskplugin`, `/task`, typed task operations, artifact readback,
   task validation, task listing/search, and durable task store projection over
@@ -1158,7 +560,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   external distributed workers, OpenSpec, and BMad.
 
 ### Changed
-
 - Replaced the legacy plan execution path with the task system and local task
   scheduler. Coder/local launch, event catalog, terminal rendering, and Slack
   progress now use task events and task worker profiles.
@@ -1185,8 +586,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Architecture composition was split across focused orchestration packages and
   architecture reports now explain score penalties.
 
-### Fixed
+### Removed
+- Removed the legacy `apps/agentsdk` product package and `docs/agentsdk.md`;
+  `coder` is now the only product CLI surface.
+- Removed the legacy `cmd/agentsdk` and `cmd/codershell` launchers; repository
+  build and install tasks now produce only the `coder` binary.
+- Removed the old `plugins/planexec` runtime assembly path.
+- Removed the legacy `orchestration/subagent` package and `subagent.*` event
+  registration/rendering/classification.
 
+### Fixed
 - Fixed task scheduler correctness around concurrent task index writes,
   watcher metadata for missing task IDs, worker stream naming collisions,
   stale worker completions, stale diagnostics, step terminal metadata,
@@ -1213,44 +622,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   browser CDP reuse, OpenRouter/Responses orphan tool results, and OpenAI
   image generation request compatibility.
 
-### Removed
-
-- Removed the legacy `apps/agentsdk` product package and `docs/agentsdk.md`;
-  `coder` is now the only product CLI surface.
-- Removed the legacy `cmd/agentsdk` and `cmd/codershell` launchers; repository
-  build and install tasks now produce only the `coder` binary.
-- Removed the old `plugins/planexec` runtime assembly path.
-- Removed the legacy `orchestration/subagent` package and `subagent.*` event
-  registration/rendering/classification.
-
 ## [0.12.0] - 2026-05-14
 
 ### Added
-
 - `agentsdk run` and distribution CLIs such as `coder` now support `--yolo`
   to approve all operation approval prompts for that local run.
 
 ### Changed
-
 - The tracked pre-push hook now runs the security scan and `task verify` without
   also running the cross-platform binary build.
 
 ## [0.11.0] - 2026-05-14
 
 ### Added
-
 - Git plugin now includes `git_tag` and `git_push` operations with typed safety
   intent for local tag writes and explicit remote pushes.
 
 ### Changed
-
 - Pre-push security scans now skip the repository-local `.cache/` directory so
   hidden Go build cache files are not scanned.
 
 ## [0.10.0] - 2026-05-14
 
 ### Added
-
 - Project branding in the README with a new Fluxplane logo SVG asset.
 - Type-safe operation safety intents let concrete operations describe expected
   process, filesystem, and network effects from typed inputs before execution.
@@ -1266,7 +660,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local runs.
 
 ### Changed
-
 - Agent worktree instructions now remind agents to update `CHANGELOG.md` for
   user-visible, documentation, removal, or release-affecting changes before
   committing.
@@ -1282,7 +675,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tools without modeling tool sets as invocation targets.
 
 ### Fixed
-
 - Reasoning flag resolution no longer forces an implicit `medium` effort for
   thinking-only requests, and explicit `--effort` values are validated and
   propagated in auto mode.
@@ -1296,23 +688,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.0] - 2026-05-14
 
 ### Added
-
 - Dedicated `docs/agentsdk.md`, `docs/coder.md`, and `docs/configuration.md`
   onboarding and configuration guides.
 
 ### Changed
-
 - README onboarding is now concise and links to focused guides for CLI usage,
   coder usage, and configuration.
 
 ### Removed
-
 - Legacy `fluxplane.json` resource filesystem loader path.
 
 ## [0.8.0] - 2026-05-14
 
 ### Added
-
 - `agentsdk init [path]` creates a minimal secure local app manifest with a
   default no-tool agent, default session, and Unix-socket direct channel.
 - The repository root now includes a minimal local `fluxplane.yaml` manifest
@@ -1324,7 +712,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repository's banned internal keyword before commits and pushes.
 
 ### Changed
-
 - Uninitialized local `run` and `serve` paths now fail with guidance to run
   `agentsdk init` instead of silently starting an empty daemon or reporting a
   missing default session.
@@ -1341,7 +728,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.0] - 2026-05-14
 
 ### Added
-
 - `agentsdk run [path]` for running local app distributions from app manifests
   or `.agents` directories, with REPL and `--input` one-shot modes.
 - Distribution describe rendering for metadata and bundled resources, including
@@ -1352,7 +738,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   responsibilities, common flows, and boundary checks.
 
 ### Changed
-
 - Local distribution run and serve now share launch/runtime assembly through
   `apps/launch` and focused `adapters/distribution/*` packages.
 - Remote session targeting and terminal execution moved out of `cmd/agentsdk`
@@ -1364,7 +749,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.0] - 2026-05-13
 
 ### Added
-
 - `agentsdk remote` for opening local or URL-backed daemon sessions, including
   app-manifest listener discovery and Unix-socket HTTP/SSE connections.
 - `plugins/planexec` with `delegate` and `plan` operations for supervised
@@ -1387,7 +771,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reusable local command surfaces.
 
 ### Changed
-
 - Clarified LLM loop budgets: `max_steps` now limits inner tool-loop model
   decisions, while `max_continuations` only caps stop-condition-driven outer
   follow-up turns.
@@ -1406,7 +789,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   command wiring and terminal turn handling shared through `adapters/terminalui`.
 
 ### Fixed
-
 - Terminal assistant streaming now writes deltas directly through the live
   markdown renderer without duplicating final output or leaking thinking text.
 - Remote channel event delivery now uses bounded lossless buffering so streamed
@@ -1420,7 +802,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2026-05-13
 
 ### Added
-
 - First-class datasource specs, registry, access policy, context catalog, and
   generic `datasource_search` / `datasource_get` operations.
 - Connector-backed datasource providers for Slack users/channels/messages,
@@ -1432,7 +813,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   final markdown streaming fallback.
 
 ### Changed
-
 - App manifests can declare configured connector-backed datasource instances
   and agents can grant datasource access by instance name.
 - `examples/slack-bot` now uses datasource instances for Slack, Jira, GitLab,
@@ -1441,7 +821,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are available and reports partial errors alongside successful results.
 
 ### Fixed
-
 - Slack progress logging no longer exposes raw thinking text.
 - Datasource connector normalization now maps nested record fields explicitly
   for Slack, Jira, and GitLab metadata.
@@ -1449,7 +828,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] - 2026-05-13
 
 ### Added
-
 - `core/usage` session tracker for accumulating usage by stable subject and
   measurement keys.
 - Grouped `agentsdk coder --usage` totals with human-readable token, network,
@@ -1476,12 +854,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider wrappers for `--model anthropic/<model>` and `--model minimax/<model>`.
 
 ### Changed
-
 - Bare operation tool projection now exposes the operation short name for
   synthetic channel tools.
 
 ### Fixed
-
 - Daemon HTTP listeners enforce configured auth and reject unauthenticated TCP
   listeners.
 - Slack channel turns submit Slack user identity and trust instead of falling
@@ -1492,7 +868,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0] - 2026-05-13
 
 ### Added
-
 - Markdown-backed terminal streaming for `agentsdk coder` assistant text,
   reasoning summaries, and debug JSON event fences.
 - Generic coder provider/model selection with `--provider` and
@@ -1505,7 +880,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and downloads.
 
 ### Changed
-
 - `apps/coder` now defaults to `gpt-5.5`.
 - OpenAI-compatible provider config now defaults to automatic best-effort
   stored-response continuation and max prompt caching.
@@ -1513,7 +887,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the OpenAI-specific `--openai-store` CLI flag.
 
 ### Fixed
-
 - Direct-channel run events are now forwarded while a run is executing instead
   of being drained only after completion, so terminal streaming is live.
 - Codex/OpenAI reasoning and commentary-phase deltas now stream through the
@@ -1525,7 +898,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2026-05-13
 
 ### Added
-
 - Standard coding plugins for browser automation, managed background
   processes, terminal `clarify`, and terminal operation lifecycle rendering.
 - `runtime/system` boundaries for neutral HTTP requests, managed processes,
@@ -1534,14 +906,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   packages.
 
 ### Changed
-
 - `cmd/agentsdk coder` now uses plugin-contributed operations instead of local
   shell/http implementations.
 - `apps/coder` exposes the full coding operation set, including browser and
   process operations, with a continuation budget of 150.
 
 ### Fixed
-
 - `cmdrisk` now falls back to declared operation risk for process and browser
   lifecycle operations that do not carry command or URL intent.
 - `file_copy` and `file_move` now copy complete files instead of using bounded
@@ -1550,7 +920,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-05-12
 
 ### Added
-
 - Initial Fluxplane Agent Runtime rewrite release.
 - Core model for agents, sessions, channels, commands, operations, resources,
   events, threads, workflows, LLM provider specs, and generic usage records.
@@ -1569,14 +938,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Architecture report and verification task for import-direction checks.
 
 ### Changed
-
 - No backward compatibility is provided with the old agentsdk. Concepts were
   renamed and split by layer: `core`, `runtime`, `orchestration`, `adapters`,
   `plugins`, and `apps`.
 
-[Unreleased]: https://github.com/fluxplane/fluxplane-core/compare/v0.14.1...HEAD
-[0.14.1]: https://github.com/fluxplane/fluxplane-core/compare/v0.14.0...v0.14.1
-[0.14.0]: https://github.com/fluxplane/fluxplane-core/compare/v0.13.0...v0.14.0
+[Unreleased]: https://github.com/fluxplane/fluxplane-core/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/fluxplane/fluxplane-core/compare/v0.16.0...v0.17.0
+[0.16.0]: https://github.com/fluxplane/fluxplane-core/compare/v0.15.0...v0.16.0
+[0.15.0]: https://github.com/fluxplane/fluxplane-core/compare/v0.14.1...v0.15.0
+[0.14.1]: https://github.com/fluxplane/fluxplane-core/compare/v0.13.0...v0.14.1
 [0.13.0]: https://github.com/fluxplane/fluxplane-core/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/fluxplane/fluxplane-core/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/fluxplane/fluxplane-core/compare/v0.10.0...v0.11.0
