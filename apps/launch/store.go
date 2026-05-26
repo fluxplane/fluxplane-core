@@ -81,30 +81,38 @@ func openNATSThreadStore(registry *event.Registry, cfg distribution.EventStoreCo
 }
 
 func defaultEventStorePath() (string, error) {
+	base, err := defaultStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "events.sqlite"), nil
+}
+
+func defaultStateDir() (string, error) {
 	switch runtime.GOOS {
 	case "windows":
 		if base := strings.TrimSpace(os.Getenv("LocalAppData")); base != "" {
-			return filepath.Join(base, "fluxplane", "events.sqlite"), nil
+			return filepath.Join(base, "fluxplane"), nil
 		}
 		base, err := os.UserConfigDir()
 		if err != nil {
 			return "", fmt.Errorf("launch: resolve config dir: %w", err)
 		}
-		return filepath.Join(base, "fluxplane", "events.sqlite"), nil
+		return filepath.Join(base, "fluxplane"), nil
 	case "darwin":
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("launch: resolve home dir: %w", err)
 		}
-		return filepath.Join(home, "Library", "Application Support", "fluxplane", "events.sqlite"), nil
+		return filepath.Join(home, "Library", "Application Support", "fluxplane"), nil
 	default:
 		if base := strings.TrimSpace(os.Getenv("XDG_STATE_HOME")); base != "" {
-			return filepath.Join(base, "fluxplane", "events.sqlite"), nil
+			return filepath.Join(base, "fluxplane"), nil
 		}
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("launch: resolve home dir: %w", err)
 		}
-		return filepath.Join(home, ".local", "state", "fluxplane", "events.sqlite"), nil
+		return filepath.Join(home, ".local", "state", "fluxplane"), nil
 	}
 }

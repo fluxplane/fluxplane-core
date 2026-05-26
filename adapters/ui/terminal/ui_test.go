@@ -427,7 +427,9 @@ func TestRendererRendersTestRunEvent(t *testing.T) {
 			Result: &operation.Result{Status: operation.StatusOK, Output: operation.Rendered{
 				Text: "go_test: PASS ./core/testrun summary: packages=1 passed=1 failed=0 skipped=0; tests=1 passed=1 failed=0 skipped=0",
 				Data: map[string]any{
-					"test_run_event": testrun.Event{Target: "./core/testrun", Status: testrun.StatusPassed, Summary: testrun.Summary{TestsPassed: 1, PackagesPassed: 1}, DurationMS: 102},
+					"test": map[string]any{
+						"test_run_event": testrun.Event{Target: "./core/testrun", Status: testrun.StatusPassed, Summary: testrun.Summary{TestsPassed: 1, PackagesPassed: 1}, DurationMS: 102},
+					},
 				},
 			}},
 		},
@@ -455,7 +457,9 @@ func TestRendererRendersFailedTestRunEvent(t *testing.T) {
 			Result: &operation.Result{Status: operation.StatusOK, Output: operation.Rendered{
 				Text: "go_test: FAIL ./runtime/thread",
 				Data: map[string]any{
-					"test_run_event": testrun.Event{Target: "./runtime/thread", Status: testrun.StatusFailed, Summary: testrun.Summary{TestsPassed: 5, TestsFailed: 1}, Failures: []testrun.Failure{{Kind: testrun.FailureAssertion, Test: "TestRetry", File: "runtime/thread/store_test.go", Line: 262, Message: "Append returned error"}}},
+					"test": map[string]any{
+						"test_run_event": testrun.Event{Target: "./runtime/thread", Status: testrun.StatusFailed, Summary: testrun.Summary{TestsPassed: 5, TestsFailed: 1}, Failures: []testrun.Failure{{Kind: testrun.FailureAssertion, Test: "TestRetry", File: "runtime/thread/store_test.go", Line: 262, Message: "Append returned error"}}},
+					},
 				},
 			}},
 		},

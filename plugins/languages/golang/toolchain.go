@@ -323,7 +323,7 @@ func (p Plugin) goTest() operationruntime.TypedResultHandler[golang.GoTestQuery,
 		}
 		populateGoTestRunEvent(&result, run, patterns)
 		text := renderGoTestResult(result, patterns)
-		return operation.OK(operation.Rendered{Text: text, Data: map[string]any{"test": result, "packages": result.Packages, "diagnostics": result.Diagnostics, "test_run_event": result.TestRunEvent}})
+		return operation.OK(operation.Rendered{Text: text, Data: map[string]any{"test": result}})
 	}
 }
 
@@ -1455,6 +1455,7 @@ func populateGoTestRunEvent(result *golang.GoTestResult, run system.ProcessResul
 	if status == testrun.StatusPassed && summary.TestsTotal == 0 && summary.PackagesSkipped > 0 && summary.PackagesPassed == 0 {
 		status = testrun.StatusSkipped
 	}
+	startedAt, finishedAt := goTestEventTimeRange(result.Events)
 	result.TestRunEvent = testrun.Event{
 		Kind:       testrun.EventFinished,
 		Toolchain:  "go",
@@ -1463,12 +1464,31 @@ func populateGoTestRunEvent(result *golang.GoTestResult, run system.ProcessResul
 		Status:     status,
 		Summary:    summary,
 		Failures:   failures,
+		StartedAt:  startedAt,
+		FinishedAt: finishedAt,
 		DurationMS: run.Duration.Milliseconds(),
 		Truncated:  run.StdoutTruncated || run.StderrTruncated,
 	}
 	if result.TestRunEvent.Truncated {
 		result.TestRunEvent.Note = "output truncated; failure details were prioritized"
 	}
+}
+
+func goTestEventTimeRange(events []map[string]any) (time.Time, time.Time) {
+	var startedAt, finishedAt time.Time
+	for _, event := range events {
+		at, err := time.Parse(time.RFC3339Nano, goListAnyString(event["Time"]))
+		if err != nil {
+			continue
+		}
+		if startedAt.IsZero() || at.Before(startedAt) {
+			startedAt = at
+		}
+		if finishedAt.IsZero() || at.After(finishedAt) {
+			finishedAt = at
+		}
+	}
+	return startedAt, finishedAt
 }
 
 func goTestFailures(result golang.GoTestResult, run system.ProcessResult) []testrun.Failure {

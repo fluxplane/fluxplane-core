@@ -692,6 +692,16 @@ func main() {}
 	if !testData.Passed || len(testData.Packages) != 1 || testData.Packages[0].Passed != 1 {
 		t.Fatalf("go test data = %#v, want passing TestAdd", testData)
 	}
+	if testData.TestRunEvent.StartedAt.IsZero() || testData.TestRunEvent.FinishedAt.IsZero() || testData.TestRunEvent.FinishedAt.Before(testData.TestRunEvent.StartedAt) {
+		t.Fatalf("go test event times = started %s finished %s, want populated ordered timestamps", testData.TestRunEvent.StartedAt, testData.TestRunEvent.FinishedAt)
+	}
+	if data, ok := testResult.Data.(map[string]any); ok {
+		for _, key := range []string{"test_run_event", "packages", "diagnostics"} {
+			if _, exists := data[key]; exists {
+				t.Fatalf("go test data includes duplicate top-level %s: %#v", key, data)
+			}
+		}
+	}
 	failResult := runGoOp(t, sys, TestOp, map[string]any{"patterns": []string{"./pkg/checks"}, "run": "TestFail", "count": 1})
 	failData := goTestResultFromRendered(t, failResult)
 	if failData.Passed || len(failData.Packages) != 1 || failData.Packages[0].Failed != 1 {

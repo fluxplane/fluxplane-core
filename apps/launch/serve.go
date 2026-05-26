@@ -22,6 +22,8 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/orchestration/agentfactory"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	orchestrationsession "github.com/fluxplane/fluxplane-core/orchestration/session"
 
 	"github.com/fluxplane/fluxplane-core/orchestration/channelruntime"
 	"github.com/fluxplane/fluxplane-core/orchestration/daemon"
@@ -144,19 +146,20 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 		return err
 	}
 	defer runtime.Close()
+	client := defaultServeChannelClient(runtime.Service, opts.Spec, runtime.Composition.SessionCatalog)
 	channels, err := serveChannels(ctx, opts.Launch.Channels, opts.Bundles, Options{AuthPath: opts.AuthPath, AllowPluginAuthEnv: opts.AllowPluginAuthEnv, Debug: opts.Debug}, runtime.Dispatcher, runtime.System)
 	if err != nil {
 		return err
 	}
 	host, err := daemon.New(daemon.Config{
-		Client:         runtime.Service,
+		Client:         client,
 		SessionCatalog: runtime.Composition.SessionCatalog,
 		Channels:       channels,
 	})
 	if err != nil {
 		return err
 	}
-	if err := startServeListeners(ctx, opts.Launch.Listeners, opts.Launch.Channels, runtime.Service, host, runtime.Caller, runtime.Trust); err != nil {
+	if err := startServeListeners(ctx, opts.Launch.Listeners, opts.Launch.Channels, client, host, runtime.Caller, runtime.Trust); err != nil {
 		return err
 	}
 	if err := startHealthListener(ctx, opts.HealthAddr, host); err != nil {
@@ -170,7 +173,7 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 	serveCtx, cancelServe := context.WithCancel(runCtx)
 	defer cancelServe()
 	if opts.Verbose {
-		cancelEvents, err := startServeEventLogger(serveCtx, runtime.Service, os.Stderr)
+		cancelEvents, err := startServeEventLogger(serveCtx, client, os.Stderr)
 		if err != nil {
 			return err
 		}
@@ -181,7 +184,7 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 	running := 0
 	if len(opts.Launch.Triggers) > 0 {
 		triggers, err := triggerhost.New(triggerhost.Config{
-			Client: runtime.Service,
+			Client: client,
 			Specs:  opts.Launch.Triggers,
 			Caller: runtime.Caller,
 			Trust:  runtime.Trust,
@@ -237,6 +240,106 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 		}
 	}
 	return nil
+}
+
+type serveDefaultChannelClient struct {
+	client   fluxplane.ChannelClient
+	spec     coredistribution.Spec
+	sessions orchestrationsession.SessionCatalog
+}
+
+func defaultServeChannelClient(client fluxplane.ChannelClient, spec coredistribution.Spec, sessions orchestrationsession.SessionCatalog) fluxplane.ChannelClient {
+	if client == nil {
+		return nil
+	}
+	return serveDefaultChannelClient{client: client, spec: spec, sessions: sessions}
+}
+
+func (c serveDefaultChannelClient) Open(ctx context.Context, req fluxplane.OpenRequest) (fluxplane.Session, error) {
+	if req.Session.Name == "" {
+		req.Session = c.spec.DefaultSession
+	}
+	if req.Conversation.ID == "" {
+		req.Conversation = c.spec.DefaultConversation
+	}
+	session, err := c.client.Open(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return serveDefaultSession{session: session, spec: c.spec, sessions: c.sessions}, nil
+}
+
+func (c serveDefaultChannelClient) Resume(ctx context.Context, req fluxplane.ResumeRequest) (fluxplane.Session, error) {
+	if _, err := c.client.Resume(ctx, req); err != nil {
+		return nil, err
+	}
+	return c.Open(ctx, fluxplane.OpenRequest{ThreadID: req.ThreadID})
+}
+
+func (c serveDefaultChannelClient) ListSessions(ctx context.Context, req fluxplane.ListSessionsRequest) ([]fluxplane.SessionSummary, error) {
+	summaries, err := c.client.ListSessions(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	for i := range summaries {
+		summaries[i].Info = c.defaultSessionInfo(summaries[i].Info)
+	}
+	return summaries, nil
+}
+
+func (c serveDefaultChannelClient) OnEvent(ctx context.Context, fn func(clientapi.Event)) (func(), error) {
+	watcher, ok := c.client.(serveEventWatcher)
+	if !ok {
+		return nil, fmt.Errorf("serve: --verbose is unavailable for this channel client")
+	}
+	return watcher.OnEvent(ctx, fn)
+}
+
+func (c serveDefaultChannelClient) defaultSessionInfo(info fluxplane.SessionInfo) fluxplane.SessionInfo {
+	if info.Session.Name == "" {
+		info.Session = c.defaultSessionRef()
+	}
+	if info.Conversation.ID == "" {
+		info.Conversation = c.spec.DefaultConversation
+	}
+	return info
+}
+
+func (c serveDefaultChannelClient) defaultSessionRef() fluxplane.SessionRef {
+	if c.spec.DefaultSession.Name == "" {
+		return fluxplane.SessionRef{}
+	}
+	binding, err := c.sessions.Resolve(string(c.spec.DefaultSession.Name))
+	if err != nil {
+		return c.spec.DefaultSession
+	}
+	return fluxplane.SessionRef{Name: fluxplane.SessionName(binding.ID.Address())}
+}
+
+type serveDefaultSession struct {
+	session  fluxplane.Session
+	spec     coredistribution.Spec
+	sessions orchestrationsession.SessionCatalog
+}
+
+func (s serveDefaultSession) Info() fluxplane.SessionInfo {
+	return serveDefaultChannelClient{spec: s.spec, sessions: s.sessions}.defaultSessionInfo(s.session.Info())
+}
+
+func (s serveDefaultSession) Submit(ctx context.Context, submission fluxplane.Submission) (fluxplane.Run, error) {
+	return s.session.Submit(ctx, submission)
+}
+
+func (s serveDefaultSession) Events(ctx context.Context, opts fluxplane.EventOptions) (<-chan fluxplane.Event, func(), error) {
+	return s.session.Events(ctx, opts)
+}
+
+func (s serveDefaultSession) OnEvent(ctx context.Context, fn func(fluxplane.Event)) (func(), error) {
+	return s.session.OnEvent(ctx, fn)
+}
+
+func (s serveDefaultSession) Close(ctx context.Context) error {
+	return s.session.Close(ctx)
 }
 
 func waitServeShutdown(errs <-chan error, pending int, grace time.Duration) bool {

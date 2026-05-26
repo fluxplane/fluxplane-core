@@ -232,6 +232,9 @@ func TestFileEditFullDiffIncludesDiffInModelText(t *testing.T) {
 		if !strings.Contains(diff, "-two") || !strings.Contains(diff, "+changed") {
 			t.Fatalf("data[diff] = %q, want unified diff with changed line", diff)
 		}
+		if strings.Index(diff, "-two") > strings.Index(diff, "+changed") {
+			t.Fatalf("data[diff] = %q, want deletion before insertion", diff)
+		}
 		ops, _ := data["operations"].([]editFragment)
 		if len(ops) != 1 || !ops[0].Applied || ops[0].Line < 1 {
 			t.Fatalf("data[operations] = %#v, want 1 applied status with line >= 1", ops)

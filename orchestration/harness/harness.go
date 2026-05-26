@@ -211,6 +211,12 @@ type OpenSessionRequest struct {
 	Approver operationruntime.ApprovalGate
 }
 
+// ResumeSessionRequest describes a read-only thread resume lookup.
+type ResumeSessionRequest struct {
+	Channel  channel.Ref
+	ThreadID corethread.ID
+}
+
 // ListSessionsRequest filters harness session bindings.
 type ListSessionsRequest struct {
 	Channel         channel.Ref
@@ -227,6 +233,7 @@ type SessionInfo struct {
 	Conversation channel.ConversationRef `json:"conversation,omitempty"`
 	Metadata     map[string]string       `json:"metadata,omitempty"`
 	Resumed      bool                    `json:"resumed,omitempty"`
+	Archived     bool                    `json:"archived,omitempty"`
 }
 
 // OpenSession resolves or creates the thread/session for a channel
@@ -259,17 +266,55 @@ func (s *Service) OpenSession(ctx context.Context, req OpenSessionRequest) (Sess
 	}, nil
 }
 
-// ListSessions returns currently known session bindings for a channel.
-func (s *Service) ListSessions(_ context.Context, req ListSessionsRequest) ([]SessionInfo, error) {
+// ResumeSession resolves an existing thread without creating a missing one.
+func (s *Service) ResumeSession(ctx context.Context, req ResumeSessionRequest) (SessionInfo, error) {
+	if s == nil {
+		return SessionInfo{}, fmt.Errorf("harness: service is nil")
+	}
+	if req.ThreadID == "" {
+		return SessionInfo{}, fmt.Errorf("harness: resume thread id is empty")
+	}
+	if info, ok := s.boundSessionInfo(req.ThreadID, req.Channel); ok {
+		return info, nil
+	}
+	if s.threadStore == nil {
+		return SessionInfo{}, fmt.Errorf("%w: thread %q", corethread.ErrNotFound, req.ThreadID)
+	}
+	snapshot, err := s.threadStore.Read(ctx, corethread.ReadParams{ID: req.ThreadID})
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	id := snapshot.ID
+	if id == "" {
+		id = req.ThreadID
+	}
+	branchID := snapshot.BranchID
+	if branchID == "" {
+		branchID = corethread.MainBranch
+	}
+	return SessionInfo{
+		Thread:   corethread.Ref{ID: id, BranchID: branchID},
+		Channel:  req.Channel,
+		Metadata: cloneStringMap(snapshot.Metadata),
+		Resumed:  true,
+	}, nil
+}
+
+// ListSessions returns currently known session bindings plus durable threads.
+func (s *Service) ListSessions(ctx context.Context, req ListSessionsRequest) ([]SessionInfo, error) {
 	if s == nil {
 		return nil, fmt.Errorf("harness: service is nil")
 	}
+	seen := map[corethread.ID]bool{}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	out := make([]SessionInfo, 0, len(s.bindings))
+	limitReached := false
 	for key, ref := range s.bindings {
 		if req.Channel.Name != "" && key.channel != req.Channel.Name {
 			continue
+		}
+		if ref.BranchID == "" {
+			ref.BranchID = corethread.MainBranch
 		}
 		out = append(out, SessionInfo{
 			Session:      coresession.Ref{Name: coresession.Name(key.session)},
@@ -277,6 +322,38 @@ func (s *Service) ListSessions(_ context.Context, req ListSessionsRequest) ([]Se
 			Channel:      channel.Ref{Name: key.channel},
 			Conversation: channel.ConversationRef{ID: key.conversation},
 		})
+		seen[ref.ID] = true
+		if req.Limit > 0 && len(out) >= req.Limit {
+			limitReached = true
+			break
+		}
+	}
+	s.mu.Unlock()
+	if limitReached {
+		return out, nil
+	}
+	if s.threadStore == nil {
+		return out, nil
+	}
+	page, err := s.threadStore.List(ctx, corethread.ListParams{IncludeArchived: req.IncludeArchived})
+	if err != nil {
+		return nil, err
+	}
+	for _, snapshot := range page.Threads {
+		if snapshot.ID == "" || seen[snapshot.ID] {
+			continue
+		}
+		branchID := snapshot.BranchID
+		if branchID == "" {
+			branchID = corethread.MainBranch
+		}
+		out = append(out, SessionInfo{
+			Thread:   corethread.Ref{ID: snapshot.ID, BranchID: branchID},
+			Channel:  req.Channel,
+			Metadata: cloneStringMap(snapshot.Metadata),
+			Archived: snapshot.Archived,
+		})
+		seen[snapshot.ID] = true
 		if req.Limit > 0 && len(out) >= req.Limit {
 			break
 		}
@@ -889,7 +966,7 @@ func operationOutbound(inbound channel.Inbound, result session.OperationResult) 
 		if result.Effect.Result.IsError() && result.Effect.Result.Error != nil {
 			content = result.Effect.Result.Error.Message
 		}
-		out.Message = &channel.Message{Content: content}
+		out.Message = &channel.Message{Content: outboundContent(content)}
 	case result.Error != nil:
 		out.Message = &channel.Message{Content: result.Error.Message}
 	default:
@@ -1118,6 +1195,33 @@ func (s *Service) boundThread(sess coresession.Ref, ch channel.Ref, conv channel
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.bindings[key].ID
+}
+
+func (s *Service) boundSessionInfo(threadID corethread.ID, ch channel.Ref) (SessionInfo, bool) {
+	if s == nil || threadID == "" {
+		return SessionInfo{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, ref := range s.bindings {
+		if ref.ID != threadID {
+			continue
+		}
+		if ch.Name != "" && key.channel != ch.Name {
+			continue
+		}
+		if ref.BranchID == "" {
+			ref.BranchID = corethread.MainBranch
+		}
+		return SessionInfo{
+			Session:      coresession.Ref{Name: coresession.Name(key.session)},
+			Thread:       ref,
+			Channel:      channel.Ref{Name: key.channel},
+			Conversation: channel.ConversationRef{ID: key.conversation},
+			Resumed:      true,
+		}, true
+	}
+	return SessionInfo{}, false
 }
 
 func (s *Service) ensureThread(ctx context.Context, id corethread.ID, metadata map[string]string) (bool, error) {

@@ -831,8 +831,11 @@ func TestExecuteInboundInputRunsPostEditCheckBeforeNextAgentStep(t *testing.T) {
 	if !ok {
 		t.Fatalf("post-edit observation content = %#v, want rendered operation result", observations[2].Content)
 	}
-	if !strings.Contains(rendered.ModelText(), "Post-edit check golang.fmt may have auto-applied fixes") {
-		t.Fatalf("post-edit result = %q, want explicit auto-fix notice", rendered.ModelText())
+	if !strings.Contains(rendered.ModelText(), "Post-edit check golang.fmt ran in fix mode") {
+		t.Fatalf("post-edit result = %q, want explicit fix-mode notice", rendered.ModelText())
+	}
+	if strings.Count(rendered.ModelText(), "Post-edit check golang.fmt") != 1 {
+		t.Fatalf("post-edit model text = %q, want single check notice", rendered.ModelText())
 	}
 }
 

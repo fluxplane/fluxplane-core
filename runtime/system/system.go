@@ -200,11 +200,12 @@ type ResolvedPath struct {
 
 // WorkspaceRoot describes one runtime filesystem root exposed by a Workspace.
 type WorkspaceRoot struct {
-	Name  string `json:"name,omitempty"`
-	Path  string `json:"path"`
-	Rel   string `json:"rel,omitempty"`
-	Read  bool   `json:"read"`
-	Write bool   `json:"write"`
+	Name    string `json:"name,omitempty"`
+	Path    string `json:"path"`
+	Rel     string `json:"rel,omitempty"`
+	Read    bool   `json:"read"`
+	Write   bool   `json:"write"`
+	Scratch bool   `json:"scratch,omitempty"`
 }
 
 // WalkOptions bounds workspace tree traversal.
@@ -277,11 +278,12 @@ func (w *HostWorkspace) Roots() []WorkspaceRoot {
 			rel = "."
 		}
 		out = append(out, WorkspaceRoot{
-			Name:  name,
-			Path:  root.root,
-			Rel:   rel,
-			Read:  root.read,
-			Write: root.write,
+			Name:    name,
+			Path:    root.root,
+			Rel:     rel,
+			Read:    root.read,
+			Write:   root.write,
+			Scratch: name != "" && name == w.scratchRoot,
 		})
 	}
 	return out

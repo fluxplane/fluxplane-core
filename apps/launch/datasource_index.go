@@ -2,8 +2,11 @@ package launch
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -209,14 +212,9 @@ func DatasourceIndexBuildConfig(cfg coreapp.DatasourceIndexSpec, concurrencyOver
 
 func newSemanticIndex(root string, bundles []resource.ContributionBundle, storeOverride, providerOverride, modelOverride string) (*semantic.Index, error) {
 	appSemantic := semanticSearchFromBundles(bundles)
-	storePath := strings.TrimSpace(storeOverride)
-	if storePath == "" {
-		storePath = appSemantic.Store.Path
-	}
-	if storePath == "" {
-		storePath = filepath.Join(root, ".agents", "index", "datasources.json")
-	} else if !filepath.IsAbs(storePath) {
-		storePath = filepath.Join(root, storePath)
+	storePath, err := semanticIndexStorePath(root, appSemantic, storeOverride)
+	if err != nil {
+		return nil, err
 	}
 	providerName := strings.ToLower(firstNonEmptyString(providerOverride, appSemantic.Embeddings.Provider, embedaxon.ProviderName))
 	embedderModel := firstNonEmptyString(modelOverride, appSemantic.Embeddings.Model)
@@ -241,6 +239,46 @@ func newSemanticIndex(root string, bundles []resource.ContributionBundle, storeO
 			},
 		},
 	)
+}
+
+func semanticIndexStorePath(root string, appSemantic coreapp.SemanticSearchSpec, storeOverride string) (string, error) {
+	storePath := strings.TrimSpace(storeOverride)
+	if storePath == "" {
+		storePath = appSemantic.Store.Path
+	}
+	if storePath != "" {
+		if filepath.IsAbs(storePath) {
+			return storePath, nil
+		}
+		return filepath.Join(root, storePath), nil
+	}
+	return defaultSemanticIndexStorePath(root)
+}
+
+var semanticIndexPathSanitizer = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+
+func defaultSemanticIndexStorePath(root string) (string, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		root = "."
+	}
+	absRoot, err := filepath.Abs(root)
+	if err == nil {
+		root = absRoot
+	}
+	root = filepath.Clean(root)
+	stateDir, err := defaultStateDir()
+	if err != nil {
+		return "", err
+	}
+	name := semanticIndexPathSanitizer.ReplaceAllString(filepath.Base(root), "-")
+	name = strings.Trim(name, ".-")
+	if name == "" {
+		name = "app"
+	}
+	sum := sha256.Sum256([]byte(root))
+	key := name + "-" + hex.EncodeToString(sum[:8])
+	return filepath.Join(stateDir, "datasource-indexes", key, "datasources.json"), nil
 }
 
 func semanticEmbedder(provider, model string) (semantic.Embedder, string, error) {

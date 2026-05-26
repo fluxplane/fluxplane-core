@@ -13,6 +13,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/command"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
+	"github.com/fluxplane/fluxplane-core/core/environment"
 	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
@@ -172,6 +173,25 @@ func TestCommandOutboundUsesRenderedTextWithoutStructuredData(t *testing.T) {
 		t.Fatalf("outbound = %#v, want message", outbound)
 	}
 	if outbound.Message.Content != "Environment\n\nObservers\n  - runtime.baseline" {
+		t.Fatalf("content = %#v, want rendered text only", outbound.Message.Content)
+	}
+}
+
+func TestOperationOutboundUsesRenderedTextWithoutStructuredData(t *testing.T) {
+	result := session.OperationResult{
+		Status: session.OperationStatusOK,
+		Effect: &environment.EffectResult{
+			Result: operation.OK(operation.Rendered{
+				Text: "go_test: PASS ./...",
+				Data: map[string]any{"test": "structured"},
+			}),
+		},
+	}
+	outbound := operationOutbound(channel.Inbound{ID: "op-go-test"}, result)
+	if outbound == nil || outbound.Message == nil {
+		t.Fatalf("outbound = %#v, want message", outbound)
+	}
+	if outbound.Message.Content != "go_test: PASS ./..." {
 		t.Fatalf("content = %#v, want rendered text only", outbound.Message.Content)
 	}
 }

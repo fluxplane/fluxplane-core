@@ -453,6 +453,9 @@ by build and embedded later with the datasource embed worker or the background
 embed worker started by `fluxplane serve`. `fluxplane serve` starts
 background warmup for indexed datasources with the configured concurrency and
 logs start, fresh-skip, page, complete, and failure progress per entity.
+The default JSON index store lives outside the app root in Fluxplane local
+state; set `semantic_search.store.path` or pass `--store` to choose an explicit
+path.
 
 Native Slack datasources reference the named Slack plugin instance:
 

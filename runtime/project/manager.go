@@ -157,9 +157,31 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 	if err != nil {
 		return coreproject.Inventory{}, err
 	}
-	for _, root := range ws.Roots()[1:] {
+	roots := ws.Roots()
+	seenRoots := map[string]struct{}{}
+	rootKey, err := workspaceRootKey(ctx, ws, ".")
+	if err != nil {
+		return coreproject.Inventory{}, err
+	}
+	if rootKey != "" {
+		seenRoots[rootKey] = struct{}{}
+	}
+	for _, root := range roots[1:] {
 		if strings.TrimSpace(root.Rel) == "" || !root.Read {
 			continue
+		}
+		if root.Scratch {
+			continue
+		}
+		rootKey, err := workspaceRootKey(ctx, ws, root.Rel)
+		if err != nil {
+			return coreproject.Inventory{}, err
+		}
+		if rootKey != "" {
+			if _, ok := seenRoots[rootKey]; ok {
+				continue
+			}
+			seenRoots[rootKey] = struct{}{}
 		}
 		rootEntries, _, rootTruncated, err := ws.Walk(ctx, root.Rel, system.WalkOptions{
 			Depth:      50,
@@ -263,6 +285,20 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 		},
 		Warnings: warnings,
 	}, nil
+}
+
+func workspaceRootKey(ctx context.Context, ws system.Workspace, rel string) (string, error) {
+	if strings.TrimSpace(rel) == "" {
+		rel = "."
+	}
+	resolved, err := ws.ResolveExisting(ctx, rel)
+	if err != nil {
+		return "", err
+	}
+	if resolved.Abs != "" {
+		return resolved.Abs, nil
+	}
+	return resolved.Rel, nil
 }
 
 type projectBuilder struct {

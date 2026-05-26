@@ -398,6 +398,77 @@ func TestManagerDetectsProjectsInNamedHostRoots(t *testing.T) {
 		t.Fatalf("hints = %#v, want named-root go hint", inventory.Hints)
 	}
 }
+
+func TestManagerSkipsDuplicatePhysicalHostRoots(t *testing.T) {
+	primary := t.TempDir()
+	if err := os.WriteFile(filepath.Join(primary, "go.mod"), []byte("module example.com/root\n\ngo 1.26\n"), 0644); err != nil {
+		t.Fatalf("write primary go.mod: %v", err)
+	}
+	sys, err := system.NewHost(system.Config{
+		Root: primary,
+		Workspace: system.WorkspaceConfig{Roots: []system.WorkspaceRootConfig{{
+			Name: "same",
+			Path: primary,
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+
+	inventory, _, err := NewManager(sys.Workspace()).Inventory(context.Background(), coreproject.InventoryQuery{Refresh: true})
+	if err != nil {
+		t.Fatalf("Inventory: %v", err)
+	}
+	if len(inventory.Projects) != 1 {
+		t.Fatalf("projects = %#v, want one project for duplicate physical roots", inventory.Projects)
+	}
+	project := projectByRoot(t, inventory, "")
+	if project.Name != "example.com/root" {
+		t.Fatalf("project name = %q, want module path", project.Name)
+	}
+	if hasHint(inventory.Hints, "go", "go", "@same/go.mod") {
+		t.Fatalf("hints = %#v, want duplicate named root skipped", inventory.Hints)
+	}
+}
+
+func TestManagerSkipsScratchHostRoot(t *testing.T) {
+	primary := t.TempDir()
+	scratch := t.TempDir()
+	if err := os.WriteFile(filepath.Join(primary, "go.mod"), []byte("module example.com/root\n\ngo 1.26\n"), 0644); err != nil {
+		t.Fatalf("write primary go.mod: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(scratch, "generated"), 0755); err != nil {
+		t.Fatalf("MkdirAll scratch generated: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(scratch, "generated", "go.mod"), []byte("module example.com/generated\n\ngo 1.26\n"), 0644); err != nil {
+		t.Fatalf("write scratch go.mod: %v", err)
+	}
+	sys, err := system.NewHost(system.Config{
+		Root: primary,
+		Workspace: system.WorkspaceConfig{
+			Roots: []system.WorkspaceRootConfig{{
+				Name: "tmp",
+				Path: scratch,
+			}},
+			ScratchRoot: "tmp",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+
+	inventory, _, err := NewManager(sys.Workspace()).Inventory(context.Background(), coreproject.InventoryQuery{Refresh: true})
+	if err != nil {
+		t.Fatalf("Inventory: %v", err)
+	}
+	if len(inventory.Projects) != 1 {
+		t.Fatalf("projects = %#v, want scratch root omitted", inventory.Projects)
+	}
+	if hasHint(inventory.Hints, "go", "go", "@tmp/generated/go.mod") {
+		t.Fatalf("hints = %#v, want scratch root omitted", inventory.Hints)
+	}
+}
+
 func TestManagerRejectsWorkspaceIDWhenUnscoped(t *testing.T) {
 	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
 		manager := NewManager(ws)

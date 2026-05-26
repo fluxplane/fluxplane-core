@@ -1197,7 +1197,7 @@ func diffLines(a, b []string) []diffLineOp {
 			ops = append(ops, diffLineOp{diffEqual, a[i], i + 1, j + 1})
 			i++
 			j++
-		} else if j < m && (i >= n || dp[i][j+1] >= dp[i+1][j]) {
+		} else if j < m && (i >= n || dp[i][j+1] > dp[i+1][j]) {
 			ops = append(ops, diffLineOp{diffInsert, b[j], 0, j + 1})
 			j++
 		} else {

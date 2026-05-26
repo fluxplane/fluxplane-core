@@ -261,7 +261,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		Buffer: parseInt(r.URL.Query().Get("buffer")),
 		Replay: parseBool(r.URL.Query().Get("replay")),
 		After: clientapi.EventCursor{
-			Sequence: coreevent.Sequence(parseUint(r.URL.Query().Get("after"))),
+			Sequence: eventAfterSequence(r),
 		},
 	}
 	events, cancel, err := session.Events(r.Context(), opts)
@@ -353,4 +353,14 @@ func parseInt(raw string) int {
 func parseUint(raw string) uint64 {
 	value, _ := strconv.ParseUint(raw, 10, 64)
 	return value
+}
+
+func eventAfterSequence(r *http.Request) coreevent.Sequence {
+	if r == nil {
+		return 0
+	}
+	if after := parseUint(r.URL.Query().Get("after")); after != 0 {
+		return coreevent.Sequence(after)
+	}
+	return coreevent.Sequence(parseUint(r.Header.Get("Last-Event-ID")))
 }

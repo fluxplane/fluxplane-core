@@ -59,11 +59,16 @@ testing the indexing pipeline without loading or downloading the local model.
 ## Store
 
 The current datasource index store is a JSON file store, not SQLite. By default
-it is written under the app root:
+it is written outside the app root under Fluxplane local state, keyed by the app
+root path:
 
 ```text
-.agents/index/datasources.json
+$XDG_STATE_HOME/fluxplane/datasource-indexes/<app>-<hash>/datasources.json
 ```
+
+When `XDG_STATE_HOME` is unset on Linux, the base directory is
+`~/.local/state/fluxplane`. Platform defaults follow the same local-state
+directory used by Fluxplane event storage.
 
 The CLI can override this path:
 

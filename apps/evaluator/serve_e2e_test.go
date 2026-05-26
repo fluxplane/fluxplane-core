@@ -3,12 +3,13 @@ package evaluator
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/adapters/channels/httpsse"
 	adapterllm "github.com/fluxplane/fluxplane-core/adapters/llm"
 	"github.com/fluxplane/fluxplane-core/apps/launch"
 	"github.com/fluxplane/fluxplane-core/core/agent"
@@ -16,7 +17,6 @@ import (
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/agentfactory"
-	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 )
 
@@ -131,24 +131,36 @@ func waitForLaunchServeReady(t *testing.T, socketPath string, errCh <-chan error
 		case <-deadline:
 			t.Fatalf("Serve did not become ready; last error: %v", lastErr)
 		case <-tick.C:
-			client, err := httpsse.NewClient(httpsse.ClientConfig{
-				BaseURL:    "http://unix",
-				UnixSocket: socketPath,
-				Events:     targetEventRegistry(),
-			})
+			client := launchServeHTTPClient(socketPath)
+			ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unix/control/status", nil)
+			if err != nil {
+				cancel()
+				lastErr = err
+				continue
+			}
+			resp, err := client.Do(req)
+			cancel()
+			client.CloseIdleConnections()
 			if err != nil {
 				lastErr = err
 				continue
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
-			_, err = client.ListSessions(ctx, clientapi.ListSessionsRequest{})
-			cancel()
-			if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
 				return
 			}
-			lastErr = err
+			lastErr = fmt.Errorf("status %s", resp.Status)
 		}
 	}
+}
+
+func launchServeHTTPClient(socketPath string) *http.Client {
+	return &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return new(net.Dialer).DialContext(ctx, "unix", socketPath)
+		},
+	}}
 }
 
 type launchServeTestResolver struct{}

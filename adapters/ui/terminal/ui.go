@@ -1286,8 +1286,8 @@ func resultTestRunEvent(result operation.Result) (testrun.Event, bool) {
 	if !ok {
 		return testrun.Event{}, false
 	}
-	value, ok := data["test_run_event"]
-	if !ok || emptySummaryValue(value) {
+	value, ok := testRunEventValue(data)
+	if !ok {
 		return testrun.Event{}, false
 	}
 	payload, err := json.Marshal(value)
@@ -1302,6 +1302,25 @@ func resultTestRunEvent(result operation.Result) (testrun.Event, bool) {
 		return testrun.Event{}, false
 	}
 	return event, true
+}
+
+func testRunEventValue(data map[string]any) (any, bool) {
+	if value, ok := data["test_run_event"]; ok && !emptySummaryValue(value) {
+		return value, true
+	}
+	test, ok := data["test"]
+	if !ok {
+		return nil, false
+	}
+	testData, ok := valueAsMap(test)
+	if !ok {
+		return nil, false
+	}
+	value, ok := testData["test_run_event"]
+	if !ok || emptySummaryValue(value) {
+		return nil, false
+	}
+	return value, true
 }
 
 func firstLine(text string) string {

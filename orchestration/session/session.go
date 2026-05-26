@@ -3735,11 +3735,13 @@ func expandPostEditValue(value any, values map[string]string) any {
 func annotatePostEditCheckResult(check coresession.PostEditCheckSpec, editedPath string, result operation.Result) operation.Result {
 	prefix := fmt.Sprintf("Post-edit check %s ran for %s.", check.Name, editedPath)
 	if check.Mode == coresession.PostEditCheckModeFix {
-		prefix = fmt.Sprintf("Post-edit check %s may have auto-applied fixes for %s.", check.Name, editedPath)
+		prefix = fmt.Sprintf("Post-edit check %s ran in fix mode for %s.", check.Name, editedPath)
 	}
 	if rendered, ok := result.Output.(operation.Rendered); ok {
-		rendered.Text = strings.TrimSpace(prefix + "\n\n" + strings.TrimSpace(rendered.Text))
-		rendered.Model = strings.TrimSpace(prefix + "\n\n" + strings.TrimSpace(rendered.ModelText()))
+		text := strings.TrimSpace(rendered.Text)
+		model := strings.TrimSpace(rendered.ModelText())
+		rendered.Text = strings.TrimSpace(prefix + "\n\n" + text)
+		rendered.Model = strings.TrimSpace(prefix + "\n\n" + model)
 		if data, ok := rendered.Data.(map[string]any); ok {
 			copied := make(map[string]any, len(data)+2)
 			for key, value := range data {

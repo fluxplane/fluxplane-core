@@ -11,6 +11,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/policy"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/orchestration/harness"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
@@ -309,6 +310,122 @@ func TestResumedSessionSubmitUsesResumedThread(t *testing.T) {
 	}
 }
 
+func TestResumeStoredThreadWithoutOpenBinding(t *testing.T) {
+	ctx := context.Background()
+	threadStore := testThreadStore(t)
+	agentInstance := fixedAgent{result: agent.StepResult{
+		Status: agent.StatusOK,
+		Decision: agent.Decision{
+			Kind:    agent.DecisionMessage,
+			Message: &agent.Message{Content: "pong"},
+		},
+	}}
+	firstClient := testClientWithAgentAndThreadStore(t, agentInstance, threadStore)
+	opened, err := firstClient.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	restartedClient := testClientWithAgentAndThreadStore(t, agentInstance, threadStore)
+	resumed, err := restartedClient.Resume(ctx, clientapi.ResumeRequest{ThreadID: opened.Info().Thread.ID})
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if resumed.Info().Thread.ID != opened.Info().Thread.ID {
+		t.Fatalf("resumed thread = %q, want %q", resumed.Info().Thread.ID, opened.Info().Thread.ID)
+	}
+	run, err := resumed.Submit(ctx, clientapi.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Session.Thread.ID != opened.Info().Thread.ID {
+		t.Fatalf("result thread = %q, want %q", result.Session.Thread.ID, opened.Info().Thread.ID)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "hello" {
+		t.Fatalf("outbound = %#v", result.Outbound)
+	}
+}
+
+func TestListSessionsIncludesStoredThreadsWithoutOpenBinding(t *testing.T) {
+	ctx := context.Background()
+	threadStore := testThreadStore(t)
+	firstClient := testClientWithAgentAndThreadStore(t, fixedAgent{}, threadStore)
+	opened, err := firstClient.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	restartedClient := testClientWithAgentAndThreadStore(t, fixedAgent{}, threadStore)
+	summaries, err := restartedClient.ListSessions(ctx, clientapi.ListSessionsRequest{})
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("sessions = %#v, want one stored thread", summaries)
+	}
+	if summaries[0].Info.Thread.ID != opened.Info().Thread.ID {
+		t.Fatalf("listed thread = %q, want %q", summaries[0].Info.Thread.ID, opened.Info().Thread.ID)
+	}
+	if summaries[0].Info.Channel.Name != "local" {
+		t.Fatalf("listed channel = %#v, want local", summaries[0].Info.Channel)
+	}
+}
+
+func TestListSessionsHonorsArchivedStoredThreads(t *testing.T) {
+	ctx := context.Background()
+	threadStore := testThreadStore(t)
+	firstClient := testClientWithAgentAndThreadStore(t, fixedAgent{}, threadStore)
+	opened, err := firstClient.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err := threadStore.Archive(ctx, opened.Info().Thread.ID); err != nil {
+		t.Fatalf("Archive: %v", err)
+	}
+
+	restartedClient := testClientWithAgentAndThreadStore(t, fixedAgent{}, threadStore)
+	summaries, err := restartedClient.ListSessions(ctx, clientapi.ListSessionsRequest{})
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(summaries) != 0 {
+		t.Fatalf("sessions = %#v, want archived thread hidden", summaries)
+	}
+	summaries, err = restartedClient.ListSessions(ctx, clientapi.ListSessionsRequest{IncludeArchived: true})
+	if err != nil {
+		t.Fatalf("ListSessions archived: %v", err)
+	}
+	if len(summaries) != 1 || summaries[0].Info.Thread.ID != opened.Info().Thread.ID || !summaries[0].Archived {
+		t.Fatalf("archived sessions = %#v, want archived stored thread", summaries)
+	}
+}
+
+func TestResumeUnknownThreadDoesNotCreateSession(t *testing.T) {
+	ctx := context.Background()
+	client := testClient(t)
+
+	if _, err := client.Resume(ctx, clientapi.ResumeRequest{ThreadID: "missing-thread"}); err == nil {
+		t.Fatal("Resume error is nil, want unknown thread error")
+	}
+	summaries, err := client.ListSessions(ctx, clientapi.ListSessionsRequest{})
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(summaries) != 0 {
+		t.Fatalf("sessions = %#v, want none", summaries)
+	}
+}
+
 func TestClientReceivesLargeStreamingBurst(t *testing.T) {
 	ctx := context.Background()
 	const total = clientapi.DefaultRunEventBuffer + 64
@@ -416,6 +533,11 @@ func testClient(t *testing.T) *Client {
 
 func testClientWithAgent(t *testing.T, agentInstance agent.Agent) *Client {
 	t.Helper()
+	return testClientWithAgentAndThreadStore(t, agentInstance, testThreadStore(t))
+}
+
+func testClientWithAgentAndThreadStore(t *testing.T, agentInstance agent.Agent, threadStore corethread.Store) *Client {
+	t.Helper()
 	ops := operation.NewRegistry()
 	if err := ops.Register(operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
 		return operation.OK(input)
@@ -438,10 +560,6 @@ func testClientWithAgent(t *testing.T, agentInstance agent.Agent) *Client {
 		t.Fatalf("register command: %v", err)
 	}
 
-	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
 	service := harness.New(harness.Config{
 		Agent:             agentInstance,
 		Commands:          commands,
@@ -458,6 +576,15 @@ func testClientWithAgent(t *testing.T, agentInstance agent.Agent) *Client {
 		t.Fatalf("New: %v", err)
 	}
 	return client
+}
+
+func testThreadStore(t *testing.T) corethread.Store {
+	t.Helper()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	return threadStore
 }
 
 type fixedAgent struct {

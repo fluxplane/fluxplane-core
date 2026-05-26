@@ -165,6 +165,21 @@ func TestDiffRejectsConflictingCompactModes(t *testing.T) {
 	}
 }
 
+func TestDiffReportsNonRepositoryConciseError(t *testing.T) {
+	ops := testGitOperations(t, t.TempDir())
+	result := ops[DiffOp].Run(operation.NewContext(context.Background(), event.Discard()), diffInput{})
+	if result.Status != operation.StatusFailed {
+		t.Fatalf("status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "git_diff_failed" || result.Error.Message != "workspace is not a git repository" {
+		t.Fatalf("error = %#v, want concise non-repository failure", result.Error)
+	}
+	stderr, _ := result.Error.Details["stderr"].(string)
+	if strings.Contains(stderr, "usage: git diff") {
+		t.Fatalf("stderr = %q, want usage output omitted", stderr)
+	}
+}
+
 func TestCommitRejectsPathsWithoutStage(t *testing.T) {
 	ops := testGitOperations(t, t.TempDir())
 	result := ops[CommitOp].Run(operation.NewContext(context.Background(), event.Discard()), commitInput{

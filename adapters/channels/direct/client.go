@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	"github.com/fluxplane/fluxplane-core/core/policy"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/orchestration/harness"
@@ -127,7 +129,23 @@ func (c *Client) Resume(ctx context.Context, req clientapi.ResumeRequest) (clien
 	if req.ThreadID == "" {
 		return nil, fmt.Errorf("directchannel: resume thread id is empty")
 	}
-	return c.Open(ctx, clientapi.OpenRequest{ThreadID: req.ThreadID})
+	if c == nil || c.service == nil {
+		return nil, fmt.Errorf("directchannel: client is nil")
+	}
+	info, err := c.service.ResumeSession(ctx, harness.ResumeSessionRequest{
+		Channel:  c.channel,
+		ThreadID: req.ThreadID,
+	})
+	if err != nil {
+		if errors.Is(err, corethread.ErrNotFound) {
+			return nil, fmt.Errorf("directchannel: session thread %q is not open", req.ThreadID)
+		}
+		return nil, err
+	}
+	return &Session{
+		client: c,
+		info:   toClientSessionInfo(info),
+	}, nil
 }
 
 // ListSessions lists sessions known for this direct channel.
@@ -145,7 +163,7 @@ func (c *Client) ListSessions(ctx context.Context, req clientapi.ListSessionsReq
 	}
 	out := make([]clientapi.SessionSummary, len(infos))
 	for i, info := range infos {
-		out[i] = clientapi.SessionSummary{Info: toClientSessionInfo(info)}
+		out[i] = clientapi.SessionSummary{Info: toClientSessionInfo(info), Archived: info.Archived}
 	}
 	return out, nil
 }

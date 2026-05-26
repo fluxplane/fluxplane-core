@@ -7,9 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fluxplane/fluxplane-core/core/channel"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
 	"github.com/fluxplane/fluxplane-core/core/resource"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	orchestrationsession "github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/plugins/integrations/slack"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 )
@@ -121,6 +126,81 @@ func TestValidateServeLaunchRequiresEntryPointForManifest(t *testing.T) {
 	}
 }
 
+func TestDefaultServeChannelClientAppliesDistributionDefaults(t *testing.T) {
+	base := &captureChannelClient{}
+	defaultSessionID := resource.ResourceID{Kind: "session", Origin: "embedded", Namespace: resource.NewNamespace("coder"), Name: "main"}
+	sessionCatalog := orchestrationsession.SessionCatalog{
+		defaultSessionID.Address(): {ID: defaultSessionID},
+	}
+	client := defaultServeChannelClient(base, coredistribution.Spec{
+		DefaultSession:      coresession.Ref{Name: "main"},
+		DefaultConversation: channel.ConversationRef{ID: "conversation"},
+	}, sessionCatalog)
+
+	session, err := client.Open(context.Background(), clientapi.OpenRequest{})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if base.open.Session.Name != "main" {
+		t.Fatalf("open session = %#v, want main", base.open.Session)
+	}
+	if base.open.Conversation.ID != "conversation" {
+		t.Fatalf("open conversation = %#v, want conversation", base.open.Conversation)
+	}
+	if session.Info().Session.Name != "main" || session.Info().Conversation.ID != "conversation" {
+		t.Fatalf("session info = %#v, want defaults", session.Info())
+	}
+
+	base.open = clientapi.OpenRequest{}
+	resumed, err := client.Resume(context.Background(), clientapi.ResumeRequest{ThreadID: "thread-2"})
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if base.resume.ThreadID != "thread-2" {
+		t.Fatalf("resume request = %#v, want thread-2", base.resume)
+	}
+	if base.open.ThreadID != "thread-2" {
+		t.Fatalf("resume open thread = %#v, want thread-2", base.open)
+	}
+	if base.open.Session.Name != "main" || base.open.Conversation.ID != "conversation" {
+		t.Fatalf("resume open = %#v, want defaults", base.open)
+	}
+	if resumed.Info().Session.Name != "main" || resumed.Info().Conversation.ID != "conversation" {
+		t.Fatalf("resumed info = %#v, want defaults", resumed.Info())
+	}
+
+	base.summaries = []clientapi.SessionSummary{{
+		Info: clientapi.SessionInfo{
+			Thread: corethread.Ref{ID: "thread-3", BranchID: corethread.MainBranch},
+		},
+	}}
+	summaries, err := client.ListSessions(context.Background(), clientapi.ListSessionsRequest{})
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(summaries) != 1 || string(summaries[0].Info.Session.Name) != defaultSessionID.Address() || summaries[0].Info.Conversation.ID != "conversation" {
+		t.Fatalf("summaries = %#v, want defaults", summaries)
+	}
+}
+
+func TestDefaultServeChannelClientForwardsEventWatcher(t *testing.T) {
+	base := &eventingChannelClient{}
+	client := defaultServeChannelClient(base, coredistribution.Spec{}, nil)
+
+	watcher, ok := client.(serveEventWatcher)
+	if !ok {
+		t.Fatal("default serve client does not expose event watcher")
+	}
+	stop, err := watcher.OnEvent(context.Background(), func(clientapi.Event) {})
+	if err != nil {
+		t.Fatalf("OnEvent: %v", err)
+	}
+	stop()
+	if !base.watched {
+		t.Fatal("OnEvent was not delegated to base client")
+	}
+}
+
 func TestServeCommandDefaultsPathToCurrentDirectory(t *testing.T) {
 	var got Options
 	cmd := NewServeCommandWithRunner(func(_ context.Context, opts Options) error {
@@ -194,6 +274,51 @@ func TestWaitServeShutdownTimesOutWhenRunnerHangs(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("waitServeShutdown took %s, want bounded wait", elapsed)
 	}
+}
+
+type captureChannelClient struct {
+	open      clientapi.OpenRequest
+	resume    clientapi.ResumeRequest
+	summaries []clientapi.SessionSummary
+}
+
+type eventingChannelClient struct {
+	captureChannelClient
+	watched bool
+}
+
+func (c *eventingChannelClient) OnEvent(context.Context, func(clientapi.Event)) (func(), error) {
+	c.watched = true
+	return func() {}, nil
+}
+
+func (c *captureChannelClient) Open(_ context.Context, req clientapi.OpenRequest) (clientapi.SessionHandle, error) {
+	c.open = req
+	return &fakeRunSession{info: clientapi.SessionInfo{
+		Session:      req.Session,
+		Thread:       corethread.Ref{ID: firstThreadID(req.ThreadID, "thread-1"), BranchID: corethread.MainBranch},
+		Conversation: req.Conversation,
+	}}, nil
+}
+
+func (c *captureChannelClient) Resume(_ context.Context, req clientapi.ResumeRequest) (clientapi.SessionHandle, error) {
+	c.resume = req
+	return &fakeRunSession{info: clientapi.SessionInfo{
+		Thread: corethread.Ref{ID: req.ThreadID, BranchID: corethread.MainBranch},
+	}}, nil
+}
+
+func (c *captureChannelClient) ListSessions(context.Context, clientapi.ListSessionsRequest) ([]clientapi.SessionSummary, error) {
+	return append([]clientapi.SessionSummary(nil), c.summaries...), nil
+}
+
+func firstThreadID(values ...corethread.ID) corethread.ID {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func TestServeCommandForwardsEnvFileFlags(t *testing.T) {

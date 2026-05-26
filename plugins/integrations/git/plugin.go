@@ -335,9 +335,9 @@ func (p Plugin) diff() operationruntime.TypedResultHandler[diffInput, map[string
 		result, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 256 * 1024})
 		text, truncated := capGitDiffText(strings.TrimSpace(result.Stdout), maxBytes)
 		mode := gitDiffMode(req)
-		data := map[string]any{"stdout": text, "stderr": result.Stderr, "exit_code": result.ExitCode, "mode": mode, "truncated": truncated, "max_bytes": maxBytes}
+		data := map[string]any{"stdout": text, "stderr": compactGitErrorText(result.Stderr), "exit_code": result.ExitCode, "mode": mode, "truncated": truncated, "max_bytes": maxBytes}
 		if err != nil {
-			return operation.Failed("git_diff_failed", err.Error(), data)
+			return operation.Failed("git_diff_failed", gitProcessErrorMessage(err, result.Stderr), data)
 		}
 		if text == "" {
 			text = "No changes."
@@ -353,6 +353,51 @@ const (
 	defaultGitDiffMaxBytes = 32 * 1024
 	maximumGitDiffMaxBytes = 128 * 1024
 )
+
+func gitProcessErrorMessage(err error, stderr string) string {
+	if strings.Contains(stderr, "Not a git repository") {
+		return "workspace is not a git repository"
+	}
+	if line := firstNonEmptyLine(stderr); line != "" {
+		return line
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return "git command failed"
+}
+
+func compactGitErrorText(stderr string) string {
+	if strings.Contains(stderr, "Not a git repository") {
+		return firstNonEmptyLine(stderr)
+	}
+	lines := strings.Split(strings.TrimSpace(stderr), "\n")
+	out := make([]string, 0, 6)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		out = append(out, line)
+		if len(out) >= 6 {
+			break
+		}
+	}
+	text := strings.Join(out, "\n")
+	if len(out) < len(lines) && text != "" {
+		text += "\n[git stderr truncated]"
+	}
+	return text
+}
+
+func firstNonEmptyLine(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
+}
 
 func gitDiffArgs(req diffInput) ([]string, error) {
 	if req.StatOnly && req.NamesOnly {

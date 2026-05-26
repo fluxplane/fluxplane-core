@@ -12,6 +12,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gentler CPU, test, and IO scheduling defaults.
 - Tightened gitleaks allowlists for local IDE metadata and Claude Code beta
   header test fixtures so pre-push scans keep catching real leaks.
+- Applied distribution default session and conversation values to direct serve
+  HTTP/SSE opens and resumes that omit them while preserving verbose event
+  logging.
+- Moved the default datasource index JSON store out of app roots and into
+  Fluxplane-owned local state.
+- Deduplicated project inventory scans for workspace roots that resolve to the
+  same physical directory.
+- Omitted configured scratch workspace roots from project inventory scans.
+- Populated normalized `go_test` run timestamps from `go test -json` events.
+- Made `git_diff` failures outside Git repositories report concise errors
+  instead of returning the full Git usage text.
+- Honored the SSE `Last-Event-ID` header when resuming session event streams.
+- Rendered `file_edit` replacement diffs with deletions before insertions.
+- Avoided duplicate post-edit check notices in model-facing operation text.
+- Made post-edit check notices describe fix-mode execution without implying
+  files changed when a formatter made no edits.
+- Removed the duplicate top-level `go_test` `test_run_event` payload copy.
+- Kept terminal test-run rendering wired to the canonical nested `go_test`
+  result event.
+- Removed duplicate top-level `go_test` package and diagnostic payload copies.
+- Rendered direct operation outbound messages as text instead of embedding the
+  full structured operation result.
+- Prevented direct channel resume and SSE event subscriptions from creating
+  missing session threads while still allowing durable thread resume after a
+  serve restart.
+- Included durable direct-channel threads in session listings after serve
+  restart and preserved canonical distribution default session identities in
+  those summaries.
 
 ## [0.17.0] - 2026-05-26
 
