@@ -282,8 +282,14 @@ trees or distribution bundles.
 Current app concepts include:
 
 ```text
+apps/fluxplane
+  generic Fluxplane CLI and distribution command assembly
+
 apps/launch
   local run/serve assembly for distributions
+
+apps/evaluator
+  specialized evaluator app assembly
 
 apps/devclient
   development client

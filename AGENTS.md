@@ -116,8 +116,10 @@ shapes instead of using vague packages.
   them to canonical messages, `command.Invocation`s, operation inputs, or
   workflow/session submissions.
 - `Task`: work objective with lifecycle, assignment, or acceptance criteria.
-  Do not use `task` for tool calls, commands, or process runs. Add `core/task`
-  only if durable task lifecycle is truly needed across packages.
+  Use `core/task` only for durable task lifecycle/work-objective contracts; do
+  not use `task` for tool calls, commands, or process runs. Runtime task
+  projection/execution state belongs under `runtime/task` and
+  `orchestration/taskexecutor`, not `core/task`.
 - `Command`: parsed imperative control instruction with a known handler.
   `core/command` owns syntax/invocation contracts; UI/adapters do not own
   command semantics.
@@ -194,8 +196,10 @@ See [docs/security.md](docs/security.md) for the full safety model.
   distribution.
 - Distribution loading/runtime handles live in `orchestration/distribution`.
   CLI/local/remote/describe helpers live under `adapters/distribution/*`.
-  Concrete assembly lives in `apps/launch` and product repositories such as
-  `github.com/fluxplane/coder`.
+  Concrete generic CLI assembly lives in `apps/fluxplane` and `apps/launch`;
+  specialized app assemblies such as `apps/evaluator` stay under `apps`, and
+  product repositories such as `github.com/fluxplane/coder` assemble their own
+  distributions.
 
 ## Channel HTTP/SSE vs Daemon Control HTTP
 
@@ -209,7 +213,7 @@ See [docs/security.md](docs/security.md) for the full safety model.
 
 - Use layer names for top-level directories and concept names below them.
   Good: `core/workflow`, `runtime/agent`, `orchestration/session`,
-  `adapters/terminal`, `plugins/git`, `apps/builder`.
+  `adapters/ui/terminal`, `plugins/git`, `apps/builder`.
   Avoid: `core/misc`, `runtime/common`, `orchestration/utils`,
   `plugins/standard`.
 - Use `Spec` for inert user-authored/resource-authored configuration shapes:
