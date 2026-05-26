@@ -426,6 +426,79 @@ func TestHostProcessDetachedStartSurvivesCallerCancel(t *testing.T) {
 	}
 }
 
+func TestHostProcessCapturesShortLivedOutputBeforeExit(t *testing.T) {
+	sys, err := NewHost(Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	for i := 0; i < 200; i++ {
+		want := fmt.Sprintf("hello-%03d", i)
+		handle, err := sys.Process().Start(context.Background(), ProcessRequest{
+			Command: "printf",
+			Args:    []string{want},
+			Timeout: 2 * time.Second,
+		})
+		if err != nil {
+			t.Fatalf("Start iteration %d: %v", i, err)
+		}
+		eventsDone := make(chan struct{})
+		events := make([]ProcessEvent, 0, 3)
+		go func() {
+			defer close(eventsDone)
+			for event := range handle.Events() {
+				events = append(events, event)
+			}
+		}()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		result, err := handle.Wait(waitCtx)
+		cancel()
+		<-eventsDone
+		if err != nil {
+			t.Fatalf("Wait iteration %d: %v", i, err)
+		}
+		if result.Stdout != want {
+			t.Fatalf("stdout iteration %d = %q, want %q", i, result.Stdout, want)
+		}
+		output, err := sys.Process().Output(context.Background(), handle.ID())
+		if err != nil {
+			t.Fatalf("Output iteration %d: %v", i, err)
+		}
+		if output.Stdout != want {
+			t.Fatalf("output snapshot iteration %d = %q, want %q", i, output.Stdout, want)
+		}
+		startedIndex, outputIndex, exitedIndex := -1, -1, -1
+		var eventOutput strings.Builder
+		for index, event := range events {
+			switch event.Kind {
+			case "started":
+				if startedIndex == -1 {
+					startedIndex = index
+				}
+			case "output":
+				if outputIndex == -1 {
+					outputIndex = index
+				}
+				if event.Stream == "stdout" {
+					eventOutput.WriteString(event.Data)
+				}
+			case "exited":
+				if exitedIndex == -1 {
+					exitedIndex = index
+				}
+			}
+		}
+		if startedIndex == -1 || outputIndex == -1 || exitedIndex == -1 {
+			t.Fatalf("events iteration %d = %#v, want started/output/exited", i, events)
+		}
+		if outputIndex < startedIndex || exitedIndex < outputIndex {
+			t.Fatalf("events iteration %d = %#v, want started before output before exited", i, events)
+		}
+		if eventOutput.String() != want {
+			t.Fatalf("event output iteration %d = %q, want %q", i, eventOutput.String(), want)
+		}
+	}
+}
+
 func TestHostEnvironmentLoadsRootEnvFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("ROOT_TOKEN=root\nSHARED=first\n"), 0644); err != nil {

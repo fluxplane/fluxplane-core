@@ -169,6 +169,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `error-policy`, and `idempotency-key`; use snake_case fields instead.
 
 ### Fixed
+- Fixed host process stdout/stderr capture so short-lived commands cannot exit
+  before their output is drained, avoiding flaky shell output events and empty
+  git command results.
 - Kept Codex/OpenAI streamed tool calls paired with durable transcript tool-call
   items before executing tool results, and made compaction preserve or drop
   tool-call/result groups together even when the assistant item only carries

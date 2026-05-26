@@ -1414,21 +1414,11 @@ func (p *HostProcess) Start(ctx context.Context, req ProcessRequest) (ProcessHan
 	}
 	cmd.Env = env
 	configureCommandProcess(cmd)
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		cancel()
-		return nil, err
-	}
 	start := time.Now()
 	id := fmt.Sprintf("proc-%d", p.nextID.Add(1))
 	mp := &managedProcess{
 		manager: p, id: id, cmd: cmd, cancel: cancel,
-		events: make(chan ProcessEvent, 128), done: make(chan struct{}),
+		events: make(chan ProcessEvent, 128), done: make(chan struct{}), started: make(chan struct{}),
 		stdout: cappedBuffer{max: positiveOr(req.MaxStdout, 64*1024)},
 		stderr: cappedBuffer{max: positiveOr(req.MaxStderr, 64*1024)},
 		info: ProcessInfo{
@@ -1436,6 +1426,8 @@ func (p *HostProcess) Start(ctx context.Context, req ProcessRequest) (ProcessHan
 			Command: command, Args: append([]string(nil), req.Args...), Workdir: workdir, StartedAt: start, Running: true,
 		},
 	}
+	cmd.Stdout = processOutputWriter{process: mp, stream: "stdout"}
+	cmd.Stderr = processOutputWriter{process: mp, stream: "stderr"}
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return nil, err
@@ -1444,9 +1436,7 @@ func (p *HostProcess) Start(ctx context.Context, req ProcessRequest) (ProcessHan
 	p.procs[id] = mp
 	p.mu.Unlock()
 	mp.emit(ProcessEvent{ProcessID: id, Kind: "started", Time: start})
-	mp.wg.Add(2)
-	go mp.copyOutput(stdoutPipe, "stdout")
-	go mp.copyOutput(stderrPipe, "stderr")
+	close(mp.started)
 	go mp.wait(runCtx, start)
 	return mp, nil
 }
@@ -1572,7 +1562,7 @@ type managedProcess struct {
 	stderr  cappedBuffer
 	events  chan ProcessEvent
 	done    chan struct{}
-	wg      sync.WaitGroup
+	started chan struct{}
 	result  ProcessResult
 	err     error
 }
@@ -1615,26 +1605,6 @@ func (p *managedProcess) Output() ProcessOutput {
 	return ProcessOutput{ProcessID: p.id, Stdout: stdout, Stderr: stderr, StdoutTruncated: stdoutTruncated, StderrTruncated: stderrTruncated}
 }
 
-func (p *managedProcess) copyOutput(reader io.Reader, stream string) {
-	defer p.wg.Done()
-	buf := make([]byte, 4096)
-	for {
-		n, err := reader.Read(buf)
-		if n > 0 {
-			chunk := string(buf[:n])
-			if stream == "stderr" {
-				_, _ = p.stderr.Write(buf[:n])
-			} else {
-				_, _ = p.stdout.Write(buf[:n])
-			}
-			p.emit(ProcessEvent{ProcessID: p.id, Kind: "output", Stream: stream, Data: chunk, Time: time.Now()})
-		}
-		if err != nil {
-			return
-		}
-	}
-}
-
 func (p *managedProcess) wait(ctx context.Context, start time.Time) {
 	err := p.cmd.Wait()
 	duration := time.Since(start)
@@ -1642,7 +1612,6 @@ func (p *managedProcess) wait(ctx context.Context, start time.Time) {
 	if timedOut {
 		killCommandProcess(p.cmd)
 	}
-	p.wg.Wait()
 	exitCode := 0
 	if err != nil {
 		if exit, ok := err.(*exec.ExitError); ok {
@@ -1673,6 +1642,25 @@ func (p *managedProcess) wait(ctx context.Context, start time.Time) {
 	p.emit(ProcessEvent{ProcessID: p.id, Kind: "exited", Time: ended, Data: fmt.Sprintf("%d", exitCode)})
 	close(p.done)
 	close(p.events)
+}
+
+type processOutputWriter struct {
+	process *managedProcess
+	stream  string
+}
+
+func (w processOutputWriter) Write(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+	if w.stream == "stderr" {
+		_, _ = w.process.stderr.Write(data)
+	} else {
+		_, _ = w.process.stdout.Write(data)
+	}
+	<-w.process.started
+	w.process.emit(ProcessEvent{ProcessID: w.process.id, Kind: "output", Stream: w.stream, Data: string(data), Time: time.Now()})
+	return len(data), nil
 }
 
 func (p *managedProcess) emit(event ProcessEvent) {
