@@ -14,6 +14,7 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/command"
+	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/policy"
@@ -34,6 +35,17 @@ const (
 
 // LoadDir loads the engineer subset of a .agents resource directory.
 func LoadDir(ctx context.Context, dir string) (resource.ContributionBundle, error) {
+	return LoadDirWithOptions(ctx, dir, LoadOptions{})
+}
+
+// LoadOptions controls agentdir resource loading behavior.
+type LoadOptions struct {
+	ContinueOnError bool
+	Events          event.Sink
+}
+
+// LoadDirWithOptions loads a .agents-compatible resource directory.
+func LoadDirWithOptions(ctx context.Context, dir string, opts LoadOptions) (resource.ContributionBundle, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -56,7 +68,7 @@ func LoadDir(ctx context.Context, dir string) (resource.ContributionBundle, erro
 			},
 		},
 	}
-	loaders := []func(context.Context, string, *resource.ContributionBundle) error{
+	loaders := []func(context.Context, string, *resource.ContributionBundle, LoadOptions) error{
 		loadAgents,
 		loadCommands,
 		loadWorkflows,
@@ -66,7 +78,7 @@ func LoadDir(ctx context.Context, dir string) (resource.ContributionBundle, erro
 		if err := ctx.Err(); err != nil {
 			return resource.ContributionBundle{}, err
 		}
-		if err := load(ctx, root, &bundle); err != nil {
+		if err := load(ctx, root, &bundle, opts); err != nil {
 			return resource.ContributionBundle{}, err
 		}
 	}
@@ -96,7 +108,7 @@ func LoadFS(ctx context.Context, fsys fs.FS, root string, source resource.Source
 		}
 	}
 	bundle := resource.ContributionBundle{Source: source}
-	loaders := []func(context.Context, fs.FS, string, *resource.ContributionBundle) error{
+	loaders := []func(context.Context, fs.FS, string, *resource.ContributionBundle, LoadOptions) error{
 		loadAgentsFS,
 		loadCommandsFS,
 		loadWorkflowsFS,
@@ -106,7 +118,7 @@ func LoadFS(ctx context.Context, fsys fs.FS, root string, source resource.Source
 		if err := ctx.Err(); err != nil {
 			return resource.ContributionBundle{}, err
 		}
-		if err := load(ctx, fsys, root, &bundle); err != nil {
+		if err := load(ctx, fsys, root, &bundle, LoadOptions{}); err != nil {
 			return resource.ContributionBundle{}, err
 		}
 	}
@@ -135,7 +147,7 @@ func resolveRoot(dir string) (string, error) {
 	return clean, nil
 }
 
-func loadAgents(ctx context.Context, root string, bundle *resource.ContributionBundle) error {
+func loadAgents(ctx context.Context, root string, bundle *resource.ContributionBundle, opts LoadOptions) error {
 	files, err := sortedGlob(filepath.Join(root, dirNameAgents, "*.md"))
 	if err != nil {
 		return err
@@ -146,6 +158,9 @@ func loadAgents(ctx context.Context, root string, bundle *resource.ContributionB
 		}
 		spec, err := DecodeAgentFile(path)
 		if err != nil {
+			if addLoadError(bundle, opts, "agent", path, err) {
+				continue
+			}
 			return err
 		}
 		bundle.Agents = append(bundle.Agents, spec)
@@ -153,7 +168,7 @@ func loadAgents(ctx context.Context, root string, bundle *resource.ContributionB
 	return nil
 }
 
-func loadCommands(ctx context.Context, root string, bundle *resource.ContributionBundle) error {
+func loadCommands(ctx context.Context, root string, bundle *resource.ContributionBundle, opts LoadOptions) error {
 	mdFiles, err := sortedGlob(filepath.Join(root, dirNameCommands, "*.md"))
 	if err != nil {
 		return err
@@ -164,6 +179,9 @@ func loadCommands(ctx context.Context, root string, bundle *resource.Contributio
 		}
 		spec, err := DecodePromptCommandFile(path)
 		if err != nil {
+			if addLoadError(bundle, opts, "command", path, err) {
+				continue
+			}
 			return err
 		}
 		bundle.Commands = append(bundle.Commands, spec)
@@ -178,6 +196,9 @@ func loadCommands(ctx context.Context, root string, bundle *resource.Contributio
 		}
 		spec, err := DecodeCommandFile(path)
 		if err != nil {
+			if addLoadError(bundle, opts, "command", path, err) {
+				continue
+			}
 			return err
 		}
 		bundle.Commands = append(bundle.Commands, spec)
@@ -185,7 +206,7 @@ func loadCommands(ctx context.Context, root string, bundle *resource.Contributio
 	return nil
 }
 
-func loadWorkflows(ctx context.Context, root string, bundle *resource.ContributionBundle) error {
+func loadWorkflows(ctx context.Context, root string, bundle *resource.ContributionBundle, opts LoadOptions) error {
 	files, err := sortedYAMLFiles(filepath.Join(root, dirNameWorkflows))
 	if err != nil {
 		return err
@@ -196,6 +217,9 @@ func loadWorkflows(ctx context.Context, root string, bundle *resource.Contributi
 		}
 		spec, err := DecodeWorkflowFile(path)
 		if err != nil {
+			if addLoadError(bundle, opts, "workflow", path, err) {
+				continue
+			}
 			return err
 		}
 		bundle.Workflows = append(bundle.Workflows, spec)
@@ -203,7 +227,7 @@ func loadWorkflows(ctx context.Context, root string, bundle *resource.Contributi
 	return nil
 }
 
-func loadSkills(ctx context.Context, root string, bundle *resource.ContributionBundle) error {
+func loadSkills(ctx context.Context, root string, bundle *resource.ContributionBundle, opts LoadOptions) error {
 	files, err := sortedGlob(filepath.Join(root, dirNameSkills, "*", "SKILL.md"))
 	if err != nil {
 		return err
@@ -214,10 +238,16 @@ func loadSkills(ctx context.Context, root string, bundle *resource.ContributionB
 		}
 		spec, err := DecodeSkillFile(path)
 		if err != nil {
+			if addLoadError(bundle, opts, "skill", path, err) {
+				continue
+			}
 			return err
 		}
 		refs, err := loadSkillReferencesDir(filepath.Dir(path))
 		if err != nil {
+			if addLoadError(bundle, opts, "skill_reference", path, err) {
+				continue
+			}
 			return err
 		}
 		spec.References = refs
@@ -226,7 +256,34 @@ func loadSkills(ctx context.Context, root string, bundle *resource.ContributionB
 	return nil
 }
 
-func loadAgentsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource.ContributionBundle) error {
+func addLoadError(bundle *resource.ContributionBundle, opts LoadOptions, kind, itemPath string, err error) bool {
+	if !opts.ContinueOnError || bundle == nil || err == nil {
+		return false
+	}
+	source := bundle.Source
+	if strings.TrimSpace(itemPath) != "" {
+		source.Location = itemPath
+	}
+	loadErr := resource.LoadError{
+		Source:    source,
+		Kind:      kind,
+		Path:      itemPath,
+		Severity:  resource.SeverityError,
+		Message:   err.Error(),
+		Continued: true,
+	}
+	if opts.Events != nil {
+		opts.Events.Emit(loadErr)
+	}
+	bundle.Diagnostics = append(bundle.Diagnostics, resource.Diagnostic{
+		Severity: loadErr.Severity,
+		Source:   loadErr.Source,
+		Message:  loadErr.Message,
+	})
+	return true
+}
+
+func loadAgentsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource.ContributionBundle, opts LoadOptions) error {
 	files, err := sortedFSGlob(fsys, path.Join(root, dirNameAgents, "*.md"))
 	if err != nil {
 		return err
@@ -248,7 +305,7 @@ func loadAgentsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource
 	return nil
 }
 
-func loadCommandsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource.ContributionBundle) error {
+func loadCommandsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource.ContributionBundle, opts LoadOptions) error {
 	mdFiles, err := sortedFSGlob(fsys, path.Join(root, dirNameCommands, "*.md"))
 	if err != nil {
 		return err
@@ -288,7 +345,7 @@ func loadCommandsFS(ctx context.Context, fsys fs.FS, root string, bundle *resour
 	return nil
 }
 
-func loadWorkflowsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource.ContributionBundle) error {
+func loadWorkflowsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource.ContributionBundle, opts LoadOptions) error {
 	files, err := sortedFSYAMLFiles(fsys, path.Join(root, dirNameWorkflows))
 	if err != nil {
 		return err
@@ -310,7 +367,7 @@ func loadWorkflowsFS(ctx context.Context, fsys fs.FS, root string, bundle *resou
 	return nil
 }
 
-func loadSkillsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource.ContributionBundle) error {
+func loadSkillsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource.ContributionBundle, opts LoadOptions) error {
 	files, err := sortedFSGlob(fsys, path.Join(root, dirNameSkills, "*", "SKILL.md"))
 	if err != nil {
 		return err
@@ -565,7 +622,7 @@ func DecodeSkillFile(path string) (skill.Spec, error) {
 // DecodeSkill decodes one markdown skill resource.
 func DecodeSkill(defaultName, sourceURI string, data []byte) (skill.Spec, error) {
 	var fm skillFrontmatter
-	body, err := decodeFrontmatter(data, &fm)
+	body, err := decodeFrontmatterRelaxed(data, &fm)
 	if err != nil {
 		return skill.Spec{}, err
 	}
@@ -747,7 +804,15 @@ type referenceFrontmatter struct {
 	Triggers any    `yaml:"triggers"`
 }
 
+func decodeFrontmatterRelaxed[T any](data []byte, out *T) (string, error) {
+	return decodeFrontmatterWithOptions(data, out, true)
+}
+
 func decodeFrontmatter[T any](data []byte, out *T) (string, error) {
+	return decodeFrontmatterWithOptions(data, out, false)
+}
+
+func decodeFrontmatterWithOptions[T any](data []byte, out *T, allowUnknown bool) (string, error) {
 	text := strings.TrimPrefix(string(data), "\ufeff")
 	if !strings.HasPrefix(text, "---\n") && !strings.HasPrefix(text, "---\r\n") {
 		return text, nil
@@ -771,7 +836,7 @@ func decodeFrontmatter[T any](data []byte, out *T) (string, error) {
 		return "", fmt.Errorf("frontmatter is not closed")
 	}
 	frontmatter := []byte(fm.String())
-	if err := validateYAMLBytes[T](frontmatter); err != nil {
+	if err := validateYAMLBytes[T](frontmatter, allowUnknown); err != nil {
 		return "", fmt.Errorf("frontmatter schema: %w", err)
 	}
 	if err := yaml.Unmarshal(frontmatter, out); err != nil {
@@ -780,7 +845,7 @@ func decodeFrontmatter[T any](data []byte, out *T) (string, error) {
 	return body.String(), nil
 }
 
-func validateYAMLBytes[T any](data []byte) error {
+func validateYAMLBytes[T any](data []byte, allowUnknown bool) error {
 	var decoded any
 	if err := yaml.Unmarshal(data, &decoded); err != nil {
 		return err
@@ -793,7 +858,7 @@ func validateYAMLBytes[T any](data []byte) error {
 	if err := json.Unmarshal(jsonData, &value); err != nil {
 		return fmt.Errorf("unmarshal JSON value: %w", err)
 	}
-	schemaData, err := schemaDataFor[T]()
+	schemaData, err := schemaDataFor[T](allowUnknown)
 	if err != nil {
 		return err
 	}
@@ -815,12 +880,12 @@ func validateYAMLBytes[T any](data []byte) error {
 	return nil
 }
 
-func schemaDataFor[T any]() ([]byte, error) {
+func schemaDataFor[T any](allowUnknown bool) ([]byte, error) {
 	typ := reflect.TypeOf((*T)(nil)).Elem()
 	reflector := invjsonschema.Reflector{
 		DoNotReference:             false,
 		ExpandedStruct:             true,
-		AllowAdditionalProperties:  false,
+		AllowAdditionalProperties:  allowUnknown,
 		RequiredFromJSONSchemaTags: true,
 		FieldNameTag:               "yaml",
 	}
@@ -990,7 +1055,6 @@ func skillMetadata(fm skillFrontmatter) map[string]string {
 	}
 	return out
 }
-
 func frontmatterStrings(value any) []string {
 	switch typed := value.(type) {
 	case nil:

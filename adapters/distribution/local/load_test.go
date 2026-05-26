@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/fluxplane/fluxplane-core/core/resource"
 )
 
 func TestLoadManifestCreatesEphemeralDistribution(t *testing.T) {
@@ -194,6 +196,42 @@ name: assistant
 	}
 	if loaded.Distribution.Spec.DefaultSession.Name != "default" {
 		t.Fatalf("default session = %q, want default", loaded.Distribution.Spec.DefaultSession.Name)
+	}
+}
+
+func TestLoadUserResourcesMarksDiagnosticsUserScoped(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	agentDir := filepath.Join(home, ".agents")
+	if err := os.MkdirAll(filepath.Join(agentDir, "skills", "bad"), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "skills", "bad", "SKILL.md"), []byte(`---
+name: bad
+metadata:
+  nested:
+    value: unsupported
+---
+Bad.
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	bundles, diagnostics := loadUserResources(context.Background())
+	if len(bundles) != 1 {
+		t.Fatalf("bundles len = %d, want 1", len(bundles))
+	}
+	if bundles[0].Source.Scope != resource.ScopeUser {
+		t.Fatalf("bundle scope = %q, want user", bundles[0].Source.Scope)
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics len = %d, want 1: %#v", len(diagnostics), diagnostics)
+	}
+	if diagnostics[0].Source.Scope != resource.ScopeUser {
+		t.Fatalf("diagnostic scope = %q, want user", diagnostics[0].Source.Scope)
+	}
+	if bundles[0].Diagnostics[0].Source.Scope != resource.ScopeUser {
+		t.Fatalf("bundle diagnostic scope = %q, want user", bundles[0].Diagnostics[0].Source.Scope)
 	}
 }
 

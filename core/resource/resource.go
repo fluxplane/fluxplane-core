@@ -63,6 +63,20 @@ type Diagnostic struct {
 	Message  string    `json:"message"`
 }
 
+const EventLoadError event.Name = "resource.load_error"
+
+// LoadError records a recoverable resource loading or validation failure.
+type LoadError struct {
+	Source    SourceRef `json:"source,omitempty"`
+	Kind      string    `json:"kind,omitempty"`
+	Path      string    `json:"path,omitempty"`
+	Severity  Severity  `json:"severity,omitempty"`
+	Message   string    `json:"message"`
+	Continued bool      `json:"continued,omitempty"`
+}
+
+func (LoadError) EventName() event.Name { return EventLoadError }
+
 // PluginRef identifies a plugin requested by resources or app configuration.
 type PluginRef struct {
 	Name     string         `json:"name"`

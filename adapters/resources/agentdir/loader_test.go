@@ -9,9 +9,11 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/command"
+	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
 )
@@ -290,6 +292,89 @@ Use Go guidance.
 	}
 	if golang.Metadata["domain"] != "language" || golang.Metadata["role"] != "specialist" {
 		t.Fatalf("golang metadata = %#v", golang.Metadata)
+	}
+}
+
+func TestDecodeSkillAcceptsOfficialAndUnknownFrontmatter(t *testing.T) {
+	spec, err := DecodeSkill("fallback", "file:///tmp/SKILL.md", []byte(`---
+name: doc-helper
+description: Helps with docs.
+allowed-tools: Bash, Read
+allowed_tools: ignored
+when_to_use: Use when editing documentation.
+user_invocable: true
+x-vendor-extra: kept by tolerant parser
+---
+# Docs
+`))
+	if err != nil {
+		t.Fatalf("DecodeSkill() error = %v", err)
+	}
+	if spec.Name != "doc-helper" {
+		t.Fatalf("name = %q", spec.Name)
+	}
+	if _, ok := spec.Metadata["when_to_use"]; ok {
+		t.Fatalf("metadata includes non-official when_to_use: %#v", spec.Metadata)
+	}
+	if _, ok := spec.Metadata["user_invocable"]; ok {
+		t.Fatalf("metadata includes non-official user_invocable alias: %#v", spec.Metadata)
+	}
+	if got := spec.Annotations["allowed_tools"]; got != "Bash,Read" {
+		t.Fatalf("allowed tools annotation = %q", got)
+	}
+}
+
+func TestLoadDirWithOptionsContinuesAfterBadSkill(t *testing.T) {
+	root := t.TempDir()
+	agentDir := filepath.Join(root, ".claude")
+	writeFile(t, agentDir, "skills/bad/SKILL.md", `---
+name: bad
+metadata:
+  nested:
+    value: unsupported
+---
+Bad.
+`)
+	writeFile(t, agentDir, "skills/golang-pro/SKILL.md", `---
+name: golang-pro
+description: Go specialist.
+unknown_extension_field: Use when working on Go code.
+---
+Go guidance.
+`)
+
+	if _, err := LoadDir(context.Background(), agentDir); err == nil {
+		t.Fatal("LoadDir() error = nil, want strict load error")
+	}
+	bundle, err := LoadDirWithOptions(context.Background(), agentDir, LoadOptions{ContinueOnError: true})
+	if err != nil {
+		t.Fatalf("LoadDirWithOptions() error = %v", err)
+	}
+	if len(bundle.Skills) != 1 || bundle.Skills[0].Name != "golang-pro" {
+		t.Fatalf("skills = %#v, want only golang-pro", bundle.Skills)
+	}
+	if len(bundle.Diagnostics) != 1 {
+		t.Fatalf("diagnostics len = %d, want 1: %#v", len(bundle.Diagnostics), bundle.Diagnostics)
+	}
+	if len(bundle.EventTypes) != 0 {
+		t.Fatalf("event types len = %d, want 0 registration samples", len(bundle.EventTypes))
+	}
+	var emitted []event.Event
+	bundle, err = LoadDirWithOptions(context.Background(), agentDir, LoadOptions{
+		ContinueOnError: true,
+		Events: event.SinkFunc(func(ev event.Event) {
+			emitted = append(emitted, ev)
+		}),
+	})
+	if err != nil {
+		t.Fatalf("LoadDirWithOptions with sink error = %v", err)
+	}
+	if len(emitted) != 1 {
+		t.Fatalf("emitted len = %d, want 1", len(emitted))
+	}
+	loadErr, ok := emitted[0].(resource.LoadError)
+	if !ok || loadErr.Kind != "skill" || !loadErr.Continued {
+		t.Fatalf("load error event = %#v", emitted[0])
 	}
 }
 

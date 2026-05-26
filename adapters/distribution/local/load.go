@@ -278,14 +278,19 @@ func loadUserResources(ctx context.Context) ([]resource.ContributionBundle, []re
 		if err != nil || !info.IsDir() {
 			continue
 		}
-		bundle, err := agentdir.LoadDir(ctx, dir)
+		bundle, err := agentdir.LoadDirWithOptions(ctx, dir, agentdir.LoadOptions{ContinueOnError: true})
 		if err != nil {
 			diagnostics = append(diagnostics, diagnostic(resource.SourceRef{Location: dir}, err))
 			continue
 		}
 		bundle.Source.Scope = resource.ScopeUser
 		bundle.Source.Trust = policy.Trust{Kind: policy.TrustSource, Level: policy.TrustVerified}
+		for i := range bundle.Diagnostics {
+			bundle.Diagnostics[i].Source.Scope = resource.ScopeUser
+			bundle.Diagnostics[i].Source.Trust = bundle.Source.Trust
+		}
 		out = append(out, bundle)
+		diagnostics = append(diagnostics, bundle.Diagnostics...)
 	}
 	return out, diagnostics
 }
