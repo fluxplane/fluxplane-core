@@ -135,10 +135,18 @@ type Config struct {
 	LLMModelResolver     LLMModelResolver
 	LLMStreamPolicy      LLMStreamPolicy
 	ToolProjection       ToolProjectionConfig
-	IdentityResolver     IdentityResolver
-	ExternalIdentity     ExternalIdentityResolver
-	Security             policy.AuthorizationPolicy
-	SecurityTrace        bool
+	// SessionToolProjection controls how each session projects activated
+	// operations to the LLM. Default ("") keeps the legacy behavior of
+	// appending activated ops to the request tools list. Set to
+	// session.ToolProjectionContextBlocksOnly to preserve the Anthropic
+	// prompt cache breakpoint across activation events — activated ops
+	// reach the model only via the surface schema context provider and
+	// dispatch through surface_call.
+	SessionToolProjection session.ToolProjectionMode
+	IdentityResolver      IdentityResolver
+	ExternalIdentity      ExternalIdentityResolver
+	Security              policy.AuthorizationPolicy
+	SecurityTrace         bool
 }
 
 // Service is the public library facade over the default in-process runtime.
@@ -192,34 +200,35 @@ func New(cfg Config) (*Service, error) {
 	}
 
 	service := harness.New(harness.Config{
-		Agent:                cfg.Agent,
-		AgentProvider:        cfg.AgentProvider,
-		Commands:             commands,
-		Operations:           operations,
-		Resolver:             cfg.Resolver,
-		CommandCatalog:       cfg.CommandCatalog,
-		SessionCommands:      cfg.SessionCommands,
-		OperationCatalog:     cfg.OperationCatalog,
-		ActivationSets:       append([]coreactivation.Set(nil), cfg.ActivationSets...),
-		OperationSets:        append([]operation.Set(nil), cfg.OperationSets...),
-		Datasources:          append([]coredatasource.Spec(nil), cfg.Datasources...),
-		PostEditChecks:       append([]coresession.PostEditCheckSpec(nil), cfg.PostEditChecks...),
-		ContextProviders:     append([]corecontext.Provider(nil), cfg.ContextProviders...),
-		WorkflowCatalog:      cfg.WorkflowCatalog,
-		ToolSetCatalog:       cfg.ToolSetCatalog,
-		SessionCatalog:       cfg.SessionCatalog,
-		OperationExecutor:    executor,
-		EnvironmentObservers: cfg.EnvironmentObservers,
-		AssertionDerivers:    cfg.AssertionDerivers,
-		ReactionRules:        cfg.ReactionRules,
-		Events:               cfg.Events,
-		ThreadStore:          threadStore,
-		StopEvaluator:        stopEvaluator,
-		IdentityResolver:     cfg.IdentityResolver,
-		ExternalIdentity:     cfg.ExternalIdentity,
-		ToolProjection:       cfg.ToolProjection,
-		Security:             cfg.Security,
-		SecurityTrace:        cfg.SecurityTrace,
+		Agent:                 cfg.Agent,
+		AgentProvider:         cfg.AgentProvider,
+		Commands:              commands,
+		Operations:            operations,
+		Resolver:              cfg.Resolver,
+		CommandCatalog:        cfg.CommandCatalog,
+		SessionCommands:       cfg.SessionCommands,
+		OperationCatalog:      cfg.OperationCatalog,
+		ActivationSets:        append([]coreactivation.Set(nil), cfg.ActivationSets...),
+		OperationSets:         append([]operation.Set(nil), cfg.OperationSets...),
+		Datasources:           append([]coredatasource.Spec(nil), cfg.Datasources...),
+		PostEditChecks:        append([]coresession.PostEditCheckSpec(nil), cfg.PostEditChecks...),
+		ContextProviders:      append([]corecontext.Provider(nil), cfg.ContextProviders...),
+		WorkflowCatalog:       cfg.WorkflowCatalog,
+		ToolSetCatalog:        cfg.ToolSetCatalog,
+		SessionCatalog:        cfg.SessionCatalog,
+		OperationExecutor:     executor,
+		EnvironmentObservers:  cfg.EnvironmentObservers,
+		AssertionDerivers:     cfg.AssertionDerivers,
+		ReactionRules:         cfg.ReactionRules,
+		Events:                cfg.Events,
+		ThreadStore:           threadStore,
+		StopEvaluator:         stopEvaluator,
+		IdentityResolver:      cfg.IdentityResolver,
+		ExternalIdentity:      cfg.ExternalIdentity,
+		ToolProjection:        cfg.ToolProjection,
+		SessionToolProjection: cfg.SessionToolProjection,
+		Security:              cfg.Security,
+		SecurityTrace:         cfg.SecurityTrace,
 	})
 	client, err := direct.New(direct.Config{
 		Service: service,

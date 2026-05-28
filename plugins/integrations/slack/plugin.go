@@ -2,12 +2,9 @@ package slack
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/activation"
-	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
@@ -24,7 +21,6 @@ const (
 	OperationSet     = Name + ".channel"
 	ChannelSendOp    = "channel_send"
 	ReportProgressOp = "slack_report_progress"
-	ThreadReplyOp    = "slack_thread_reply"
 )
 
 type slackClientFactory func(token, appToken string) *slack.Client
@@ -43,7 +39,6 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
-var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
 var _ pluginhost.AuthTestContributor = Plugin{}
 
@@ -98,14 +93,13 @@ func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resour
 	}
 	aliases := []string{setName + ".default", "channel"}
 	return resource.ContributionBundle{
-		Operations: []operation.Spec{p.channelSendSpec(), p.reportProgressSpec(), p.threadReplySpec()},
+		Operations: []operation.Spec{p.channelSendSpec(), p.reportProgressSpec()},
 		OperationSets: []operation.Set{{
 			Name:        operationSetName,
-			Description: "Slack active-channel reply, explicit thread reply, and progress operations.",
+			Description: "Slack active-channel reply and progress operations.",
 			Operations: []operation.Ref{
 				{Name: ChannelSendOp},
-				{Name: ThreadReplyOp},
-				{Name: "slack_*"},
+				{Name: ReportProgressOp},
 			},
 		}},
 		ActivationSets: []activation.Set{{
@@ -117,7 +111,6 @@ func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resour
 				OperationSet: operationSetName,
 			}},
 		}},
-		DataSources: []coredata.SourceSpec{DataSourceSpec()},
 	}, nil
 }
 
@@ -126,13 +119,7 @@ func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operati
 	return []operation.Operation{
 		operationruntime.NewTypedResult[channelSendInput, channelSendOutput](p.channelSendSpec(), p.channelSend),
 		operationruntime.NewTypedResult[reportProgressInput, reportProgressOutput](p.reportProgressSpec(), p.reportProgress),
-		operationruntime.NewTypedResult[threadReplyInput, threadReplyOutput](p.threadReplySpec(), p.threadReply),
 	}, nil
-}
-
-func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) ([]coredatasource.Provider, error) {
-	p = p.withRef(ctx.Ref)
-	return []coredatasource.Provider{slackDatasourceProvider{plugin: p}}, nil
 }
 
 func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]coresecret.AuthMethodSpec, error) {
@@ -214,49 +201,6 @@ func (p Plugin) withRef(ref resource.PluginRef) Plugin {
 	return p
 }
 
-func (p Plugin) session(ctx context.Context) (Session, error) {
-	if p.secrets != nil {
-		return ResolveWithResolver(ctx, p.system, p.secrets, p.ref, p.cfg)
-	}
-	return Resolve(ctx, p.system, p.store, p.ref, p.cfg)
-}
-
-func (p Plugin) api(ctx context.Context) (slackAPI, error) {
-	session, err := p.session(ctx)
-	if err != nil {
-		return nil, err
-	}
-	token := firstNonEmpty(session.UserToken, session.BotToken)
-	if token == "" {
-		return nil, fmt.Errorf("slackplugin: bot token or user token is not configured")
-	}
-	return p.newClient(token, session.AppToken), nil
-}
-
-func (p Plugin) botAPI(ctx context.Context) (slackAPI, error) {
-	session, err := p.session(ctx)
-	if err != nil {
-		return nil, err
-	}
-	token := firstNonEmpty(session.BotToken, session.UserToken)
-	if token == "" {
-		return nil, fmt.Errorf("slackplugin: bot token or user token is not configured")
-	}
-	return p.newClient(token, session.AppToken), nil
-}
-
-func (p Plugin) userAPI(ctx context.Context) (slackAPI, bool, error) {
-	session, err := p.session(ctx)
-	if err != nil {
-		return nil, false, err
-	}
-	token := strings.TrimSpace(session.UserToken)
-	if token == "" {
-		return nil, false, nil
-	}
-	return p.newClient(token, session.AppToken), true, nil
-}
-
 func (p Plugin) newClient(token, appToken string) *slack.Client {
 	factory := p.clientFactory
 	if factory != nil {
@@ -309,61 +253,6 @@ func (p Plugin) channelSend(ctx operation.Context, input channelSendInput) opera
 		return operation.Failed("slack_channel_send_failed", err.Error(), nil)
 	}
 	return operation.OK(channelSendOutput{Channel: target.ChannelID, Thread: target.ThreadTS, Ts: ts})
-}
-
-func (p Plugin) threadReplySpec() operation.Spec {
-	return operationruntime.WithTypedContract[threadReplyInput, threadReplyOutput](operation.Spec{
-		Ref:         operation.Ref{Name: ThreadReplyOp},
-		Description: "Send a user-visible message to an explicit Slack thread target. Use channel_send instead when the current request came from Slack and already has an active Slack channel turn.",
-		Semantics: operation.Semantics{
-			Determinism: operation.DeterminismNonDeterministic,
-			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectWriteExternal},
-			Idempotency: operation.IdempotencyNonIdempotent,
-			Risk:        operation.RiskLow,
-		},
-	})
-}
-
-type threadReplyInput struct {
-	Text      string `json:"text" jsonschema:"description=Message text to post.,required"`
-	Permalink string `json:"permalink,omitempty" jsonschema:"description=Slack message permalink identifying the thread to reply to."`
-	ChannelID string `json:"channel_id,omitempty" jsonschema:"description=Slack channel id. Required when permalink is omitted."`
-	ThreadTS  string `json:"thread_ts,omitempty" jsonschema:"description=Slack thread timestamp. Required when permalink is omitted."`
-}
-
-type threadReplyOutput struct {
-	Channel string `json:"channel,omitempty"`
-	Thread  string `json:"thread,omitempty"`
-	Ts      string `json:"ts,omitempty"`
-}
-
-func (p Plugin) threadReply(ctx operation.Context, input threadReplyInput) operation.Result {
-	text := strings.TrimSpace(input.Text)
-	if text == "" {
-		return operation.Failed("invalid_slack_thread_reply_input", "text is required", nil)
-	}
-	channelID, threadTS, ok := explicitThreadTarget(input)
-	if !ok {
-		return operation.Failed("invalid_slack_thread_reply_input", "permalink or channel_id and thread_ts are required", nil)
-	}
-	api, err := p.api(ctx)
-	if err != nil {
-		return operation.Failed("slack_thread_reply_auth_failed", err.Error(), nil)
-	}
-	_, ts, err := api.PostMessageContext(ctx, channelID, slack.MsgOptionText(text, false), slack.MsgOptionTS(threadTS))
-	if err != nil {
-		return operation.Failed("slack_thread_reply_failed", err.Error(), nil)
-	}
-	return operation.OK(threadReplyOutput{Channel: channelID, Thread: threadTS, Ts: ts})
-}
-
-func explicitThreadTarget(input threadReplyInput) (string, string, bool) {
-	if channelID, threadTS, ok := slackMessageTargetFromPermalink(input.Permalink); ok {
-		return channelID, threadTS, true
-	}
-	channelID := strings.TrimSpace(input.ChannelID)
-	threadTS := strings.TrimSpace(input.ThreadTS)
-	return channelID, threadTS, channelID != "" && threadTS != ""
 }
 
 func (p Plugin) reportProgressSpec() operation.Spec {

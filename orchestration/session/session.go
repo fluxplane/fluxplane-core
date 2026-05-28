@@ -85,7 +85,31 @@ type Session struct {
 	ReactionRules        []corereaction.Rule
 	Security             policy.AuthorizationPolicy
 	SecurityTrace        bool
+
+	// ToolProjection controls whether activated operations land in the LLM
+	// request tools list. The default ("") keeps the legacy behavior of
+	// appending activated ops as tool.Spec entries every turn — which
+	// invalidates the Anthropic prompt cache breakpoint sitting on the last
+	// tool. Set to ToolProjectionContextBlocksOnly to keep the tools list
+	// stable across activations: activated operations are projected only
+	// through the surface schema context provider, and the LLM dispatches
+	// them via the surface_call tool.
+	ToolProjection ToolProjectionMode
 }
+
+// ToolProjectionMode selects how activated operations are exposed to the LLM.
+type ToolProjectionMode string
+
+const (
+	// ToolProjectionDefault appends activated operations to the request tool
+	// list. Convenient for the LLM (direct tool calls) but each activation
+	// busts the Anthropic prompt cache breakpoint.
+	ToolProjectionDefault ToolProjectionMode = ""
+	// ToolProjectionContextBlocksOnly keeps the tools list stable across
+	// activations. Activated operation schemas reach the LLM only via the
+	// surface schema context provider; dispatch goes through surface_call.
+	ToolProjectionContextBlocksOnly ToolProjectionMode = "context_blocks_only"
+)
 
 type StopEvaluator = sessioncontrol.StopEvaluator
 type StopEvaluationInput = sessioncontrol.StopEvaluationInput
@@ -3790,14 +3814,20 @@ func (s Session) turnTools(active sessionenv.ActiveState) []tool.Spec {
 			}
 		}
 	}
-	for _, projected := range s.activeOperationTools(active) {
-		if !toolProjected(out, projected) {
-			out = append(out, projected)
+	// In ContextBlocksOnly mode the activated operations reach the LLM only
+	// through the surface schema context provider; appending them here would
+	// invalidate the Anthropic prompt cache breakpoint that sits on the last
+	// tool. Dispatch is via surface_call.
+	if s.ToolProjection != ToolProjectionContextBlocksOnly {
+		for _, projected := range s.activeOperationTools(active) {
+			if !toolProjected(out, projected) {
+				out = append(out, projected)
+			}
 		}
-	}
-	for _, projected := range s.activeOperationSetTools(active) {
-		if !toolProjected(out, projected) {
-			out = append(out, projected)
+		for _, projected := range s.activeOperationSetTools(active) {
+			if !toolProjected(out, projected) {
+				out = append(out, projected)
+			}
 		}
 	}
 	if out == nil && s.TurnTools != nil {

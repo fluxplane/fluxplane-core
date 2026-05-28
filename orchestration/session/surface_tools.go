@@ -199,8 +199,11 @@ func (s Session) surfacePrepareOperation() operation.Operation {
 
 func (s Session) surfaceCallOperation() operation.Operation {
 	return operationruntime.NewTypedResult[surfaceCallInput, operation.Value](operation.Spec{
-		Ref:         surfaceCallOperationRef,
-		Description: "Call an operation that is active on the prepared surface.",
+		Ref: surfaceCallOperationRef,
+		Description: "Call an operation that is active on the prepared surface. " +
+			"Active operation schemas are listed in the developer context as 'Surface operation schema: <ref>' blocks; " +
+			"pass that ref as `operation` and the matching JSON payload as `input`. " +
+			"If the operation isn't active yet, call surface_prepare first (or session_focus with requested_surface).",
 		Semantics:   surfaceToolSemantics(),
 		Annotations: surfaceToolAnnotations(),
 	}, func(ctx operation.Context, input surfaceCallInput) operation.Result {

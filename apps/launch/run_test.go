@@ -2,14 +2,12 @@ package launch
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	fluxplane "github.com/fluxplane/fluxplane-core"
 	"github.com/fluxplane/fluxplane-core/adapters/distribution/localruntime"
 	embedaxon "github.com/fluxplane/fluxplane-core/adapters/embeddings/axon"
-	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
 	coreagent "github.com/fluxplane/fluxplane-core/core/agent"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	"github.com/fluxplane/fluxplane-core/core/channel"
@@ -27,7 +25,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/bundles/coding"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/slack"
 	"github.com/fluxplane/fluxplane-core/plugins/integrations/web"
 	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
@@ -39,7 +36,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
@@ -376,126 +372,6 @@ func TestLaunchOpensWebSearchDatasourceThroughCodingPlugin(t *testing.T) {
 	}
 }
 
-func TestDatasourceRegistryOpensNativeGitLabDatasource(t *testing.T) {
-	withStateDir(t)
-	ctx := context.Background()
-	root := filepath.Join("..", "..", "examples", "slack-bot")
-	file, err := appconfig.LoadDirFile(ctx, root)
-	if err != nil {
-		t.Fatalf("LoadDirFile: %v", err)
-	}
-	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
-	if !bundleHasPlugin([]resource.ContributionBundle{file.Bundle}, "gitlab") {
-		t.Fatalf("decoded plugins = %#v, want gitlab", file.Bundle.Plugins)
-	}
-	plugins := availablePlugins(sys, nil, nil, "", false)
-	host, err := pluginhost.New(plugins...)
-	if err != nil {
-		t.Fatalf("pluginhost.New: %v", err)
-	}
-	resolved, err := host.Resolve(ctx, file.Bundle.Plugins...)
-	if err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-	var hasGitLabProvider bool
-	for _, contribution := range resolved.DatasourceProviders {
-		for _, entity := range contribution.Provider.Entities() {
-			if entity.Type == "gitlab.project" {
-				hasGitLabProvider = true
-			}
-		}
-	}
-	if !hasGitLabProvider {
-		t.Fatalf("datasource providers = %#v, want gitlab.project provider", resolved.DatasourceProviders)
-	}
-	bundle := file.Bundle
-	bundle.Datasources = []coredatasource.Spec{{
-		Name:     "gitlab",
-		Kind:     "gitlab",
-		Entities: []coredatasource.EntityType{"gitlab.project"},
-		Config:   map[string]string{"instance": "main"},
-	}}
-	registry, err := datasourceRegistry(ctx, []resource.ContributionBundle{bundle}, plugins, root)
-	if err != nil {
-		t.Fatalf("datasourceRegistry: %v", err)
-	}
-	accessor, ok := registry.Get(coredatasource.Name("gitlab"))
-	if !ok {
-		t.Fatal("expected gitlab datasource accessor")
-	}
-	entities := accessor.Entities()
-	if len(entities) != 1 || entities[0].Type != "gitlab.project" {
-		t.Fatalf("entities = %#v, want gitlab.project", entities)
-	}
-}
-
-func TestLaunchSlackDatasourceUsesRuntimeAuthPath(t *testing.T) {
-	withStateDir(t)
-	ctx := context.Background()
-	authPath := t.TempDir()
-	ref := resource.PluginRef{Name: slack.Name, Instance: "slack-bot"}
-	saveSlackBotToken(t, authPath, ref)
-	bundle := slackDatasourceBundle(ref)
-
-	runtime, err := Launch(ctx, RuntimeOptions{
-		Root:                t.TempDir(),
-		Bundles:             []resource.ContributionBundle{bundle},
-		AuthPath:            authPath,
-		AllowPrivateNetwork: true,
-	})
-	if err != nil {
-		t.Fatalf("Launch: %v", err)
-	}
-	defer runtime.Close()
-	if !runtimeHasContextProvider(runtime, datasource.PrewarmProvider) {
-		t.Fatalf("context providers = %#v, want %s", runtime.Composition.ContextSpecs, datasource.PrewarmProvider)
-	}
-
-	registry, err := datasource.BuildRegistry(ctx, bundle.Datasources, runtime.Composition.DatasourceProviders)
-	if err != nil {
-		t.Fatalf("BuildRegistry: %v", err)
-	}
-	assertSlackDatasourceLoadedToken(t, registry)
-}
-
-func runtimeHasContextProvider(runtime Runtime, name string) bool {
-	for _, spec := range runtime.Composition.ContextSpecs {
-		if string(spec.Name) == name {
-			return true
-		}
-	}
-	for _, provider := range runtime.Composition.ContextProviderImpls {
-		if provider != nil && string(provider.Spec().Name) == name {
-			return true
-		}
-	}
-	return false
-}
-
-func TestDatasourceIndexRuntimeSlackDatasourceUsesAuthPath(t *testing.T) {
-	withStateDir(t)
-	ctx := context.Background()
-	authPath := t.TempDir()
-	ref := resource.PluginRef{Name: slack.Name, Instance: "slack-bot"}
-	saveSlackBotToken(t, authPath, ref)
-
-	runtime, err := NewDatasourceIndexRuntime(ctx, DatasourceIndexOptions{
-		Root:     t.TempDir(),
-		Bundles:  []resource.ContributionBundle{slackDatasourceBundle(ref)},
-		AuthPath: authPath,
-		Provider: "hash",
-	})
-	if err != nil {
-		t.Fatalf("NewDatasourceIndexRuntime: %v", err)
-	}
-	defer func() { _ = runtime.Close() }()
-
-	assertSlackDatasourceLoadedToken(t, runtime.Registry)
-}
-
 func TestDatasourceIndexRuntimePassesProcessAuthEnvToPluginFactory(t *testing.T) {
 	withStateDir(t)
 	ctx := context.Background()
@@ -733,50 +609,6 @@ func hasDatasourceSpec(runtime Runtime, name string) bool {
 		}
 	}
 	return false
-}
-
-func saveSlackBotToken(t *testing.T, authPath string, ref resource.PluginRef) {
-	t.Helper()
-	store := runtimesecret.NewFileStore(authPath)
-	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
-		Ref:   slack.BotTokenSecretRef(ref),
-		Value: "slack-bot-token",
-	}); err != nil {
-		t.Fatalf("SaveSecret: %v", err)
-	}
-}
-
-func slackDatasourceBundle(ref resource.PluginRef) resource.ContributionBundle {
-	return resource.ContributionBundle{
-		Plugins: []resource.PluginRef{ref},
-		Datasources: []coredatasource.Spec{{
-			Name:     "slack-bot",
-			Kind:     slack.Name,
-			Entities: []coredatasource.EntityType{slack.ChannelEntity},
-			Config:   map[string]string{"instance": ref.InstanceName()},
-		}},
-	}
-}
-
-func assertSlackDatasourceLoadedToken(t *testing.T, registry *coredatasource.Registry) {
-	t.Helper()
-	accessor, ok := registry.Get(coredatasource.Name("slack-bot"))
-	if !ok {
-		t.Fatal("expected slack datasource accessor")
-	}
-	lister, ok := accessor.(coredatasource.Lister)
-	if !ok {
-		t.Fatalf("accessor = %T, want lister", accessor)
-	}
-	canceled, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := lister.List(canceled, coredatasource.ListRequest{Entity: slack.ChannelEntity, Limit: 1})
-	if err == nil {
-		t.Fatal("List error is nil, want canceled request")
-	}
-	if strings.Contains(err.Error(), "bot token is not configured") {
-		t.Fatalf("List error = %v, want token loaded from configured auth path", err)
-	}
 }
 
 func agentSpec(runtime Runtime, name string) (coreagent.Spec, bool) {

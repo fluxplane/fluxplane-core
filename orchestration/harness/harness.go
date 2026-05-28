@@ -66,8 +66,17 @@ type Config struct {
 	ExternalIdentity     identity.ExternalResolver
 	ToolSetCatalog       session.ToolSetCatalog
 	ToolProjection       toolprojection.Config
-	Security             policy.AuthorizationPolicy
-	SecurityTrace        bool
+
+	// SessionToolProjection controls how activated operations are projected
+	// to the LLM by each spawned session. Default ("") preserves legacy
+	// behavior: activated ops land in the request tools list. Set to
+	// session.ToolProjectionContextBlocksOnly to keep the tools list
+	// stable across activations and rely on the surface schema context
+	// provider + surface_call dispatch.
+	SessionToolProjection session.ToolProjectionMode
+
+	Security      policy.AuthorizationPolicy
+	SecurityTrace bool
 }
 
 // AgentProvider resolves configured session profiles to runnable agents.
@@ -77,38 +86,39 @@ type AgentProvider interface {
 
 // Service is the channel-facing use-case facade over sessions.
 type Service struct {
-	agent                agent.Agent
-	agentProvider        AgentProvider
-	commands             *command.Registry
-	operations           *operation.Registry
-	resolver             *resource.Resolver
-	commandCatalog       session.CommandCatalog
-	sessionCommands      session.SessionCommandCatalog
-	operationCatalog     session.OperationCatalog
-	activationSets       []coreactivation.Set
-	operationSets        []operation.Set
-	datasources          []coredatasource.Spec
-	postEditChecks       []coresession.PostEditCheckSpec
-	contextProviders     []corecontext.Provider
-	workflowCatalog      session.WorkflowCatalog
-	sessionCatalog       session.SessionCatalog
-	operationExecutor    operationruntime.Executor
-	events               coreevent.Sink
-	threadStore          corethread.Store
-	sessionAgents        *sessionagent.Runner
-	sessionRuns          *sessionrun.Runner
-	startupObservations  []coreevidence.Observation
-	startupAssertions    []coreevidence.Assertion
-	environmentObservers []runtimeevidence.Observer
-	assertionDerivers    []runtimeevidence.AssertionDeriver
-	reactionRules        []corereaction.Rule
-	stopEvaluator        session.StopEvaluator
-	identityResolver     identity.Resolver
-	externalIdentity     identity.ExternalResolver
-	toolSetCatalog       session.ToolSetCatalog
-	toolProjection       toolprojection.Config
-	security             policy.AuthorizationPolicy
-	securityTrace        bool
+	agent                 agent.Agent
+	agentProvider         AgentProvider
+	commands              *command.Registry
+	operations            *operation.Registry
+	resolver              *resource.Resolver
+	commandCatalog        session.CommandCatalog
+	sessionCommands       session.SessionCommandCatalog
+	operationCatalog      session.OperationCatalog
+	activationSets        []coreactivation.Set
+	operationSets         []operation.Set
+	datasources           []coredatasource.Spec
+	postEditChecks        []coresession.PostEditCheckSpec
+	contextProviders      []corecontext.Provider
+	workflowCatalog       session.WorkflowCatalog
+	sessionCatalog        session.SessionCatalog
+	operationExecutor     operationruntime.Executor
+	events                coreevent.Sink
+	threadStore           corethread.Store
+	sessionAgents         *sessionagent.Runner
+	sessionRuns           *sessionrun.Runner
+	startupObservations   []coreevidence.Observation
+	startupAssertions     []coreevidence.Assertion
+	environmentObservers  []runtimeevidence.Observer
+	assertionDerivers     []runtimeevidence.AssertionDeriver
+	reactionRules         []corereaction.Rule
+	stopEvaluator         session.StopEvaluator
+	identityResolver      identity.Resolver
+	externalIdentity      identity.ExternalResolver
+	toolSetCatalog        session.ToolSetCatalog
+	toolProjection        toolprojection.Config
+	sessionToolProjection session.ToolProjectionMode
+	security              policy.AuthorizationPolicy
+	securityTrace         bool
 
 	bindMu      sync.Mutex
 	mu          sync.Mutex
@@ -124,42 +134,43 @@ type Service struct {
 func New(cfg Config) *Service {
 	startupObservations, startupAssertions := startupEnvironment(cfg.EnvironmentObservers, cfg.AssertionDerivers)
 	return &Service{
-		agent:                cfg.Agent,
-		agentProvider:        cfg.AgentProvider,
-		commands:             cfg.Commands,
-		operations:           cfg.Operations,
-		resolver:             cfg.Resolver,
-		commandCatalog:       cfg.CommandCatalog,
-		sessionCommands:      cfg.SessionCommands,
-		operationCatalog:     cfg.OperationCatalog,
-		activationSets:       append([]coreactivation.Set(nil), cfg.ActivationSets...),
-		operationSets:        append([]operation.Set(nil), cfg.OperationSets...),
-		datasources:          append([]coredatasource.Spec(nil), cfg.Datasources...),
-		postEditChecks:       append([]coresession.PostEditCheckSpec(nil), cfg.PostEditChecks...),
-		contextProviders:     append([]corecontext.Provider(nil), cfg.ContextProviders...),
-		workflowCatalog:      cfg.WorkflowCatalog,
-		sessionCatalog:       cfg.SessionCatalog,
-		operationExecutor:    cfg.OperationExecutor,
-		events:               cfg.Events,
-		threadStore:          cfg.ThreadStore,
-		sessionAgents:        cfg.SessionAgents,
-		sessionRuns:          cfg.SessionRuns,
-		startupObservations:  startupObservations,
-		startupAssertions:    startupAssertions,
-		environmentObservers: append([]runtimeevidence.Observer(nil), cfg.EnvironmentObservers...),
-		assertionDerivers:    append([]runtimeevidence.AssertionDeriver(nil), cfg.AssertionDerivers...),
-		reactionRules:        append([]corereaction.Rule(nil), cfg.ReactionRules...),
-		stopEvaluator:        cfg.StopEvaluator,
-		identityResolver:     cfg.IdentityResolver,
-		externalIdentity:     cfg.ExternalIdentity,
-		toolSetCatalog:       cfg.ToolSetCatalog,
-		toolProjection:       cfg.ToolProjection,
-		security:             cfg.Security,
-		securityTrace:        cfg.SecurityTrace,
-		bindings:             map[bindingKey]corethread.Ref{},
-		profiles:             map[corethread.ID]coresession.Spec{},
-		subscribers:          map[corethread.ID]map[int]*subscriber{},
-		allSubs:              map[int]*subscriber{},
+		agent:                 cfg.Agent,
+		agentProvider:         cfg.AgentProvider,
+		commands:              cfg.Commands,
+		operations:            cfg.Operations,
+		resolver:              cfg.Resolver,
+		commandCatalog:        cfg.CommandCatalog,
+		sessionCommands:       cfg.SessionCommands,
+		operationCatalog:      cfg.OperationCatalog,
+		activationSets:        append([]coreactivation.Set(nil), cfg.ActivationSets...),
+		operationSets:         append([]operation.Set(nil), cfg.OperationSets...),
+		datasources:           append([]coredatasource.Spec(nil), cfg.Datasources...),
+		postEditChecks:        append([]coresession.PostEditCheckSpec(nil), cfg.PostEditChecks...),
+		contextProviders:      append([]corecontext.Provider(nil), cfg.ContextProviders...),
+		workflowCatalog:       cfg.WorkflowCatalog,
+		sessionCatalog:        cfg.SessionCatalog,
+		operationExecutor:     cfg.OperationExecutor,
+		events:                cfg.Events,
+		threadStore:           cfg.ThreadStore,
+		sessionAgents:         cfg.SessionAgents,
+		sessionRuns:           cfg.SessionRuns,
+		startupObservations:   startupObservations,
+		startupAssertions:     startupAssertions,
+		environmentObservers:  append([]runtimeevidence.Observer(nil), cfg.EnvironmentObservers...),
+		assertionDerivers:     append([]runtimeevidence.AssertionDeriver(nil), cfg.AssertionDerivers...),
+		reactionRules:         append([]corereaction.Rule(nil), cfg.ReactionRules...),
+		stopEvaluator:         cfg.StopEvaluator,
+		identityResolver:      cfg.IdentityResolver,
+		externalIdentity:      cfg.ExternalIdentity,
+		toolSetCatalog:        cfg.ToolSetCatalog,
+		toolProjection:        cfg.ToolProjection,
+		sessionToolProjection: cfg.SessionToolProjection,
+		security:              cfg.Security,
+		securityTrace:         cfg.SecurityTrace,
+		bindings:              map[bindingKey]corethread.Ref{},
+		profiles:              map[corethread.ID]coresession.Spec{},
+		subscribers:           map[corethread.ID]map[int]*subscriber{},
+		allSubs:               map[int]*subscriber{},
 	}
 }
 
@@ -612,6 +623,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		ReactionRules:        append([]corereaction.Rule(nil), s.reactionRules...),
 		Security:             s.security,
 		SecurityTrace:        s.securityTrace,
+		ToolProjection:       s.sessionToolProjection,
 	}
 	result := exec.ExecuteInboundInput(ctx, inbound)
 	if err := runtimeFailures.Err(); err != nil {
@@ -728,6 +740,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		ReactionRules:        append([]corereaction.Rule(nil), s.reactionRules...),
 		Security:             s.security,
 		SecurityTrace:        s.securityTrace,
+		ToolProjection:       s.sessionToolProjection,
 	}
 	result := exec.ExecuteInboundCommand(ctx, inbound)
 	if err := runtimeFailures.Err(); err != nil {
@@ -798,6 +811,7 @@ func (s *Service) handleTrigger(ctx context.Context, info SessionInfo, inbound c
 		ReactionRules:        append([]corereaction.Rule(nil), s.reactionRules...),
 		Security:             s.security,
 		SecurityTrace:        s.securityTrace,
+		ToolProjection:       s.sessionToolProjection,
 	}
 	result := exec.ExecuteInboundTrigger(ctx, inbound)
 	if err := runtimeFailures.Err(); err != nil {
@@ -858,6 +872,7 @@ func (s *Service) handleOperation(ctx context.Context, info SessionInfo, inbound
 		ReactionRules:        append([]corereaction.Rule(nil), s.reactionRules...),
 		Security:             s.security,
 		SecurityTrace:        s.securityTrace,
+		ToolProjection:       s.sessionToolProjection,
 	}
 	result := exec.ExecuteInboundOperation(ctx, inbound)
 	if err := runtimeFailures.Err(); err != nil {

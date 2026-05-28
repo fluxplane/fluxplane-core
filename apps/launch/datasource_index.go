@@ -20,11 +20,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/confluence"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/gitlab"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/jira"
 	"github.com/fluxplane/fluxplane-core/plugins/integrations/slack"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/web"
 	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/fluxplane/fluxplane-core/plugins/native/sessionhistory"
 	"github.com/fluxplane/fluxplane-core/plugins/native/skills"
@@ -160,13 +156,9 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 func datasourceIndexPlugins(hostSystem system.System, dispatcher *slack.Dispatcher, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
 		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
-		gitlab.NewWithResolver(hostSystem, nativeResolver),
-		jira.NewWithResolver(hostSystem, nativeStore, nativeResolver),
-		confluence.NewWithResolver(hostSystem, nativeStore, nativeResolver),
 		task.New(),
 		skills.New(),
 		text.New(),
-		web.New(hostSystem),
 	}
 }
 

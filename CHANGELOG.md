@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-05-29
+
+### Added
+- Added `session.ToolProjectionMode` (`ToolProjectionDefault`,
+  `ToolProjectionContextBlocksOnly`) with a matching
+  `SessionToolProjection` field on `harness.Config`, `fluxplane.Config`,
+  `launch.LocalRuntimeConfig`, and `launch.RuntimeOptions`. In
+  `ContextBlocksOnly` mode the LLM request tools list stays stable across
+  `surface_prepare` events — activated operation schemas reach the model
+  only via the `surface.schema` developer-context provider and dispatch
+  goes through `surface_call`. Preserves the Anthropic prompt cache
+  breakpoint that sits on the last tool entry.
+- Sharpened `surface_call`'s description with the developer-context block
+  ID format (`surface/schema/<ref>`) and explicit guidance to call
+  `surface_prepare`/`session_focus` first when the target operation isn't
+  active.
+
+### Changed
+- Disabled the default registration for `gitlab`, `jira`, `confluence`,
+  `kubernetes`, `loki`, `mysql`, `openai`, `image`, and `web` natives —
+  they are no longer added by `availablePluginsWithAuth`,
+  `AuthPluginRegistry`, or `datasourceIndexPlugins`. Embedders bring those
+  capabilities via `github.com/fluxplane/fluxplane-dex/fluxplaneplugin`.
+- Slack reduced to a pure channel-path plugin. The slack plugin no longer
+  contributes a datasource, the `slack.users`/`slack.channels`/etc. entity
+  catalog, or the `slack_thread_reply` operation. The only operations the
+  slack plugin contributes are `channel_send` and `slack_report_progress`,
+  both of which require an active Slack channel turn (`TargetFromContext`).
+  Deleted `data.go`, `data_test.go`, `datasource.go`, `datasource_test.go`
+  along with their test coverage in `plugin_test.go` (~1900 LOC net removed
+  from the slack package).
+- Removed the no-op `gitlabNamedPluginInstances` tool-projection probe and
+  its helpers (`gitLabPluginRefs`, `gitlabConfigForRef`, `stringIn`) from
+  `apps/launch/run.go`. With native gitlab disabled, the named-instance
+  allow-list gate it produced was effectively unreachable.
+
+### Removed
+- Tests pinned to native-plugin shape:
+  `TestDatasourceRegistryOpensNativeGitLabDatasource`,
+  `TestLaunchSlackDatasourceUsesRuntimeAuthPath`,
+  `TestDatasourceIndexRuntimeSlackDatasourceUsesAuthPath`,
+  `TestBundlesWithStaticPluginContributionsUsesNativeSlackAndDatasourcePlugin`,
+  and their helper functions (`saveSlackBotToken`, `slackDatasourceBundle`,
+  `assertSlackDatasourceLoadedToken`, `runtimeHasContextProvider`).
+
 ## [0.19.0] - 2026-05-29
 
 ### Added

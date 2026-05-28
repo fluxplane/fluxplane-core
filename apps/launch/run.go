@@ -34,23 +34,15 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	orchestrationidentity "github.com/fluxplane/fluxplane-core/orchestration/identity"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/taskexecutor"
 	"github.com/fluxplane/fluxplane-core/plugins/bundles/coding"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/confluence"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/gitlab"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/jira"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/kubernetes"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/loki"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/mysql"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/openai"
 	"github.com/fluxplane/fluxplane-core/plugins/integrations/openapi"
 	"github.com/fluxplane/fluxplane-core/plugins/integrations/slack"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/web"
 	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/fluxplane/fluxplane-core/plugins/native/discovery"
 	goalplugin "github.com/fluxplane/fluxplane-core/plugins/native/goal"
 	"github.com/fluxplane/fluxplane-core/plugins/native/identity"
-	"github.com/fluxplane/fluxplane-core/plugins/native/image"
 	"github.com/fluxplane/fluxplane-core/plugins/native/loop"
 	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
 	"github.com/fluxplane/fluxplane-core/plugins/native/sessionhistory"
@@ -70,18 +62,19 @@ import (
 )
 
 type LocalRuntimeConfig struct {
-	Root                string
-	Spec                coredistribution.Spec
-	Bundles             []resource.ContributionBundle
-	Plugins             func(system.System) []pluginhost.Plugin
-	PluginFactory       func(PluginFactoryContext) []pluginhost.Plugin
-	ToolProjection      fluxplane.ToolProjectionConfig
-	ModelResolver       agentfactory.ModelResolver
-	AllowPrivateNetwork bool
-	Launch              distribution.LaunchConfig
-	AuthPath            string
-	AllowPluginAuthEnv  bool
-	Dev                 bool
+	Root                  string
+	Spec                  coredistribution.Spec
+	Bundles               []resource.ContributionBundle
+	Plugins               func(system.System) []pluginhost.Plugin
+	PluginFactory         func(PluginFactoryContext) []pluginhost.Plugin
+	ToolProjection        fluxplane.ToolProjectionConfig
+	SessionToolProjection session.ToolProjectionMode
+	ModelResolver         agentfactory.ModelResolver
+	AllowPrivateNetwork   bool
+	Launch                distribution.LaunchConfig
+	AuthPath              string
+	AllowPluginAuthEnv    bool
+	Dev                   bool
 }
 
 type AttachOptions struct {
@@ -93,26 +86,31 @@ type AttachOptions struct {
 // RuntimeOptions describes the surface-neutral local launch inputs shared by
 // run, serve, and first-party distribution executables.
 type RuntimeOptions struct {
-	Root                string
-	Spec                coredistribution.Spec
-	Bundles             []resource.ContributionBundle
-	Launch              distribution.LaunchConfig
-	AuthPath            string
-	AllowPluginAuthEnv  bool
-	Provider            string
-	Model               string
-	Thinking            string
-	ThinkingSet         bool
-	Effort              string
-	EffortSet           bool
-	Debug               bool
-	Yolo                bool
-	Dev                 bool
-	Plugins             func(system.System) []pluginhost.Plugin
-	PluginFactory       func(PluginFactoryContext) []pluginhost.Plugin
-	ToolProjection      fluxplane.ToolProjectionConfig
-	ModelResolver       agentfactory.ModelResolver
-	AllowPrivateNetwork bool
+	Root               string
+	Spec               coredistribution.Spec
+	Bundles            []resource.ContributionBundle
+	Launch             distribution.LaunchConfig
+	AuthPath           string
+	AllowPluginAuthEnv bool
+	Provider           string
+	Model              string
+	Thinking           string
+	ThinkingSet        bool
+	Effort             string
+	EffortSet          bool
+	Debug              bool
+	Yolo               bool
+	Dev                bool
+	Plugins            func(system.System) []pluginhost.Plugin
+	PluginFactory      func(PluginFactoryContext) []pluginhost.Plugin
+	ToolProjection     fluxplane.ToolProjectionConfig
+	// SessionToolProjection forwards to fluxplane.Config.SessionToolProjection
+	// so consumers can opt sessions into the cache-stable mode where
+	// activated ops are projected only via the surface schema context
+	// provider and dispatched through surface_call.
+	SessionToolProjection session.ToolProjectionMode
+	ModelResolver         agentfactory.ModelResolver
+	AllowPrivateNetwork   bool
 }
 
 type PluginFactoryContext struct {
@@ -180,26 +178,27 @@ func needsLocalRuntimeOpener(runtime distribution.Runtime) bool {
 
 func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribution.OpenRequest) (clientapi.SessionHandle, error) {
 	runtime, err := Launch(ctx, RuntimeOptions{
-		Root:                cfg.Root,
-		Spec:                cfg.Spec,
-		Bundles:             cfg.Bundles,
-		Launch:              mergeLaunchConfig(cfg.Launch, req.Launch),
-		AuthPath:            cfg.AuthPath,
-		AllowPluginAuthEnv:  cfg.AllowPluginAuthEnv || req.AllowPluginAuthEnv,
-		Provider:            req.Provider,
-		Model:               req.Model,
-		Thinking:            req.Thinking,
-		ThinkingSet:         req.ThinkingSet,
-		Effort:              req.Effort,
-		EffortSet:           req.EffortSet,
-		ToolProjection:      mergeToolProjectionMaxRisk(cfg.ToolProjection, req.MaxToolRisk),
-		Debug:               req.Debug,
-		Yolo:                req.Yolo,
-		Dev:                 cfg.Dev || req.Dev,
-		Plugins:             cfg.Plugins,
-		PluginFactory:       cfg.PluginFactory,
-		ModelResolver:       cfg.ModelResolver,
-		AllowPrivateNetwork: cfg.AllowPrivateNetwork || req.AllowPrivateNetwork,
+		Root:                  cfg.Root,
+		Spec:                  cfg.Spec,
+		Bundles:               cfg.Bundles,
+		Launch:                mergeLaunchConfig(cfg.Launch, req.Launch),
+		AuthPath:              cfg.AuthPath,
+		AllowPluginAuthEnv:    cfg.AllowPluginAuthEnv || req.AllowPluginAuthEnv,
+		Provider:              req.Provider,
+		Model:                 req.Model,
+		Thinking:              req.Thinking,
+		ThinkingSet:           req.ThinkingSet,
+		Effort:                req.Effort,
+		EffortSet:             req.EffortSet,
+		ToolProjection:        mergeToolProjectionMaxRisk(cfg.ToolProjection, req.MaxToolRisk),
+		Debug:                 req.Debug,
+		Yolo:                  req.Yolo,
+		Dev:                   cfg.Dev || req.Dev,
+		Plugins:               cfg.Plugins,
+		PluginFactory:         cfg.PluginFactory,
+		ModelResolver:         cfg.ModelResolver,
+		AllowPrivateNetwork:   cfg.AllowPrivateNetwork || req.AllowPrivateNetwork,
+		SessionToolProjection: cfg.SessionToolProjection,
 	})
 	if err != nil {
 		return nil, err
@@ -456,7 +455,11 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	localCaller := localUserCaller()
 	localTrust := policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}, VerifiedBy: "local_process", Reason: "local runtime"}
 	toolProjection := firstToolProjection(opts.ToolProjection, defaultToolProjection())
-	toolProjection.NamedPluginInstances = mergeNamedPluginInstances(toolProjection.NamedPluginInstances, gitlabNamedPluginInstances(ctx, bundles, runtimeSystem, auth))
+	// Native gitlab is no longer registered with the plugin host (coverage
+	// moved to dex via fluxplaneplugin). The gitlab-specific named-instance
+	// gate previously here is now a no-op — it probed gitlab.com for token
+	// scopes only to gate tool projection of gitlab ops, but those ops are
+	// no longer in the projected tool list.
 	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		ThreadStore: threadStore,
 		EventStore:  eventStore,
@@ -473,13 +476,14 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			ProviderSpecs:   composition.LLMProviderSpecs,
 			ModelAliases:    composition.LLMModelAliases,
 		}),
-		LLMStreamPolicy: distrun.DebugStreamPolicy(opts.Debug),
-		ToolProjection:  toolProjection,
-		Channel:         channel.Ref{Name: "local"},
-		Caller:          localCaller,
-		Trust:           localTrust,
-		Security:        composition.Security,
-		SecurityTrace:   opts.Debug,
+		LLMStreamPolicy:       distrun.DebugStreamPolicy(opts.Debug),
+		ToolProjection:        toolProjection,
+		SessionToolProjection: opts.SessionToolProjection,
+		Channel:               channel.Ref{Name: "local"},
+		Caller:                localCaller,
+		Trust:                 localTrust,
+		Security:              composition.Security,
+		SecurityTrace:         opts.Debug,
 	})
 	if err != nil {
 		closeRuntime()
@@ -589,52 +593,6 @@ func mergeToolProjectionMaxRisk(cfg fluxplane.ToolProjectionConfig, risk operati
 	return cfg
 }
 
-func gitlabNamedPluginInstances(ctx context.Context, bundles []resource.ContributionBundle, sys system.System, auth PluginAuthContext) map[string]map[string]bool {
-	refs := gitLabPluginRefs(bundles)
-	if len(refs) == 0 {
-		return nil
-	}
-	allowed := map[string]bool{}
-	for _, ref := range refs {
-		cfg, err := gitlabConfigForRef(ref)
-		if err != nil {
-			continue
-		}
-		scopes, ok, err := gitlab.TokenScopes(ctx, sys, auth.Resolver, ref, cfg)
-		if err != nil || !ok || !stringIn(scopes, "api") {
-			allowed[ref.InstanceName()] = false
-			continue
-		}
-		allowed[ref.InstanceName()] = true
-	}
-	return map[string]map[string]bool{gitlab.Name: allowed}
-}
-
-func gitLabPluginRefs(bundles []resource.ContributionBundle) []resource.PluginRef {
-	var refs []resource.PluginRef
-	for _, bundle := range bundles {
-		for _, ref := range bundle.Plugins {
-			if strings.EqualFold(strings.TrimSpace(ref.Name), gitlab.Name) {
-				refs = append(refs, ref)
-			}
-		}
-	}
-	return refs
-}
-
-func gitlabConfigForRef(ref resource.PluginRef) (gitlab.Config, error) {
-	return pluginhost.DecodeConfig[gitlab.Config](ref.Config)
-}
-
-func stringIn(values []string, want string) bool {
-	for _, value := range values {
-		if strings.EqualFold(strings.TrimSpace(value), want) {
-			return true
-		}
-	}
-	return false
-}
-
 func slackConfigForInstance(bundles []resource.ContributionBundle, instance string) slack.Config {
 	instance = strings.TrimSpace(instance)
 	for _, bundle := range bundles {
@@ -669,37 +627,20 @@ func availablePluginsWithAuth(hostSystem system.System, dispatcher *slack.Dispat
 		coding.New(hostSystem),
 		goalplugin.New(),
 		loop.New(),
-		openai.New(),
 		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
-		gitlab.NewWithResolver(hostSystem, nativeResolver),
-		image.New(hostSystem),
-		jira.NewWithResolver(hostSystem, nativeStore, nativeResolver),
-		confluence.NewWithResolver(hostSystem, nativeStore, nativeResolver),
-		kubernetes.New(hostSystem),
-		loki.New(hostSystem),
-		mysql.New(),
 		openapi.New(hostSystem),
 		memory.New(),
 		task.NewWithRunnerAndSystem(taskRunner, hostSystem),
 		skills.New(),
 		text.New(),
-		web.New(hostSystem),
 	}
 }
 
 // AuthPluginRegistry returns first-party plugins that expose auth declarations
 // for distribution-level connect commands.
 func AuthPluginRegistry(context.Context) ([]pluginhost.Plugin, error) {
-	hostSystem, err := system.NewHost(system.Config{AllowPrivateNetwork: true})
-	if err != nil {
-		return nil, err
-	}
 	return []pluginhost.Plugin{
-		openai.New(),
 		slack.New(nil),
-		gitlab.New(hostSystem),
-		jira.New(hostSystem),
-		confluence.New(hostSystem),
 	}, nil
 }
 

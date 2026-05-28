@@ -3402,6 +3402,60 @@ func TestSurfacePrepareOperationActivatesToolsForProjection(t *testing.T) {
 	}
 }
 
+// In ToolProjectionContextBlocksOnly mode, activated operations must NOT
+// appear in turnTools so the Anthropic prompt cache breakpoint sitting on the
+// last tool definition isn't invalidated every time the surface changes. The
+// LLM dispatches activated ops via surface_call instead; their schemas reach
+// the model through the developer-context surface schema blocks.
+func TestTurnToolsExcludesActivatedOpsInContextBlocksMode(t *testing.T) {
+	ctx := context.Background()
+	echoRef := operation.Ref{Name: "echo"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{
+		Ref:         echoRef,
+		Description: "Echo input.",
+	}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(nil)
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	s := Session{
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+		ToolProjection:    ToolProjectionContextBlocksOnly,
+		ActivationSets: []coreactivation.Set{{
+			Name: "incident.echo",
+			Targets: []coreactivation.Target{{
+				Kind:      coreactivation.TargetOperation,
+				Operation: echoRef,
+			}},
+		}},
+	}
+	base := operation.NewContext(s.withBaseContext(ctx, "", event.Discard()), event.Discard())
+	effect := s.applyOperation(base, surfacePrepareOperationRef, map[string]any{
+		"terms": []string{"incident.echo"},
+	}, "surface-prepare-cache-stable")
+	if effect.Result.Status != operation.StatusOK {
+		t.Fatalf("surface_prepare result = %#v, want ok", effect.Result)
+	}
+	active, ok := s.activeStateFromSurfaceToolResult(effect.Result)
+	if !ok {
+		t.Fatalf("surface_prepare result = %#v, want active surface", effect.Result)
+	}
+	tools := s.turnTools(active)
+	// Surface tools stay (stable across activations).
+	if !toolSpecsContainOperation(tools, surfacePrepareOperationRef.Name) {
+		t.Fatalf("tools = %#v, want surface_prepare in stable list", tools)
+	}
+	if !toolSpecsContainOperation(tools, surfaceCallOperationRef.Name) {
+		t.Fatalf("tools = %#v, want surface_call in stable list", tools)
+	}
+	// Activated op must NOT appear in the request tool list — that's the cache invariant.
+	if toolSpecsContainOperation(tools, echoRef.Name) {
+		t.Fatalf("tools = %#v, did not expect activated echo op in cache-stable mode", tools)
+	}
+}
+
 func TestSurfaceCallOperationRequiresActiveSurfaceAndUsesExecutor(t *testing.T) {
 	ctx := context.Background()
 	echoRef := operation.Ref{Name: "echo"}

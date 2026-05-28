@@ -82,7 +82,7 @@ func NormalizeConfig(cfg Config) Config {
 	cfg.Auth.UserTokenEnv = strings.TrimSpace(cfg.Auth.UserTokenEnv)
 	cfg.Auth.ChannelToken = strings.ToLower(strings.TrimSpace(cfg.Auth.ChannelToken))
 	cfg.Search.HistoryWindow = strings.TrimSpace(cfg.Search.HistoryWindow)
-	cfg.Search.Channels = cleaned(cfg.Search.Channels)
+	cfg.Search.Channels = trimNonEmpty(cfg.Search.Channels)
 	return cfg
 }
 
@@ -290,6 +290,16 @@ func AppTokenSecretRef(ref resource.PluginRef) coresecret.Ref {
 
 func UserTokenSecretRef(ref resource.PluginRef) coresecret.Ref {
 	return coresecret.Plugin(Name, ref.InstanceName(), UserTokenPurpose)
+}
+
+func trimNonEmpty(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func OAuth2SecretRef(ref resource.PluginRef) coresecret.Ref {
