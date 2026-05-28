@@ -11,7 +11,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
 	"github.com/fluxplane/fluxplane-core/apps/launch"
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/resource"
@@ -29,9 +28,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/native/identity"
 	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
 	"github.com/fluxplane/fluxplane-core/plugins/native/skills"
-	"github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
-	"github.com/fluxplane/fluxplane-core/sdk"
 )
 
 const (
@@ -39,6 +36,7 @@ const (
 	agentName   = "slack_bot"
 	sessionName = "slack-main"
 	modelName   = "openai/gpt-5.5"
+	modelAlias  = "smart_model"
 )
 
 func main() {
@@ -86,18 +84,12 @@ func run(ctx context.Context) error {
 }
 
 func appBundle() (resource.ContributionBundle, error) {
-	pluginRefs, err := configuredPlugins()
-	if err != nil {
-		return resource.ContributionBundle{}, err
-	}
+	includeThreads := true
 	agentSpec := agent.Spec{
 		Name:   agentName,
 		System: slackBotSystemPrompt(),
-		Driver: agent.DriverSpec{
-			Kind: llmagent.DriverKind,
-		},
 		Inference: agent.InferenceSpec{
-			Model:           modelName,
+			Model:           modelAlias,
 			ReasoningEffort: "medium",
 		},
 		Turns: agent.TurnPolicy{MaxSteps: 50},
@@ -114,180 +106,146 @@ func appBundle() (resource.ContributionBundle, error) {
 			{Name: "datasource.detected"},
 			{Name: skills.Name},
 		},
-		Datasources: datasourceRefs(
-			slack.Name,
-			gitlab.Name,
-			jira.Name,
-			confluence.Name,
-			"helpdesk_api_docs",
-			"local-docs",
-			"web_search",
-			skills.Name,
-		),
+		Datasources: []coredatasource.Ref{
+			{Name: coredatasource.Name(slack.Name)},
+			{Name: coredatasource.Name(gitlab.Name)},
+			{Name: coredatasource.Name(jira.Name)},
+			{Name: coredatasource.Name(confluence.Name)},
+			{Name: "helpdesk_api_docs"},
+			{Name: "local-docs"},
+			{Name: "web_search"},
+			{Name: coredatasource.Name(skills.Name)},
+		},
 	}
-	builder := sdk.NewApp(appName).
+	return appconfig.NewManifest(appName).
 		WithSource(resource.SourceRef{ID: appName, Scope: resource.ScopeEmbedded, Location: "examples/go/slack-bot-coded"}).
 		WithDescription("Type-safe Go configured Slack bot example.").
-		WithModel("openrouter", modelName, "chat").
+		WithDefaultModel(modelAlias).
+		WithModelAlias("openrouter", modelName, modelAlias, "gpt5").
+		WithPlugin(identity.Name).
+		WithPluginConfig("slack-bot", slack.Name, slack.Config{
+			Auth: slack.AuthConfig{Method: slack.TokenMethod},
+			Search: slack.SearchConfig{
+				Channels:       []string{"dev-team"},
+				HistoryWindow:  "90d",
+				IncludeThreads: &includeThreads,
+			},
+		}).
+		WithPluginConfig(gitlab.Name, gitlab.Name, gitlab.Config{
+			BaseURL: "https://gitlab.example.com",
+			Auth:    gitlab.AuthConfig{Method: gitlab.PersonalAccessTokenMethod, TokenEnv: "GITLAB_PERSONAL_TOKEN"},
+		}).
+		WithPluginConfig(jira.Name, jira.Name, jira.Config{
+			CloudID: "00000000-0000-0000-0000-000000000000",
+			Auth:    jira.AuthConfig{Method: jira.APITokenMethod, TokenEnv: "JIRA_API_TOKEN", Email: "bot@example.com"},
+		}).
+		WithPluginConfig(confluence.Name, confluence.Name, confluence.Config{
+			CloudID: "00000000-0000-0000-0000-000000000000",
+			Auth:    confluence.AuthConfig{Method: confluence.APITokenMethod, TokenEnv: "CONFLUENCE_API_TOKEN", Email: "bot@example.com"},
+		}).
+		WithPluginConfig("helpdesk", openapi.Name, openapi.Config{
+			Specs: []openapi.SpecConfig{{
+				File: "openapi/helpdesk.openapi.json",
+				Operations: openapi.OperationsConfig{
+					Prefix: "helpdesk",
+				},
+				Datasource: openapi.DatasourceConfig{
+					Name:  "helpdesk_api_docs",
+					Index: openapi.DatasourceIndexConfig{Enabled: true, Freshness: "24h"},
+				},
+				Auth: openapi.AuthConfig{Schemes: map[string]openapi.AuthSchemeConfig{
+					"bearerAuth": {
+						Method:      coresecret.AuthMethodEnv,
+						Kind:        coresecret.KindBearerToken,
+						DisplayName: "Helpdesk API bearer token",
+						Env:         coresecret.EnvSpec{Name: "HELPDESK_API_TOKEN"},
+					},
+				}},
+			}},
+		}).
+		WithPlugin(web.Name).
+		WithPlugin(skills.Name).
+		WithPlugin(memory.Name).
+		WithPlugin(datasourceplugin.Name).
+		WithIdentityGroup(user.Group{ID: "slack-bot-admin", Trust: user.TrustOperator}).
+		WithIdentityGroup(user.Group{ID: "slack-bot-users", Trust: user.TrustInternal}).
+		WithIdentityGroup(user.Group{ID: "anonymous", Trust: user.TrustPublic}).
+		WithIdentityRule(user.GroupRule{
+			Match:  user.IdentityMatch{Provider: slack.Name, Resolution: user.ResolutionResolved},
+			Groups: []user.ID{"slack-bot-users"},
+		}).
+		WithIdentityRule(user.GroupRule{
+			Match:  user.IdentityMatch{Provider: slack.Name, ProviderID: "U0000000000", Resolution: user.ResolutionResolved},
+			Groups: []user.ID{"slack-bot-admin"},
+		}).
+		WithIdentityRule(user.GroupRule{
+			Match:  user.IdentityMatch{Provider: slack.Name, Resolution: user.ResolutionUnresolved},
+			Groups: []user.ID{"anonymous"},
+		}).
+		WithDatasourceIndex(4, "15m").
+		WithDatasourceSpec(coredatasource.Spec{
+			Name:        coredatasource.Name(slack.Name),
+			Kind:        slack.Name,
+			Description: "Slack workspace content available to the bot.",
+			Entities: []coredatasource.EntityType{
+				"slack.user",
+				"slack.channel",
+				"slack.message",
+				"slack.thread_message",
+			},
+			Config: map[string]string{"instance": "slack-bot"},
+			Index:  coredatasource.IndexSpec{Enabled: true, Freshness: "15m"},
+		}).
+		WithDatasourceSpec(coredatasource.Spec{
+			Name:        coredatasource.Name(gitlab.Name),
+			Kind:        gitlab.Name,
+			Description: "GitLab project and merge request data.",
+			Entities: []coredatasource.EntityType{
+				"gitlab.project",
+				"gitlab.merge_request",
+				"gitlab.merge_request_note",
+				"gitlab.pipeline",
+				"gitlab.user",
+				"gitlab.group",
+			},
+			Config: map[string]string{"instance": gitlab.Name},
+			Index:  coredatasource.IndexSpec{Enabled: true, Freshness: "15m"},
+		}).
+		WithDatasourceSpec(coredatasource.Spec{
+			Name:        coredatasource.Name(jira.Name),
+			Kind:        jira.Name,
+			Description: "Jira issues visible to the configured plugin instance.",
+			Entities:    []coredatasource.EntityType{"jira.issue", "jira.project"},
+			Config:      map[string]string{"instance": jira.Name},
+		}).
+		WithDatasourceSpec(coredatasource.Spec{
+			Name:        coredatasource.Name(confluence.Name),
+			Kind:        confluence.Name,
+			Description: "Confluence pages visible to the configured plugin instance.",
+			Entities:    []coredatasource.EntityType{"confluence.page", "confluence.space"},
+			Config:      map[string]string{"instance": confluence.Name},
+		}).
+		WithDatasourceSpec(coredatasource.Spec{
+			Name:        "local-docs",
+			Kind:        "filesystem",
+			Description: "Local markdown and text files in this example.",
+			Entities:    []coredatasource.EntityType{"file.document"},
+			Config:      map[string]string{"path": ".", "include": "*.md,*.txt"},
+		}).
+		WithDatasourceSpec(coredatasource.Spec{
+			Name:        "web_search",
+			Kind:        "web_search",
+			Description: "Public web search results.",
+			Entities:    []coredatasource.EntityType{"web.search_result"},
+		}).
 		WithDefaultAgent(agentSpec).
-		WithDefaultSession(coresession.Spec{
+		WithSession(coresession.Spec{
 			Name:        sessionName,
 			Description: "Slack channel entrypoint.",
 			Agent:       agent.Ref{Name: agentName},
 			Metadata:    map[string]string{"app": appName},
-		})
-	for _, ref := range pluginRefs {
-		builder = builder.WithPlugin(ref)
-	}
-	bundle := builder.Build()
-	if len(bundle.Apps) > 0 {
-		bundle.Apps[0].Plugins = appPluginRefs(pluginRefs)
-		bundle.Apps[0].Identity = identitySpec()
-		bundle.Apps[0].Datasource = coreapp.DatasourceSpec{
-			Index: coreapp.DatasourceIndexSpec{Concurrency: 4, Freshness: "15m"},
-			Datasources: []coredatasource.Spec{
-				datasourceSpec(slack.Name, slack.Name, "Slack workspace content available to the bot.", []string{"slack.user", "slack.channel", "slack.message", "slack.thread_message"}, map[string]string{"instance": "slack-bot"}, true),
-				datasourceSpec(gitlab.Name, gitlab.Name, "GitLab project and merge request data.", []string{"gitlab.project", "gitlab.merge_request", "gitlab.merge_request_note", "gitlab.pipeline", "gitlab.user", "gitlab.group"}, map[string]string{"instance": gitlab.Name}, true),
-				datasourceSpec(jira.Name, jira.Name, "Jira issues visible to the configured plugin instance.", []string{"jira.issue", "jira.project"}, map[string]string{"instance": jira.Name}, false),
-				datasourceSpec(confluence.Name, confluence.Name, "Confluence pages visible to the configured plugin instance.", []string{"confluence.page", "confluence.space"}, map[string]string{"instance": confluence.Name}, false),
-				datasourceSpec("local-docs", "filesystem", "Local markdown and text files in this example.", []string{"file.document"}, map[string]string{"path": ".", "include": "*.md,*.txt"}, false),
-				datasourceSpec("web_search", "web_search", "Public web search results.", []string{"web.search_result"}, nil, false),
-			},
-		}
-	}
-	return bundle, nil
-}
-
-func configuredPlugins() ([]resource.PluginRef, error) {
-	includeThreads := true
-	slackRef, err := typedPluginRef(slack.Name, "slack-bot", slack.Config{
-		Auth: slack.AuthConfig{Method: slack.TokenMethod},
-		Search: slack.SearchConfig{
-			Channels:       []string{"dev-team"},
-			HistoryWindow:  "90d",
-			IncludeThreads: &includeThreads,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	gitlabRef, err := typedPluginRef(gitlab.Name, gitlab.Name, gitlab.Config{
-		BaseURL: "https://gitlab.example.com",
-		Auth:    gitlab.AuthConfig{Method: gitlab.PersonalAccessTokenMethod, TokenEnv: "GITLAB_PERSONAL_TOKEN"},
-	})
-	if err != nil {
-		return nil, err
-	}
-	jiraRef, err := typedPluginRef(jira.Name, jira.Name, jira.Config{
-		CloudID: "00000000-0000-0000-0000-000000000000",
-		Auth:    jira.AuthConfig{Method: jira.APITokenMethod, TokenEnv: "JIRA_API_TOKEN", Email: "bot@example.com"},
-	})
-	if err != nil {
-		return nil, err
-	}
-	confluenceRef, err := typedPluginRef(confluence.Name, confluence.Name, confluence.Config{
-		CloudID: "00000000-0000-0000-0000-000000000000",
-		Auth:    confluence.AuthConfig{Method: confluence.APITokenMethod, TokenEnv: "CONFLUENCE_API_TOKEN", Email: "bot@example.com"},
-	})
-	if err != nil {
-		return nil, err
-	}
-	openAPIRef, err := typedPluginRef(openapi.Name, "helpdesk", openapi.Config{
-		Specs: []openapi.SpecConfig{{
-			File: "openapi/helpdesk.openapi.json",
-			Operations: openapi.OperationsConfig{
-				Prefix: "helpdesk",
-			},
-			Datasource: openapi.DatasourceConfig{
-				Name:  "helpdesk_api_docs",
-				Index: openapi.DatasourceIndexConfig{Enabled: true, Freshness: "24h"},
-			},
-			Auth: openapi.AuthConfig{Schemes: map[string]openapi.AuthSchemeConfig{
-				"bearerAuth": {
-					Method:      coresecret.AuthMethodEnv,
-					Kind:        coresecret.KindBearerToken,
-					DisplayName: "Helpdesk API bearer token",
-					Env:         coresecret.EnvSpec{Name: "HELPDESK_API_TOKEN"},
-				},
-			}},
-		}},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return []resource.PluginRef{
-		{Name: identity.Name},
-		slackRef,
-		gitlabRef,
-		jiraRef,
-		confluenceRef,
-		openAPIRef,
-		{Name: web.Name},
-		{Name: skills.Name},
-		{Name: memory.Name},
-		{Name: datasourceplugin.Name},
-	}, nil
-}
-
-func typedPluginRef[T any](name, instance string, cfg T) (resource.PluginRef, error) {
-	raw, err := pluginhost.ConfigMap(cfg)
-	if err != nil {
-		return resource.PluginRef{}, err
-	}
-	return resource.PluginRef{Name: name, Instance: instance, Config: raw}, nil
-}
-
-func appPluginRefs(refs []resource.PluginRef) []coreapp.PluginRef {
-	out := make([]coreapp.PluginRef, 0, len(refs))
-	for _, ref := range refs {
-		out = append(out, coreapp.PluginRef{Kind: ref.Name, Instance: ref.Instance, Config: ref.Config})
-	}
-	return out
-}
-
-func identitySpec() coreapp.IdentitySpec {
-	return coreapp.IdentitySpec{
-		Groups: []user.Group{
-			{ID: "slack-bot-admin", Trust: user.TrustOperator},
-			{ID: "slack-bot-users", Trust: user.TrustInternal},
-			{ID: "anonymous", Trust: user.TrustPublic},
-		},
-		Rules: []user.GroupRule{
-			{Match: user.IdentityMatch{Provider: slack.Name, Resolution: user.ResolutionResolved}, Groups: []user.ID{"slack-bot-users"}},
-			{Match: user.IdentityMatch{Provider: slack.Name, ProviderID: "U0000000000", Resolution: user.ResolutionResolved}, Groups: []user.ID{"slack-bot-admin"}},
-			{Match: user.IdentityMatch{Provider: slack.Name, Resolution: user.ResolutionUnresolved}, Groups: []user.ID{"anonymous"}},
-		},
-	}
-}
-
-func datasourceSpec(name, kind, description string, entities []string, config map[string]string, indexed bool) coredatasource.Spec {
-	spec := coredatasource.Spec{
-		Name:        coredatasource.Name(name),
-		Kind:        kind,
-		Description: description,
-		Entities:    entityTypes(entities...),
-		Config:      config,
-	}
-	if indexed {
-		spec.Index = coredatasource.IndexSpec{Enabled: true, Freshness: "15m"}
-	}
-	return spec
-}
-
-func entityTypes(values ...string) []coredatasource.EntityType {
-	out := make([]coredatasource.EntityType, 0, len(values))
-	for _, value := range values {
-		out = append(out, coredatasource.EntityType(value))
-	}
-	return out
-}
-
-func datasourceRefs(values ...string) []coredatasource.Ref {
-	out := make([]coredatasource.Ref, 0, len(values))
-	for _, value := range values {
-		out = append(out, coredatasource.Ref{Name: coredatasource.Name(value)})
-	}
-	return out
+		}).
+		Build()
 }
 
 func appPlugins(sys system.System) []pluginhost.Plugin {
