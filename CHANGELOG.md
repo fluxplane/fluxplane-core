@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-05-28
+
+### Added
+- Added a GitHub Actions workflow that builds and publishes the
+  `ghcr.io/fluxplane/fluxplane-go` base image for linux/amd64 and linux/arm64
+  on `main` pushes and version tags.
+
+### Notes
+- Shipped the `appconfig.NewManifest` builder source previewed in the 0.18.0
+  release notes.
+
 ## [0.18.0] - 2026-05-28
 
 ### Added
