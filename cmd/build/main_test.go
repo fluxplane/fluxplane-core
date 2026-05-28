@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"testing"
 )
 
@@ -38,17 +37,10 @@ func TestAppFromPathResolvesNestedModuleCommandPackage(t *testing.T) {
 	}
 }
 
-func TestDefaultTargetsIncludesHostOnce(t *testing.T) {
+func TestDefaultTargetsIsHostOnly(t *testing.T) {
 	targets := defaultTargets()
 	host := runtime.GOOS + "/" + runtime.GOARCH
-	if !slices.Contains(targets, host) {
-		t.Fatalf("targets = %#v, want host %s", targets, host)
-	}
-	seen := map[string]bool{}
-	for _, target := range targets {
-		if seen[target] {
-			t.Fatalf("targets = %#v, duplicate %s", targets, target)
-		}
-		seen[target] = true
+	if len(targets) != 1 || targets[0] != host {
+		t.Fatalf("targets = %#v, want only host %s", targets, host)
 	}
 }

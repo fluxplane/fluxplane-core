@@ -149,24 +149,5 @@ func buildTarget(ctx context.Context, opts options, app buildApp, target string,
 }
 
 func defaultTargets() []string {
-	host := runtime.GOOS + "/" + runtime.GOARCH
-	candidates := []string{
-		"linux/amd64",
-		"linux/arm64",
-		"darwin/amd64",
-		"darwin/arm64",
-		"windows/amd64",
-		"windows/arm64",
-		host,
-	}
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(candidates))
-	for _, target := range candidates {
-		if _, ok := seen[target]; ok {
-			continue
-		}
-		seen[target] = struct{}{}
-		out = append(out, target)
-	}
-	return out
+	return []string{runtime.GOOS + "/" + runtime.GOARCH}
 }

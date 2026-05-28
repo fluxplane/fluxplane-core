@@ -22,7 +22,7 @@ tasks:
       - git config core.hooksPath .githooks
 
   build:
-    desc: Cross-compile the fluxplane binary into bin/.
+    desc: Build the fluxplane binary for the host platform into bin/.
     cmds:
       - mkdir -p bin
       - go run ./cmd/build/main.go apps/fluxplane

@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   config maps from Go structs.
 
 ### Changed
+- Made `task build` only build for the host platform by default; cross-platform
+  binaries remain available via the `--target GOOS/GOARCH` flag on
+  `cmd/build`.
 - Renamed the local Docker base-image build surface to Fluxplane terminology and
   removed stale legacy manifest filename compatibility.
 - Classified Go examples under the app layer in the architecture gate.
