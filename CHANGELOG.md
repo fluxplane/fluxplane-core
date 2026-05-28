@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-05-29
+
+### Added
+- Added a `clock` native plugin contributing a `time` context provider that
+  injects the current UTC time (optionally also a configured local time zone)
+  and the process uptime on each turn. The provider caches inside `Build()`
+  for 60 seconds so the value refreshes at most once per minute.
+
 ## [0.18.1] - 2026-05-28
 
 ### Added
