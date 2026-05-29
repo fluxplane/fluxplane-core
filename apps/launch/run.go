@@ -54,6 +54,8 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/runtime/authstatus"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
+	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
+	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
@@ -374,6 +376,9 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		closeRuntime()
 		return Runtime{}, err
 	}
+	discoveryRegistry := runtimediscovery.NewRegistry()
+	endpointRegistry := runtimeendpoint.NewRegistry(0)
+	discoverer := runtimediscovery.NewRunner(discoveryRegistry, endpointRegistry)
 	needsDataStore := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memory.Name)
 	needsDatasourceRuntime := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memory.Name)
 	if needsDataStore {
@@ -399,7 +404,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			return Runtime{}, err
 		}
 		dataSources = append(dataSources, pluginDataSources...)
-		registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, eventStore, dataStore, datasource.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
+		registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, eventStore, dataStore, discoveryRegistry, discoverer, endpointRegistry, datasource.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
 		if err != nil {
 			closeRuntime()
 			return Runtime{}, err
@@ -443,6 +448,9 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			ApproveOverMaxCommandRisk: opts.Yolo,
 			AllowPure:                 true,
 		})),
+		Discovery:        discoveryRegistry,
+		Discoverer:       discoverer,
+		Endpoints:        endpointRegistry,
 		IdentityResolver: identityResolver,
 	})
 	if err != nil {
@@ -787,19 +795,30 @@ func authTargets(ctx context.Context, bundles []resource.ContributionBundle, plu
 }
 
 func datasourceRegistry(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string) (*coredatasource.Registry, error) {
-	return datasourceRegistryWithOptions(ctx, bundles, plugins, root, nil, nil, datasource.RegistryOptions{})
+	return datasourceRegistryWithOptions(ctx, bundles, plugins, root, nil, nil, nil, nil, nil, datasource.RegistryOptions{})
 }
 
-func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string, eventStore event.Store, dataStore coredata.Store, opts datasource.RegistryOptions) (*coredatasource.Registry, error) {
+func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string, eventStore event.Store, dataStore coredata.Store, discoveryRegistry *runtimediscovery.Registry, discoverer *runtimediscovery.Runner, endpointRegistry *runtimeendpoint.Registry, opts datasource.RegistryOptions) (*coredatasource.Registry, error) {
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		return nil, err
 	}
+	host.SetDiscoveryRegistry(discoveryRegistry)
+	host.SetDiscoveryRunner(discoverer)
+	host.SetEndpointRegistry(endpointRegistry)
 	host.SetEventStore(eventStore)
 	host.SetDataStore(dataStore)
 	resolved, err := host.Resolve(ctx, pluginRefs(bundles)...)
 	if err != nil {
 		return nil, err
+	}
+	for _, contribution := range resolved.DiscoveryProviders {
+		if contribution.Provider == nil || discoveryRegistry == nil {
+			continue
+		}
+		if err := discoveryRegistry.Register(contribution.Provider); err != nil {
+			return nil, err
+		}
 	}
 	var providers []coredatasource.Provider
 	for _, contribution := range resolved.DatasourceProviders {

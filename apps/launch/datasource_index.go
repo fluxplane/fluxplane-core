@@ -145,7 +145,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		return DatasourceIndexRuntime{}, err
 	}
 	dataSources = append(dataSources, pluginDataSources...)
-	registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, eventStore, dataStore, datasource.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
+	registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, eventStore, dataStore, nil, nil, nil, datasource.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
 	if err != nil {
 		_ = closeFn()
 		return DatasourceIndexRuntime{}, err

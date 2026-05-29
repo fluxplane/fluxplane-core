@@ -50,6 +50,9 @@ type Config struct {
 	Security             policy.AuthorizationPolicy
 	IdentityResolver     identity.Resolver
 	ExternalIdentity     identity.ExternalResolver
+	Discovery            *runtimediscovery.Registry
+	Discoverer           *runtimediscovery.Runner
+	Endpoints            *runtimeendpoint.Registry
 }
 
 // BundleTransform mutates or augments resource bundles after plugin
@@ -94,7 +97,7 @@ func Compose(cfg Config) (Composition, error) {
 	if cfg.EventStore == nil {
 		cfg.EventStore = eventstore.NewMemoryStore()
 	}
-	bundles, pluginOperations, pluginContextProviders, pluginSessionCommands, pluginDatasourceProviders, pluginObservers, pluginAssertionDerivers, pluginReactions, pluginExternalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore, cfg.DataStore)
+	bundles, pluginOperations, pluginContextProviders, pluginSessionCommands, pluginDatasourceProviders, pluginObservers, pluginAssertionDerivers, pluginReactions, pluginExternalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore, cfg.DataStore, cfg.Discovery, cfg.Discoverer, cfg.Endpoints)
 	if err != nil {
 		return Composition{Diagnostics: diagnostics}, err
 	}
@@ -539,7 +542,7 @@ func appendEventTypesFromBundles(base []event.Event, bundles []resource.Contribu
 	return out
 }
 
-func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, session.SessionCommandCatalog, []coredatasource.Provider, []runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, []reactionRuleBinding, []identity.ExternalResolver, *runtimediscovery.Registry, *runtimediscovery.Runner, *runtimeendpoint.Registry, *runtimesecret.Registry, []resource.Diagnostic, error) {
+func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store, discoveryRegistry *runtimediscovery.Registry, discoverer *runtimediscovery.Runner, endpointRegistry *runtimeendpoint.Registry) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, session.SessionCommandCatalog, []coredatasource.Provider, []runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, []reactionRuleBinding, []identity.ExternalResolver, *runtimediscovery.Registry, *runtimediscovery.Runner, *runtimeendpoint.Registry, *runtimesecret.Registry, []resource.Diagnostic, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -558,9 +561,15 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
 		return out, operations, contextProviders, sessionCommands, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, nil, nil, nil, nil, diagnostics, err
 	}
-	discoveryRegistry := runtimediscovery.NewRegistry()
-	endpointRegistry := runtimeendpoint.NewRegistry(0)
-	discoverer := runtimediscovery.NewRunner(discoveryRegistry, endpointRegistry)
+	if discoveryRegistry == nil {
+		discoveryRegistry = runtimediscovery.NewRegistry()
+	}
+	if endpointRegistry == nil {
+		endpointRegistry = runtimeendpoint.NewRegistry(0)
+	}
+	if discoverer == nil {
+		discoverer = runtimediscovery.NewRunner(discoveryRegistry, endpointRegistry)
+	}
 	secretRegistry := runtimesecret.NewRegistry()
 	host.SetEventStore(eventStore)
 	host.SetDataStore(dataStore)
@@ -624,6 +633,15 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		}
 		for _, provider := range contributed.DatasourceProviders {
 			datasourceProviders = append(datasourceProviders, provider.Provider)
+		}
+		for _, provider := range contributed.DiscoveryProviders {
+			if provider.Provider == nil {
+				continue
+			}
+			if err := discoveryRegistry.Register(provider.Provider); err != nil {
+				diagnostics = append(diagnostics, diagnostic(provider.Source, err))
+				return out, operations, contextProviders, sessionCommands, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err
+			}
 		}
 		for _, observer := range contributed.Observers {
 			observers = append(observers, observer.Observer)

@@ -6,6 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fluxplane/fluxplane-core/core/activation"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -60,6 +63,19 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 	return resource.ContributionBundle{
 		OperationSets: []operation.Set{{Name: Name, Description: "Discovery status and endpoint introspection.", Operations: operationRefs(specs)}},
 		Operations:    specs,
+		ActivationSets: []activation.Set{{
+			Name:        Name,
+			Description: "Discovery status, endpoint introspection, and endpoint datasource access.",
+			Targets: []activation.Target{{
+				Kind:         activation.TargetOperationSet,
+				OperationSet: Name,
+			}, {
+				Kind:       activation.TargetDatasource,
+				Datasource: coredatasource.Ref{Name: EndpointDatasourceName},
+			}},
+		}},
+		Datasources: []coredatasource.Spec{EndpointDatasourceSpec()},
+		DataSources: []coredata.SourceSpec{EndpointDataSourceSpec()},
 		Observers: []coreevidence.ObserverSpec{{
 			Name:            "endpoint.registry",
 			Description:     "Observes non-secret endpoint registry summaries for activation.",

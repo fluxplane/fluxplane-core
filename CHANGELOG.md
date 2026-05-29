@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-05-29
+
+### Added
+- Added the native `endpoint` datasource with `endpoint.record` and `endpoint.candidate` entities so agents can list registered endpoints and search live discovery candidates through the generic datasource tools.
+
+### Changed
+- App composition now registers plugin-contributed endpoint discovery providers into the shared discovery registry, and launch-time datasource setup reuses the same discovery/endpoint registries as the composed runtime.
+
 ## [0.21.2] - 2026-05-29
 
 ### Changed
