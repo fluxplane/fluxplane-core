@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-05-29
+
+### Changed
+- Parallelized plugin contribution resolution during app composition so `fluxplane run`, local REPL launches, and embedded distribution runtimes do not pay cumulative startup latency for independent plugin bundles.
+
 ## [0.21.1] - 2026-05-29
 
 ### Added

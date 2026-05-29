@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
@@ -539,6 +540,9 @@ func appendEventTypesFromBundles(base []event.Event, bundles []resource.Contribu
 }
 
 func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, session.SessionCommandCatalog, []coredatasource.Provider, []runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, []reactionRuleBinding, []identity.ExternalResolver, *runtimediscovery.Registry, *runtimediscovery.Runner, *runtimeendpoint.Registry, *runtimesecret.Registry, []resource.Diagnostic, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	out := append([]resource.ContributionBundle(nil), bundles...)
 	var operations []pluginhost.OperationContribution
 	var contextProviders []corecontext.Provider
@@ -564,15 +568,43 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 	host.SetEndpointRegistry(endpointRegistry)
 	host.SetDiscoveryRunner(discoverer)
 	host.SetSecretRegistry(secretRegistry)
-	for _, bundle := range bundles {
+
+	type pluginResolution struct {
+		bundle      resource.ContributionBundle
+		contributed pluginhost.Resolution
+		err         error
+	}
+	results := make([]pluginResolution, len(bundles))
+	resolveCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var wg sync.WaitGroup
+	for i, bundle := range bundles {
+		results[i].bundle = bundle
 		if len(bundle.Plugins) == 0 {
 			continue
 		}
-		contributed, err := host.Resolve(ctx, bundle.Plugins...)
-		if err != nil {
-			diagnostics = append(diagnostics, diagnostic(bundle.Source, err))
-			return out, operations, contextProviders, sessionCommands, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err
+		wg.Add(1)
+		go func(i int, bundle resource.ContributionBundle) {
+			defer wg.Done()
+			contributed, err := host.Resolve(resolveCtx, bundle.Plugins...)
+			if err != nil {
+				cancel()
+			}
+			results[i].contributed = contributed
+			results[i].err = err
+		}(i, bundle)
+	}
+	wg.Wait()
+
+	for _, result := range results {
+		if len(result.bundle.Plugins) == 0 {
+			continue
 		}
+		if result.err != nil {
+			diagnostics = append(diagnostics, diagnostic(result.bundle.Source, result.err))
+			return out, operations, contextProviders, sessionCommands, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, result.err
+		}
+		contributed := result.contributed
 		out = append(out, contributed.Bundles...)
 		operations = append(operations, contributed.Operations...)
 		for _, provider := range contributed.ContextProviders {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fluxplane/fluxplane-core/core/activation"
 	"github.com/fluxplane/fluxplane-core/core/agent"
@@ -402,6 +403,47 @@ func TestComposeResolvesPluginContributions(t *testing.T) {
 	}
 	if op, ok := composition.Operations.Resolve(operation.Ref{Name: "echo"}); !ok || op == nil {
 		t.Fatal("plugin operation was not registered")
+	}
+}
+
+func TestComposeResolvesPluginBundlesConcurrently(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := Compose(Config{
+			Plugins: []pluginhost.Plugin{
+				blockingPlugin{name: "blocking-a", started: started, release: release},
+				blockingPlugin{name: "blocking-b", started: started, release: release},
+			},
+			Bundles: []resource.ContributionBundle{
+				{Plugins: []resource.PluginRef{{Name: "blocking-a"}}},
+				{Plugins: []resource.PluginRef{{Name: "blocking-b"}}},
+			},
+		})
+		done <- err
+	}()
+
+	seen := map[string]bool{}
+	for len(seen) < 2 {
+		select {
+		case name := <-started:
+			seen[name] = true
+		case <-time.After(500 * time.Millisecond):
+			close(release)
+			t.Fatalf("plugin contributions were not resolved concurrently; started = %#v", seen)
+		}
+	}
+	close(release)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Compose: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Compose did not finish after blocked plugin contributions were released")
 	}
 }
 
@@ -1182,6 +1224,22 @@ func (echoPlugin) Operations(context.Context, pluginhost.Context) ([]operation.O
 			return operation.OK(input)
 		}),
 	}, nil
+}
+
+type blockingPlugin struct {
+	name    string
+	started chan<- string
+	release <-chan struct{}
+}
+
+func (p blockingPlugin) Manifest() pluginhost.Manifest {
+	return pluginhost.Manifest{Name: p.name}
+}
+
+func (p blockingPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+	p.started <- p.name
+	<-p.release
+	return resource.ContributionBundle{}, nil
 }
 
 type environmentPlugin struct{}
