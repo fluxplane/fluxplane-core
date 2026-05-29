@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-05-29
+
+### Added
+- `launch.ServeDistributionOptions.SessionToolProjection` so daemon callers
+  (e.g. `slack-bot serve`) can opt into
+  `session.ToolProjectionContextBlocksOnly` the same way
+  `launch.LocalRuntimeConfig` and `launch.RuntimeOptions` already could.
+  Without it, only callers that went through `Launch`/`NewLocalRuntime`
+  directly could keep activated operation schemas out of the LLM tools
+  array, which leaked every dex op's reflected JSON Schema to the model
+  and tripped provider validators on malformed schemas.
+
 ## [0.21.0] - 2026-05-29
 
 ### Changed
