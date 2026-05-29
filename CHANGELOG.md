@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-05-29
+
+### Changed
+- BREAKING: Native Slack plugin registers as `slack_channel` (was `slack`).
+  This frees the canonical `slack` name for the dex marketplace plugin so
+  consumers can load both the channel adapter (this plugin) and the
+  richer dex slack op surface (slack.message.send, slack.reaction.add,
+  slack.message.edit, …) side by side without a pluginhost
+  duplicate-name collision. Plugin refs, bundle wiring, and explicit
+  PluginRef literals targeting the native channel adapter must switch to
+  `slack.Name` / `slack_channel`. The user-identity Provider value stays
+  `slack` and is exposed as the new `slack.IdentityProvider` constant so
+  admin allowlists and stored identities continue to match.
+
 ## [0.20.2] - 2026-05-29
 
 ### Added

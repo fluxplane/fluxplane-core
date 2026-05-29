@@ -17,7 +17,19 @@ import (
 )
 
 const (
-	Name             = "slack"
+	// Name is the pluginhost registration name for the native slack
+	// channel adapter. It is intentionally NOT "slack" so the dex slack
+	// marketplace plugin (which registers under "slack" with its richer
+	// op surface — slack.message.send, slack.reaction.add, …) can be
+	// loaded alongside without colliding. Apps that need both the
+	// channel-adapter side (this plugin) and the messaging-op side (dex
+	// slack) reference them by these distinct names.
+	Name = "slack_channel"
+	// IdentityProvider is the user.Identity Provider value emitted for
+	// Slack-resolved identities. It stays "slack" so identity records
+	// and admin allowlists tied to the Slack workspace keep matching
+	// across the plugin rename.
+	IdentityProvider = "slack"
 	OperationSet     = Name + ".channel"
 	ChannelSendOp    = "channel_send"
 	ChannelPostOp    = "channel_post"

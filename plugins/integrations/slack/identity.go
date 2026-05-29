@@ -83,7 +83,7 @@ func (r *slackIdentityResolver) ResolveIdentity(ctx context.Context, req identit
 			DisplayName: displayName,
 			Trust:       base.Actor.Trust,
 			Identities: []user.Identity{{
-				Provider:    "slack",
+				Provider:    IdentityProvider,
 				ProviderID:  slackID,
 				Email:       email,
 				DisplayName: displayName,
@@ -91,14 +91,14 @@ func (r *slackIdentityResolver) ResolveIdentity(ctx context.Context, req identit
 			}},
 		},
 		Identity: user.Identity{
-			Provider:    "slack",
+			Provider:    IdentityProvider,
 			ProviderID:  slackID,
 			Email:       email,
 			DisplayName: displayName,
 			Claims:      claims,
 		},
 		Identities: []user.Identity{{
-			Provider:    "slack",
+			Provider:    IdentityProvider,
 			ProviderID:  slackID,
 			Email:       email,
 			DisplayName: displayName,
