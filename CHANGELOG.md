@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-05-29
+
+### Changed
+- `launch` Verbose mode now surfaces the `rule`, `action`, and `message`
+  of `reaction.diagnostic` runtime events in the per-line log instead of
+  emitting only the event name. Reaction action failures (e.g. workflow
+  trigger drops, unsupported action kinds) now carry their actual cause
+  into pod logs without having to attach a debugger.
+
 ## [0.20.0] - 2026-05-29
 
 ### Added

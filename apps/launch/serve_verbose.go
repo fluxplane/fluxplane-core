@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	fluxplane "github.com/fluxplane/fluxplane-core"
+	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/plugins/native/human"
@@ -178,6 +179,9 @@ func serveEventDetail(event clientapi.Event) string {
 		if event.Runtime.Name == human.EventNotificationSent {
 			return serveNotificationDetail(event.Runtime.Payload)
 		}
+		if event.Runtime.Name == corereaction.EventDiagnostic {
+			return serveReactionDiagnosticDetail(event.Runtime.Payload)
+		}
 		return "runtime_event=" + string(event.Runtime.Name)
 	case clientapi.EventRunCompleted:
 		return "run_status=completed"
@@ -189,6 +193,27 @@ func serveEventDetail(event clientapi.Event) string {
 	default:
 		return ""
 	}
+}
+
+// serveReactionDiagnosticDetail surfaces rule, action, and message from a
+// reaction.diagnostic event so a verbose log line carries the actual
+// failure reason instead of just the event name.
+func serveReactionDiagnosticDetail(payload any) string {
+	d, ok := payload.(corereaction.Diagnostic)
+	if !ok {
+		return "runtime_event=" + string(corereaction.EventDiagnostic)
+	}
+	parts := []string{"runtime_event=" + string(corereaction.EventDiagnostic)}
+	if d.Rule != "" {
+		parts = append(parts, "rule="+d.Rule)
+	}
+	if d.Action != "" {
+		parts = append(parts, "action="+string(d.Action))
+	}
+	if d.Message != "" {
+		parts = append(parts, "message="+quoteLogValue(d.Message))
+	}
+	return strings.Join(parts, " ")
 }
 
 func serveNotificationDetail(payload any) string {
