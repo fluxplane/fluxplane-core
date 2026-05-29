@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-05-29
+
+### Added
+- New `channel_post` operation on the native Slack plugin. Unlike
+  `channel_send`, it does not require an active Slack channel turn —
+  callers pass `channel_id` (and optional `thread_ts`) directly, so
+  background agents and scheduled triggers can post unsolicited
+  messages. `channel_send` stays the right tool inside active turns
+  because it auto-glues to the current thread.
+
 ## [0.20.1] - 2026-05-29
 
 ### Changed

@@ -20,6 +20,7 @@ const (
 	Name             = "slack"
 	OperationSet     = Name + ".channel"
 	ChannelSendOp    = "channel_send"
+	ChannelPostOp    = "channel_post"
 	ReportProgressOp = "slack_report_progress"
 )
 
@@ -93,7 +94,7 @@ func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resour
 	}
 	aliases := []string{setName + ".default", "channel"}
 	return resource.ContributionBundle{
-		Operations: []operation.Spec{p.channelSendSpec(), p.reportProgressSpec()},
+		Operations: []operation.Spec{p.channelSendSpec(), p.channelPostSpec(), p.reportProgressSpec()},
 		OperationSets: []operation.Set{{
 			Name:        operationSetName,
 			Description: "Slack active-channel reply and progress operations.",
@@ -118,6 +119,7 @@ func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operati
 	p = p.withRef(ctx.Ref)
 	return []operation.Operation{
 		operationruntime.NewTypedResult[channelSendInput, channelSendOutput](p.channelSendSpec(), p.channelSend),
+		operationruntime.NewTypedResult[channelPostInput, channelSendOutput](p.channelPostSpec(), p.channelPost),
 		operationruntime.NewTypedResult[reportProgressInput, reportProgressOutput](p.reportProgressSpec(), p.reportProgress),
 	}, nil
 }
@@ -251,6 +253,55 @@ func (p Plugin) channelSend(ctx operation.Context, input channelSendInput) opera
 	ts, err := p.dispatcher.Post(ctx, target, text)
 	if err != nil {
 		return operation.Failed("slack_channel_send_failed", err.Error(), nil)
+	}
+	return operation.OK(channelSendOutput{Channel: target.ChannelID, Thread: target.ThreadTS, Ts: ts})
+}
+
+// channelPostSpec describes the unsolicited-post entry point. Unlike
+// channel_send, channel_post does not require an active Slack channel
+// turn — callers (background agents, scheduled triggers, …) supply the
+// destination channel_id directly, and may target a thread by passing
+// thread_ts. Use channel_send inside channel turns to keep replies
+// glued to the active thread; reach for channel_post when posting
+// somewhere the bot was not invoked from.
+func (p Plugin) channelPostSpec() operation.Spec {
+	return operationruntime.WithTypedContract[channelPostInput, channelSendOutput](operation.Spec{
+		Ref:         operation.Ref{Name: ChannelPostOp},
+		Description: "Post a message to an explicit Slack channel id without requiring an active Slack turn. Use channel_send when replying inside the current thread; use channel_post for unsolicited messages from background agents and scheduled triggers.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectWriteExternal},
+			Idempotency: operation.IdempotencyNonIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	})
+}
+
+type channelPostInput struct {
+	ChannelID string `json:"channel_id" jsonschema:"description=Slack channel id (e.g. C012ABCDEF) to post into.,required"`
+	Text      string `json:"text" jsonschema:"description=Message text to post.,required"`
+	ThreadTS  string `json:"thread_ts,omitempty" jsonschema:"description=Optional Slack thread timestamp; when set the post lands inside that thread instead of the channel root."`
+}
+
+func (p Plugin) channelPost(ctx operation.Context, input channelPostInput) operation.Result {
+	channelID := strings.TrimSpace(input.ChannelID)
+	if channelID == "" {
+		return operation.Failed("invalid_channel_post_input", "channel_id is required", nil)
+	}
+	text := strings.TrimSpace(input.Text)
+	if text == "" {
+		return operation.Failed("invalid_channel_post_input", "text is required", nil)
+	}
+	target := Target{ChannelID: channelID, ThreadTS: strings.TrimSpace(input.ThreadTS)}
+	if existing, ok := TargetFromContext(ctx); ok {
+		// Carry over the channel name from any active turn so the
+		// dispatcher can prefer the same workspace's poster.
+		target.ChannelName = existing.ChannelName
+		target.TeamID = existing.TeamID
+	}
+	ts, err := p.dispatcher.Post(ctx, target, text)
+	if err != nil {
+		return operation.Failed("slack_channel_post_failed", err.Error(), nil)
 	}
 	return operation.OK(channelSendOutput{Channel: target.ChannelID, Thread: target.ThreadTS, Ts: ts})
 }
