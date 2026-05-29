@@ -3,7 +3,7 @@ package memory
 import (
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestRegisterEvents(t *testing.T) {

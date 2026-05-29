@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 	runtimeprojection "github.com/fluxplane/fluxplane-core/runtime/projection"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 type messageAdded struct {

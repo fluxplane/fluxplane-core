@@ -11,9 +11,9 @@ import (
 	"time"
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	corememory "github.com/fluxplane/fluxplane-core/core/memory"
 	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 type Store struct {
@@ -253,7 +253,7 @@ func (s *Store) append(ctx context.Context, scope coredata.Scope, payload event.
 		Name:        payload.EventName(),
 		Payload:     payload,
 		Scope:       eventScope(scope),
-		Sensitivity: policy.SensitivityRestricted,
+		Sensitivity: event.SensitivityRestricted,
 		Source:      event.Source{Component: "runtime/memory"},
 	}
 	streams := StreamIDs(scope)

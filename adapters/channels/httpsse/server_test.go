@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 func TestServerEventsUsesLastEventIDAsReplayCursor(t *testing.T) {

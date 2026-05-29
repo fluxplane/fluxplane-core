@@ -17,7 +17,6 @@ import (
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/environment"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
@@ -46,6 +45,7 @@ import (
 	runtimereaction "github.com/fluxplane/fluxplane-core/runtime/reaction"
 	runtimeskill "github.com/fluxplane/fluxplane-core/runtime/skill"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestExecuteInboundCommandDispatchesOperation(t *testing.T) {

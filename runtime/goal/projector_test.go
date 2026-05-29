@@ -3,10 +3,10 @@ package goal
 import (
 	"testing"
 
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
 	"github.com/fluxplane/fluxplane-core/core/review"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 func TestProjectThreadRecordsLifecycle(t *testing.T) {

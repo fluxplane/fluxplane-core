@@ -15,7 +15,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/command"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/policy"
@@ -34,6 +33,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/toolprojection"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 // Config contains the reusable runtime pieces a harness composes.

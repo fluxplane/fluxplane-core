@@ -8,9 +8,9 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coreworkflow "github.com/fluxplane/fluxplane-core/core/workflow"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 // OperationRunner executes one operation workflow step.

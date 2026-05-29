@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/thread"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 // ProviderIdentity identifies a provider transcript shape.

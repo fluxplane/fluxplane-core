@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 // Name identifies a workflow definition.

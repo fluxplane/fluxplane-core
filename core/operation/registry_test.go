@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func makeOp(name Name) Operation {

@@ -3,7 +3,7 @@ package task
 import (
 	"fmt"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 // RegisterEvents registers task event payloads with registry.

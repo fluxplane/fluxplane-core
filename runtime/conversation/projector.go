@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 // ProjectionInput describes transcript projection over a thread branch.

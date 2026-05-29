@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestExecutorEmitsOperationCallID(t *testing.T) {

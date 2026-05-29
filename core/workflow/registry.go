@@ -3,7 +3,7 @@ package workflow
 import (
 	"fmt"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 // RegisterEvents registers workflow event payloads with registry.

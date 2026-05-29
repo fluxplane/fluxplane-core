@@ -6,8 +6,8 @@ import (
 
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestApplyReactionActionsActivatesDatasourceAndOperationSet(t *testing.T) {

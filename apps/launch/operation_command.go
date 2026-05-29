@@ -10,11 +10,11 @@ import (
 
 	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
 	coreagent "github.com/fluxplane/fluxplane-core/core/agent"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
+	"github.com/fluxplane/fluxplane-event"
 	"github.com/spf13/cobra"
 )
 

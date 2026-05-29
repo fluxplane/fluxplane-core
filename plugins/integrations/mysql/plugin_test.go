@@ -7,12 +7,12 @@ import (
 	"time"
 
 	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/policy"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 func TestQueryAccessUsesResolvedEndpointAndSecretRef(t *testing.T) {

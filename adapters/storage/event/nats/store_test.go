@@ -14,8 +14,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 type messageAdded struct {
@@ -318,7 +317,7 @@ func TestNormalizeRequestsAndBatchCodec(t *testing.T) {
 				ID:          "stable",
 				Name:        "message.added",
 				Attributes:  map[string]string{"k": "v"},
-				Sensitivity: policy.SensitivitySecret,
+				Sensitivity: event.SensitivitySecret,
 			},
 		}},
 	}}
@@ -334,7 +333,7 @@ func TestNormalizeRequestsAndBatchCodec(t *testing.T) {
 		t.Fatalf("decoded = %#v, want one result and record", decoded)
 	}
 	record := decoded[0].Records[0]
-	if record.Sequence != 7 || record.Record.Attributes["k"] != "v" || record.Record.Sensitivity != policy.SensitivitySecret {
+	if record.Sequence != 7 || record.Record.Attributes["k"] != "v" || record.Record.Sensitivity != event.SensitivitySecret {
 		t.Fatalf("decoded record = %#v, want metadata preserved", record)
 	}
 	if _, err := decodeBatch([]byte(`{"version":2}`), nil); err == nil || !strings.Contains(err.Error(), "unsupported batch version") {

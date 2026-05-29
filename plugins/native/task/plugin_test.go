@@ -9,7 +9,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
@@ -22,6 +21,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestContributionsIncludeTaskResources(t *testing.T) {

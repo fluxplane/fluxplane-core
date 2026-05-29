@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestRunnerRunsSessionAndEmitsLifecycle(t *testing.T) {

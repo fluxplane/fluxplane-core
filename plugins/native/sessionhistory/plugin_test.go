@@ -7,12 +7,12 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestSearchSessionHistoryOperations(t *testing.T) {

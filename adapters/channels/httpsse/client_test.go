@@ -17,7 +17,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	"github.com/fluxplane/fluxplane-core/core/command"
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/policy"
@@ -26,6 +25,7 @@ import (
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 func TestClientSendsInputThroughHTTPAndSSE(t *testing.T) {

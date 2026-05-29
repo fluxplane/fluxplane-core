@@ -13,7 +13,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
@@ -37,6 +36,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestAttachLocalRuntimeConfiguresLocalOpener(t *testing.T) {

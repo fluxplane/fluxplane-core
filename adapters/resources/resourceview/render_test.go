@@ -12,7 +12,6 @@ import (
 	corecommand "github.com/fluxplane/fluxplane-core/core/command"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	corelanguage "github.com/fluxplane/fluxplane-core/core/language"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -20,6 +19,7 @@ import (
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 func TestRenderTreeShowsEveryContributionKind(t *testing.T) {

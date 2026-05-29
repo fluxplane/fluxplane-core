@@ -13,11 +13,11 @@ import (
 	adapterllm "github.com/fluxplane/fluxplane-core/adapters/llm"
 	"github.com/fluxplane/fluxplane-core/apps/launch"
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/agentfactory"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 func TestTargetSubmitOperationUsesLaunchServeUnixSocket(t *testing.T) {

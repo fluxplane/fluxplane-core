@@ -15,10 +15,10 @@ import (
 	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
 	"github.com/fluxplane/fluxplane-core/adapters/ui/terminal"
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	coreevent "github.com/fluxplane/fluxplane-event"
 	"github.com/spf13/cobra"
 )
 

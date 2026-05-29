@@ -10,10 +10,10 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/adapters/storage/event/nats"
 	"github.com/fluxplane/fluxplane-core/adapters/storage/event/sqlite"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 const defaultEventStoreDSNEnv = "FLUXPLANE_EVENTSTORE_NATS_DSN"

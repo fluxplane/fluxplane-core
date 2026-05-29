@@ -9,12 +9,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestCompactWorkerEvidencePreservesUTF8RuneBoundaries(t *testing.T) {

@@ -3,7 +3,7 @@ package projection
 import (
 	"context"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 // Checkpoint records how far a projector has processed one event stream.

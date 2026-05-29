@@ -14,7 +14,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
@@ -22,6 +21,7 @@ import (
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 const (

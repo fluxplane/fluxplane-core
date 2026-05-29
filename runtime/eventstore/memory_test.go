@@ -5,8 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 type testEvent struct{}
@@ -27,7 +26,7 @@ func TestMemoryStoreAppendLoad(t *testing.T) {
 	if stored[0].Record.Name != "test.event" {
 		t.Fatalf("name = %q, want test.event", stored[0].Record.Name)
 	}
-	if stored[0].Record.Sensitivity != policy.SensitivityRestricted {
+	if stored[0].Record.Sensitivity != event.SensitivityRestricted {
 		t.Fatalf("sensitivity = %q, want restricted", stored[0].Record.Sensitivity)
 	}
 

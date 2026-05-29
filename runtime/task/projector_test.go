@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestProjectBuildsPlanexecShapedExecutionState(t *testing.T) {

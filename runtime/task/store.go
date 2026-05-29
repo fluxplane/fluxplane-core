@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 // Store persists task event streams and projects task state from them.

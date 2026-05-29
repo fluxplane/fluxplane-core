@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestStoreAppendsAndProjectsTaskStream(t *testing.T) {

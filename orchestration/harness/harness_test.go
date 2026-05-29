@@ -14,7 +14,6 @@ import (
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 	"github.com/fluxplane/fluxplane-core/core/environment"
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -32,6 +31,7 @@ import (
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 func TestHandleInboundCommandBindsChannelConversationAndPublishesOutbound(t *testing.T) {

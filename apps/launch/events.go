@@ -3,9 +3,9 @@ package launch
 import (
 	"fmt"
 
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 // MustTerminalEventRegistry returns the terminal event registry used by local

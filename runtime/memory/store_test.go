@@ -8,13 +8,13 @@ import (
 	"time"
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	corememory "github.com/fluxplane/fluxplane-core/core/memory"
 	"github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/core/workspace"
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestMemorySubjectDoesNotGrantAccess(t *testing.T) {

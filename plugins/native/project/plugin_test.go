@@ -7,7 +7,6 @@ import (
 	"time"
 
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coreproject "github.com/fluxplane/fluxplane-core/core/project"
@@ -15,6 +14,7 @@ import (
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {

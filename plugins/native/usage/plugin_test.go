@@ -6,12 +6,12 @@ import (
 	"testing"
 
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	coreusage "github.com/fluxplane/fluxplane-core/core/usage"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestUsageDatasourceSearchesTokenUsageEvents(t *testing.T) {

@@ -8,7 +8,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/policy"
@@ -17,6 +16,7 @@ import (
 	contextruntime "github.com/fluxplane/fluxplane-core/runtime/context"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimeskill "github.com/fluxplane/fluxplane-core/runtime/skill"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 // SessionSpec aliases the core session spec used by session orchestration.

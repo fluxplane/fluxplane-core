@@ -17,6 +17,7 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/containerd/platforms v0.2.1
 	github.com/fluxplane/codegate v1.1.0
+	github.com/fluxplane/fluxplane-event v0.1.0
 	github.com/getkin/kin-openapi v0.138.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674

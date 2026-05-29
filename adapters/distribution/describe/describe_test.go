@@ -14,7 +14,6 @@ import (
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -23,6 +22,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 func TestRenderTreeShowsMetadataAndAllStaticResourceKinds(t *testing.T) {

@@ -1,6 +1,6 @@
 package operation
 
-import "github.com/fluxplane/fluxplane-core/core/event"
+import "github.com/fluxplane/fluxplane-event"
 
 const (
 	EventStartedName   event.Name = "operation.started"

@@ -9,9 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
-	"github.com/fluxplane/fluxplane-core/core/eventcodec"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-event/eventcodec"
 	_ "modernc.org/sqlite"
 )
 
@@ -576,7 +575,7 @@ func (s *Store) scanStoredRecord(rows *sql.Rows) (event.StoredRecord, error) {
 			StepID:          stepID.String,
 			OperationID:     operationID.String,
 		},
-		Sensitivity:   policy.NormalizeSensitivity(policy.Sensitivity(sensitivity.String)),
+		Sensitivity:   event.NormalizeSensitivity(event.Sensitivity(sensitivity.String)),
 		CorrelationID: correlation.String,
 		CausationID:   causation.String,
 	}

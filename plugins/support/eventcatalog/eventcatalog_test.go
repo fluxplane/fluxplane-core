@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"testing"
 
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/languages/golang"
 	"github.com/fluxplane/fluxplane-core/plugins/native/human"
 	"github.com/fluxplane/fluxplane-core/plugins/native/project"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 func TestAllHasUniqueEventNames(t *testing.T) {

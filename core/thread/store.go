@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 var (

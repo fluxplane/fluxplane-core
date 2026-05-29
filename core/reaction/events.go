@@ -1,6 +1,6 @@
 package reaction
 
-import "github.com/fluxplane/fluxplane-core/core/event"
+import "github.com/fluxplane/fluxplane-event"
 
 const (
 	// EventActionPlanned records that one reaction action was selected for

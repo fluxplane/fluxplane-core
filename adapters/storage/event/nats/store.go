@@ -12,9 +12,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
-	"github.com/fluxplane/fluxplane-core/core/eventcodec"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-event/eventcodec"
 )
 
 const (
@@ -465,17 +464,17 @@ type storedRecordEnvelope struct {
 }
 
 type recordEnvelope struct {
-	ID            string             `json:"id,omitempty"`
-	Name          event.Name         `json:"name"`
-	SchemaVersion int                `json:"schema_version,omitempty"`
-	Time          time.Time          `json:"time,omitempty"`
-	Source        event.Source       `json:"source,omitempty"`
-	Scope         event.Scope        `json:"scope,omitempty"`
-	Attributes    map[string]string  `json:"attributes,omitempty"`
-	Sensitivity   policy.Sensitivity `json:"sensitivity,omitempty"`
-	CorrelationID string             `json:"correlation_id,omitempty"`
-	CausationID   string             `json:"causation_id,omitempty"`
-	Payload       json.RawMessage    `json:"payload,omitempty"`
+	ID            string            `json:"id,omitempty"`
+	Name          event.Name        `json:"name"`
+	SchemaVersion int               `json:"schema_version,omitempty"`
+	Time          time.Time         `json:"time,omitempty"`
+	Source        event.Source      `json:"source,omitempty"`
+	Scope         event.Scope       `json:"scope,omitempty"`
+	Attributes    map[string]string `json:"attributes,omitempty"`
+	Sensitivity   event.Sensitivity `json:"sensitivity,omitempty"`
+	CorrelationID string            `json:"correlation_id,omitempty"`
+	CausationID   string            `json:"causation_id,omitempty"`
+	Payload       json.RawMessage   `json:"payload,omitempty"`
 }
 
 func encodeBatch(results []event.AppendResult) ([]byte, error) {
@@ -544,7 +543,7 @@ func decodeBatch(data []byte, registry *event.Registry) ([]event.AppendResult, e
 					Source:        encoded.Record.Source,
 					Scope:         encoded.Record.Scope,
 					Attributes:    eventcodec.CloneStringMap(encoded.Record.Attributes),
-					Sensitivity:   policy.NormalizeSensitivity(encoded.Record.Sensitivity),
+					Sensitivity:   event.NormalizeSensitivity(encoded.Record.Sensitivity),
 					CorrelationID: encoded.Record.CorrelationID,
 					CausationID:   encoded.Record.CausationID,
 					Payload:       payload,

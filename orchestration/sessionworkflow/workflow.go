@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/command"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
@@ -19,6 +18,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
 	workflowruntime "github.com/fluxplane/fluxplane-core/orchestration/workflow"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 // WorkflowCatalog binds canonical workflow resource IDs to workflow specs.

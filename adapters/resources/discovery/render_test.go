@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
+	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
 func TestRenderTreeShowsDiagnosticsWithoutResources(t *testing.T) {
