@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"io"
 	"net/http"
@@ -23,9 +22,9 @@ import (
 )
 
 type openAPIOperation struct {
-	system    fpsystem.System
-	workspace runtimeworkspace.Workspace
-	def       operationDefinition
+	network     fpsystem.Network
+	environment fpsystem.Environment
+	def         operationDefinition
 }
 
 func (o openAPIOperation) Spec() operation.Spec { return o.def.Spec }
@@ -39,7 +38,7 @@ func (o openAPIOperation) Run(ctx operation.Context, input operation.Value) oper
 	if err != nil {
 		return operation.Failed(o.def.Name+"_failed", err.Error(), nil)
 	}
-	client := systemkit.NewHTTPClient(o.system.Network())
+	client := systemkit.NewHTTPClient(o.network)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return operation.Failed(o.def.Name+"_failed", err.Error(), nil)
@@ -87,8 +86,8 @@ func (o openAPIOperation) Access(ctx operation.Context, input operation.Value) (
 }
 
 func (o openAPIOperation) httpRequest(ctx operation.Context, in requestInput) (*http.Request, error) {
-	if o.system == nil || o.system.Network() == nil {
-		return nil, fmt.Errorf("openapi system network is nil")
+	if o.network == nil {
+		return nil, fmt.Errorf("openapi network is nil")
 	}
 	target, err := o.requestURL(in)
 	if err != nil {
@@ -153,12 +152,12 @@ func (o openAPIOperation) applyAuth(ctx operation.Context, req *http.Request, in
 	if len(schemeNames) == 0 {
 		return fmt.Errorf("openapi operation %s requires auth but no configured security scheme matches", o.def.Name)
 	}
-	if o.system == nil || o.system.Environment() == nil {
+	if o.environment == nil {
 		return fmt.Errorf("openapi auth environment is nil")
 	}
 	for _, schemeName := range schemeNames {
 		method := o.def.AuthByScheme[schemeName]
-		broker := runtimesecret.NewBroker(runtimesecret.EnvResolver{Environment: o.system.Environment(), Kind: method.Kind})
+		broker := runtimesecret.NewBroker(runtimesecret.EnvResolver{Environment: o.environment, Kind: method.Kind})
 		resolution, ok, err := broker.UseAvailable(ctx, coresecret.AuthRequest{
 			Plugin:   Name,
 			Instance: o.def.Instance,

@@ -41,9 +41,21 @@ const (
 	gitlabTokenEnv               = "GITLAB_TOKEN"
 )
 
+type Boundaries struct {
+	Network     fpsystem.Network
+	Environment fpsystem.Environment
+}
+
+func BoundariesFromSystem(sys fpsystem.System) Boundaries {
+	if sys == nil {
+		return Boundaries{}
+	}
+	return Boundaries{Network: sys.Network(), Environment: sys.Environment()}
+}
+
 type Plugin struct {
 	pluginhost.Configurable[Config]
-	system        fpsystem.System
+	boundaries    Boundaries
 	ref           resource.PluginRef
 	cfg           Config
 	secrets       runtimesecret.Resolver
@@ -146,7 +158,7 @@ type gitlabClient interface {
 	DeleteSnippet(context.Context, int64) error
 }
 
-type gitlabClientFactory func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error)
+type gitlabClientFactory func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error)
 
 type resolvedGitLabAuth struct {
 	runtimesecret.Resolution
@@ -162,11 +174,19 @@ var _ pluginhost.AuthTestContributor = Plugin{}
 var _ pluginhost.ExternalIdentityContributor = Plugin{}
 
 func New(sys fpsystem.System) Plugin {
-	return Plugin{system: sys}
+	return NewWithBoundaries(BoundariesFromSystem(sys))
 }
 
 func NewWithResolver(sys fpsystem.System, resolver runtimesecret.Resolver) Plugin {
-	return Plugin{system: sys, secrets: resolver}
+	return NewWithBoundariesAndResolver(BoundariesFromSystem(sys), resolver)
+}
+
+func NewWithBoundaries(boundaries Boundaries) Plugin {
+	return Plugin{boundaries: boundaries}
+}
+
+func NewWithBoundariesAndResolver(boundaries Boundaries, resolver runtimesecret.Resolver) Plugin {
+	return Plugin{boundaries: boundaries, secrets: resolver}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -178,7 +198,7 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 	if err != nil {
 		return nil, err
 	}
-	return Plugin{system: p.system, ref: ctx.Ref, cfg: normalizeConfig(cfg), secrets: p.secrets, clientFactory: p.clientFactory}, nil
+	return Plugin{boundaries: p.boundaries, ref: ctx.Ref, cfg: normalizeConfig(cfg), secrets: p.secrets, clientFactory: p.clientFactory}, nil
 }
 
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
@@ -202,7 +222,7 @@ func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operati
 func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) ([]coredatasource.Provider, error) {
 	p = p.withRef(ctx.Ref)
 	return []coredatasource.Provider{gitlabDatasourceProvider{
-		system:        p.system,
+		boundaries:    p.boundaries,
 		ref:           p.ref,
 		config:        p.config(),
 		secrets:       p.secrets,
@@ -228,11 +248,11 @@ func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context
 	p.cfg = normalizeConfig(cfg)
 	resolver := req.Secrets
 	if resolver == nil {
-		if p.system == nil {
-			reports <- p.authTestReport(p.cfg.Auth.Method, "current_user", "failed", "gitlabplugin: system is nil", nil)
+		if p.boundaries.Environment == nil {
+			reports <- p.authTestReport(p.cfg.Auth.Method, "current_user", "failed", "gitlabplugin: environment is nil", nil)
 			return nil
 		}
-		resolver = runtimesecret.EnvResolver{Environment: p.system.Environment()}
+		resolver = runtimesecret.EnvResolver{Environment: p.boundaries.Environment}
 	}
 	auth, err := authFromResolver(ctx, resolver, p.ref, p.cfg)
 	method := firstNonEmpty(auth.Method.Name, p.cfg.Auth.Method)
@@ -244,7 +264,7 @@ func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context
 	if p.clientFactory != nil {
 		client, err = p.client(ctx)
 	} else {
-		client, err = newOfficialClientFromAuth(p.system, p.cfg, auth)
+		client, err = newOfficialClientFromAuth(p.boundaries.Network, p.cfg, auth)
 	}
 	if err != nil {
 		reports <- p.authTestReport(method, "current_user", "failed", err.Error(), nil)
@@ -309,17 +329,14 @@ func (p Plugin) config() Config {
 }
 
 func (p Plugin) client(ctx context.Context) (gitlabClient, error) {
-	if p.system == nil {
-		return nil, fmt.Errorf("gitlabplugin: system is nil")
-	}
 	factory := p.clientFactory
 	if factory == nil {
 		if p.secrets != nil {
-			return newOfficialClientWithResolver(ctx, p.system, p.secrets, p.ref, p.config())
+			return newOfficialClientWithResolver(ctx, p.boundaries, p.secrets, p.ref, p.config())
 		}
 		factory = newOfficialClient
 	}
-	return factory(ctx, p.system, p.ref, p.config())
+	return factory(ctx, p.boundaries, p.ref, p.config())
 }
 
 type gitlabExternalIdentityResolver struct {
@@ -529,32 +546,29 @@ func tokenEnvAliases() []string {
 	return []string{gitlabAccessTokenEnv, gitlabPersonalAccessTokenEnv, gitlabPersonalTokenEnv, gitlabTokenEnv}
 }
 
-func newOfficialClient(ctx context.Context, sys fpsystem.System, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
-	auth, err := authFromSecrets(ctx, sys, ref, cfg)
+func newOfficialClient(ctx context.Context, boundaries Boundaries, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
+	auth, err := authFromSecrets(ctx, boundaries.Environment, ref, cfg)
 	if err != nil {
 		return nil, err
 	}
-	return newOfficialClientFromAuth(sys, cfg, auth)
+	return newOfficialClientFromAuth(boundaries.Network, cfg, auth)
 }
 
-func newOfficialClientWithResolver(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
+func newOfficialClientWithResolver(ctx context.Context, boundaries Boundaries, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
 	auth, err := authFromResolver(ctx, resolver, ref, cfg)
 	if err != nil {
 		return nil, err
 	}
-	return newOfficialClientFromAuth(sys, cfg, auth)
+	return newOfficialClientFromAuth(boundaries.Network, cfg, auth)
 }
 
-func newOfficialClientFromAuth(sys fpsystem.System, cfg Config, auth resolvedGitLabAuth) (gitlabClient, error) {
-	if sys == nil {
-		return nil, fmt.Errorf("gitlabplugin: system is nil")
-	}
-	if sys.Network() == nil {
-		return nil, fmt.Errorf("gitlabplugin: system network is nil")
+func newOfficialClientFromAuth(network fpsystem.Network, cfg Config, auth resolvedGitLabAuth) (gitlabClient, error) {
+	if network == nil {
+		return nil, fmt.Errorf("gitlabplugin: network is nil")
 	}
 	options := []gitlab.ClientOptionFunc{
 		gitlab.WithBaseURL(firstNonEmpty(auth.BaseURL, cfg.baseURL())),
-		gitlab.WithHTTPClient(systemkit.NewHTTPClient(sys.Network())),
+		gitlab.WithHTTPClient(systemkit.NewHTTPClient(network)),
 		gitlab.WithoutRetries(),
 	}
 	var client *gitlab.Client
@@ -575,15 +589,11 @@ func newOfficialClientFromAuth(sys fpsystem.System, cfg Config, auth resolvedGit
 	return officialClient{client: client}, nil
 }
 
-func authFromSecrets(ctx context.Context, sys fpsystem.System, ref resource.PluginRef, cfg Config) (resolvedGitLabAuth, error) {
-	if sys == nil {
-		return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: system is nil")
+func authFromSecrets(ctx context.Context, environment fpsystem.Environment, ref resource.PluginRef, cfg Config) (resolvedGitLabAuth, error) {
+	if environment == nil {
+		return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: environment is nil")
 	}
-	env := sys.Environment()
-	if env == nil {
-		return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: system environment is nil")
-	}
-	return authFromResolver(ctx, runtimesecret.EnvResolver{Environment: env}, ref, cfg)
+	return authFromResolver(ctx, runtimesecret.EnvResolver{Environment: environment}, ref, cfg)
 }
 
 func authFromResolver(ctx context.Context, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (resolvedGitLabAuth, error) {

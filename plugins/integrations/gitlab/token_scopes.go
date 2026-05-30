@@ -15,8 +15,12 @@ import (
 
 // TokenScopes resolves the current GitLab token and returns the scopes reported by GitLab.
 func TokenScopes(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
+	return TokenScopesWithBoundaries(ctx, BoundariesFromSystem(sys), resolver, ref, cfg)
+}
+
+func TokenScopesWithBoundaries(ctx context.Context, boundaries Boundaries, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
 	cfg = normalizeConfig(cfg)
-	client, err := tokenScopeClient(ctx, sys, resolver, ref, cfg)
+	client, err := tokenScopeClient(ctx, boundaries.Network, resolver, ref, cfg)
 	if err != nil {
 		return nil, false, err
 	}
@@ -30,12 +34,9 @@ func TokenScopes(ctx context.Context, sys fpsystem.System, resolver runtimesecre
 	return append([]string(nil), token.Scopes...), true, nil
 }
 
-func tokenScopeClient(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (*gitlab.Client, error) {
-	if sys == nil {
-		return nil, fmt.Errorf("gitlabplugin: system is nil")
-	}
-	if sys.Network() == nil {
-		return nil, fmt.Errorf("gitlabplugin: system network is nil")
+func tokenScopeClient(ctx context.Context, network fpsystem.Network, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (*gitlab.Client, error) {
+	if network == nil {
+		return nil, fmt.Errorf("gitlabplugin: network is nil")
 	}
 	if resolver == nil {
 		return nil, fmt.Errorf("gitlabplugin: secret resolver is nil")
@@ -46,7 +47,7 @@ func tokenScopeClient(ctx context.Context, sys fpsystem.System, resolver runtime
 	}
 	options := []gitlab.ClientOptionFunc{
 		gitlab.WithBaseURL(firstNonEmpty(auth.BaseURL, cfg.baseURL())),
-		gitlab.WithHTTPClient(systemkit.NewHTTPClient(sys.Network())),
+		gitlab.WithHTTPClient(systemkit.NewHTTPClient(network)),
 		gitlab.WithoutRetries(),
 	}
 	switch auth.Material.Kind {

@@ -22,11 +22,11 @@ type loadedSpec struct {
 	Doc    *openapi3.T
 }
 
-func loadSpecs(ctx context.Context, sys fpsystem.System, workspace runtimeworkspace.Workspace, cfg Config) ([]loadedSpec, []error) {
+func loadSpecs(ctx context.Context, network fpsystem.Network, workspace runtimeworkspace.Workspace, cfg Config) ([]loadedSpec, []error) {
 	var out []loadedSpec
 	var errs []error
 	for i, spec := range cfg.Specs {
-		loaded, err := loadSpec(ctx, sys, workspace, spec)
+		loaded, err := loadSpec(ctx, network, workspace, spec)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("specs[%d]: %w", i, err))
 			continue
@@ -36,14 +36,11 @@ func loadSpecs(ctx context.Context, sys fpsystem.System, workspace runtimeworksp
 	return out, errs
 }
 
-func loadSpec(ctx context.Context, sys fpsystem.System, workspace runtimeworkspace.Workspace, cfg SpecConfig) (loadedSpec, error) {
-	if sys == nil {
-		return loadedSpec{}, fmt.Errorf("system is nil")
-	}
+func loadSpec(ctx context.Context, network fpsystem.Network, workspace runtimeworkspace.Workspace, cfg SpecConfig) (loadedSpec, error) {
 	loader := openapi3.NewLoader()
 	loader.Context = ctx
 	loader.IsExternalRefsAllowed = true
-	loader.ReadFromURIFunc = readFromURI(ctx, sys, workspace)
+	loader.ReadFromURIFunc = readFromURI(ctx, network, workspace)
 	var (
 		data     []byte
 		location *url.URL
@@ -55,7 +52,7 @@ func loadSpec(ctx context.Context, sys fpsystem.System, workspace runtimeworkspa
 		if err != nil {
 			return loadedSpec{}, fmt.Errorf("parse url: %w", err)
 		}
-		data, err = readRemote(ctx, sys, location)
+		data, err = readRemote(ctx, network, location)
 		source = cfg.URL
 	} else {
 		data, location, source, err = readWorkspaceFile(ctx, workspace, cfg.File)
@@ -76,11 +73,11 @@ func loadSpec(ctx context.Context, sys fpsystem.System, workspace runtimeworkspa
 	return loadedSpec{Config: cfg, Source: source, Doc: doc}, nil
 }
 
-func readFromURI(ctx context.Context, sys fpsystem.System, workspace runtimeworkspace.Workspace) openapi3.ReadFromURIFunc {
+func readFromURI(ctx context.Context, network fpsystem.Network, workspace runtimeworkspace.Workspace) openapi3.ReadFromURIFunc {
 	return func(_ *openapi3.Loader, location *url.URL) ([]byte, error) {
 		switch strings.ToLower(location.Scheme) {
 		case "http", "https":
-			return readRemote(ctx, sys, location)
+			return readRemote(ctx, network, location)
 		case "", "file":
 			data, _, _, err := readWorkspaceFile(ctx, workspace, location.Path)
 			return data, err
@@ -90,11 +87,11 @@ func readFromURI(ctx context.Context, sys fpsystem.System, workspace runtimework
 	}
 }
 
-func readRemote(ctx context.Context, sys fpsystem.System, location *url.URL) ([]byte, error) {
-	if sys == nil || sys.Network() == nil {
-		return nil, fmt.Errorf("network system is nil")
+func readRemote(ctx context.Context, network fpsystem.Network, location *url.URL) ([]byte, error) {
+	if network == nil {
+		return nil, fmt.Errorf("network is nil")
 	}
-	client := systemkit.NewHTTPClient(sys.Network(), systemkit.WithHTTPClientMaxBytes(maxSpecBytes))
+	client := systemkit.NewHTTPClient(network, systemkit.WithHTTPClientMaxBytes(maxSpecBytes))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location.String(), nil)
 	if err != nil {
 		return nil, err

@@ -3,7 +3,6 @@ package gitlab
 import (
 	"context"
 	"fmt"
-	fpsystem "github.com/fluxplane/fluxplane-system"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,7 +20,7 @@ import (
 const defaultPageSize = 20
 
 type gitlabDatasourceProvider struct {
-	system        fpsystem.System
+	boundaries    Boundaries
 	ref           resource.PluginRef
 	config        Config
 	secrets       runtimesecret.Resolver
@@ -52,7 +51,7 @@ func (p gitlabDatasourceProvider) Open(ctx context.Context, spec coredatasource.
 	}
 	return gitlabAccessor{
 		spec:              spec,
-		system:            p.system,
+		boundaries:        p.boundaries,
 		ref:               p.ref,
 		config:            p.config,
 		secrets:           p.secrets,
@@ -65,7 +64,7 @@ func (p gitlabDatasourceProvider) Open(ctx context.Context, spec coredatasource.
 
 type gitlabAccessor struct {
 	spec              coredatasource.Spec
-	system            fpsystem.System
+	boundaries        Boundaries
 	ref               resource.PluginRef
 	config            Config
 	secrets           runtimesecret.Resolver
@@ -1286,11 +1285,11 @@ func (a gitlabAccessor) client(ctx context.Context) (gitlabClient, error) {
 	factory := a.clientFactory
 	if factory == nil {
 		if a.secrets != nil {
-			return newOfficialClientWithResolver(ctx, a.system, a.secrets, a.ref, a.config)
+			return newOfficialClientWithResolver(ctx, a.boundaries, a.secrets, a.ref, a.config)
 		}
 		factory = newOfficialClient
 	}
-	return factory(ctx, a.system, a.ref, a.config)
+	return factory(ctx, a.boundaries, a.ref, a.config)
 }
 
 func (a gitlabAccessor) relationResult(req coredatasource.RelationRequest, target coredatasource.EntityType, records []coredatasource.Record, total, limit int) (coredatasource.RelationResult, error) {
