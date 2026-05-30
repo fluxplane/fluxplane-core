@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
@@ -95,11 +96,11 @@ func imageSource(ctx context.Context, sys system.System, raw string) (resolvedIm
 	if err != nil {
 		return resolvedImage{}, err
 	}
-	fsys, err := system.WorkspaceFileSystem(sys.Workspace())
+	fsys, err := runtimeworkspace.FileSystem(sys.Workspace())
 	if err != nil {
 		return resolvedImage{}, err
 	}
-	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, system.WorkspacePathName(resolved), defaultMaxFileSize)
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, runtimeworkspace.PathName(resolved), defaultMaxFileSize)
 	if err != nil {
 		return resolvedImage{}, err
 	}

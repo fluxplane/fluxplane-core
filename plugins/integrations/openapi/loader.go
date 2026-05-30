@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -135,11 +136,11 @@ func readWorkspaceFile(ctx context.Context, sys system.System, raw string) ([]by
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("read %s: %w", raw, err)
 	}
-	fsys, err := system.WorkspaceFileSystem(sys.Workspace())
+	fsys, err := runtimeworkspace.FileSystem(sys.Workspace())
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("read %s: %w", raw, err)
 	}
-	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, system.WorkspacePathName(resolved), maxSpecBytes)
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, runtimeworkspace.PathName(resolved), maxSpecBytes)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("read %s: %w", raw, err)
 	}

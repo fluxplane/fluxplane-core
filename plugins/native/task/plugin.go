@@ -29,6 +29,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-event"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -1028,11 +1029,11 @@ func readArtifactRef(ctx operation.Context, sys system.System, scoped coretask.S
 	if err != nil {
 		return operation.Failed("task_artifact_ref_read_failed", err.Error(), map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
 	}
-	fsys, err := system.WorkspaceFileSystem(sys.Workspace())
+	fsys, err := runtimeworkspace.FileSystem(sys.Workspace())
 	if err != nil {
 		return operation.Failed("task_artifact_ref_read_failed", err.Error(), map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
 	}
-	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, system.WorkspacePathName(resolved), maxBytes)
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, runtimeworkspace.PathName(resolved), maxBytes)
 	if err != nil {
 		return operation.Failed("task_artifact_ref_read_failed", err.Error(), map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
 	}
