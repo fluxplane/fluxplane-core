@@ -1,10 +1,11 @@
-package workspace
+package workspace_test
 
 import (
 	"context"
 	"testing"
 
 	coreworkspace "github.com/fluxplane/fluxplane-core/core/workspace"
+	. "github.com/fluxplane/fluxplane-core/runtime/workspace"
 )
 
 func TestManagerResolveSystemWorkspaceFallsBackToLocalRoot(t *testing.T) {

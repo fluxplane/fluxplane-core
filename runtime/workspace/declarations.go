@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	coreworkspace "github.com/fluxplane/fluxplane-core/core/workspace"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
@@ -21,7 +20,7 @@ func NewDeclarationLoader() DeclarationLoader { return DeclarationLoader{} }
 
 // Load reads known workspace declaration paths from ws. Missing declaration
 // files are ignored.
-func (DeclarationLoader) Load(ctx context.Context, ws system.Workspace, maxBytes int64) ([]coreworkspace.Workspace, []Warning, error) {
+func (DeclarationLoader) Load(ctx context.Context, ws Workspace, maxBytes int64) ([]coreworkspace.Workspace, []Warning, error) {
 	if ws == nil {
 		return nil, nil, nil
 	}
@@ -81,7 +80,7 @@ func (DeclarationLoader) Load(ctx context.Context, ws system.Workspace, maxBytes
 	return declarations, warnings, nil
 }
 
-func workspaceName(resolved system.ResolvedPath) string {
+func workspaceName(resolved ResolvedPath) string {
 	if strings.TrimSpace(resolved.Rel) == "" {
 		return "."
 	}

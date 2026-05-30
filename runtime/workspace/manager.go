@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	coreworkspace "github.com/fluxplane/fluxplane-core/core/workspace"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 // Manager resolves workspace selections for runtime systems.
@@ -39,7 +38,7 @@ func NewManager(options ...ManagerOption) *Manager {
 // ResolveSystemWorkspace resolves the active workspace from a system workspace
 // root, declaration files, configured declarations, and optional explicit
 // workspace id.
-func (m *Manager) ResolveSystemWorkspace(ctx context.Context, ws system.Workspace, explicit coreworkspace.ID) (ResolveResult, error) {
+func (m *Manager) ResolveSystemWorkspace(ctx context.Context, ws Workspace, explicit coreworkspace.ID) (ResolveResult, error) {
 	if err := ctx.Err(); err != nil {
 		return ResolveResult{}, err
 	}

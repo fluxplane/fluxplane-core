@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/hostsystem"
 	"github.com/fluxplane/fluxplane-system/mountfs"
@@ -143,31 +144,13 @@ func (e HostEnvironment) ResolveExecutable(ctx context.Context, name string) (st
 }
 
 // Workspace is a root-confined filesystem boundary.
-type Workspace interface {
-	System() fpsystem.System
-	Root() string
-	Roots() []WorkspaceRoot
-	ResolveExisting(context.Context, string) (ResolvedPath, error)
-	ResolveCreate(context.Context, string) (ResolvedPath, error)
-	CreateScratch(context.Context, string) (ScratchDir, error)
-}
+type Workspace = runtimeworkspace.Workspace
 
 // ResolvedPath is a canonical workspace path.
-type ResolvedPath struct {
-	Input string `json:"input,omitempty"`
-	Abs   string `json:"abs"`
-	Rel   string `json:"rel"`
-}
+type ResolvedPath = runtimeworkspace.ResolvedPath
 
 // WorkspaceRoot describes one runtime filesystem root exposed by a Workspace.
-type WorkspaceRoot struct {
-	Name    string `json:"name,omitempty"`
-	Path    string `json:"path"`
-	Rel     string `json:"rel,omitempty"`
-	Read    bool   `json:"read"`
-	Write   bool   `json:"write"`
-	Scratch bool   `json:"scratch,omitempty"`
-}
+type WorkspaceRoot = runtimeworkspace.Root
 
 // WalkOptions bounds workspace tree traversal.
 type WalkOptions struct {
@@ -199,11 +182,7 @@ type GlobOptions struct {
 }
 
 // ScratchDir is an isolated temporary directory owned by the runtime system.
-type ScratchDir interface {
-	Root() string
-	WriteFile(context.Context, string, []byte, os.FileMode) (ResolvedPath, error)
-	RemoveAll(context.Context) error
-}
+type ScratchDir = runtimeworkspace.ScratchDir
 
 // HostWorkspace implements Workspace using the local filesystem.
 type HostWorkspace struct {

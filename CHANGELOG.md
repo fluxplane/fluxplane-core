@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with core injecting URL authorization and artifact persistence callbacks.
 - Runtime workspace file IO now flows through `github.com/fluxplane/fluxplane-system`
   instead of broad file helper methods on `runtime/system.Workspace`.
+- `runtime/workspace` now owns the workspace semantic interface and no longer
+  imports `runtime/system`.
 
 ## [0.22.0] - 2026-05-29
 
