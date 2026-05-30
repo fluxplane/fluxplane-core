@@ -2,7 +2,9 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"strings"
 
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -41,4 +43,20 @@ type ScratchDir interface {
 	Root() string
 	WriteFile(context.Context, string, []byte, os.FileMode) (ResolvedPath, error)
 	RemoveAll(context.Context) error
+}
+
+// PathName returns the scoped filesystem name for resolved.
+func PathName(resolved ResolvedPath) string {
+	if strings.TrimSpace(resolved.Rel) == "" {
+		return "."
+	}
+	return resolved.Rel
+}
+
+// FileSystem returns the scoped filesystem exposed by ws.
+func FileSystem(ws Workspace) (fpsystem.FileSystem, error) {
+	if ws == nil || ws.System() == nil || ws.System().FileSystem() == nil {
+		return nil, fmt.Errorf("workspace filesystem is nil")
+	}
+	return ws.System().FileSystem(), nil
 }

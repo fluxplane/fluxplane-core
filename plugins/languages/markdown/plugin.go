@@ -18,6 +18,7 @@ import (
 	runtimelanguage "github.com/fluxplane/fluxplane-core/runtime/language"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/yuin/goldmark"
 	goldast "github.com/yuin/goldmark/ast"
@@ -254,42 +255,42 @@ func (p Plugin) parse(ctx context.Context, rel string, maxBytes int) (parsedMark
 	return parsedMarkdown{Outline: outline, Links: markdownLinks(doc, data, rel)}, nil
 }
 
-func statWorkspacePath(ctx context.Context, ws system.Workspace, rel string) (fs.FileInfo, system.ResolvedPath, error) {
+func statWorkspacePath(ctx context.Context, ws runtimeworkspace.Workspace, rel string) (fs.FileInfo, runtimeworkspace.ResolvedPath, error) {
 	resolved, err := ws.ResolveExisting(ctx, rel)
 	if err != nil {
-		return nil, system.ResolvedPath{}, err
+		return nil, runtimeworkspace.ResolvedPath{}, err
 	}
-	fsys, err := system.WorkspaceFileSystem(ws)
+	fsys, err := runtimeworkspace.FileSystem(ws)
 	if err != nil {
-		return nil, system.ResolvedPath{}, err
+		return nil, runtimeworkspace.ResolvedPath{}, err
 	}
-	info, err := fsys.Stat(system.WorkspacePathName(resolved))
+	info, err := fsys.Stat(runtimeworkspace.PathName(resolved))
 	return info, resolved, err
 }
 
-func readWorkspaceFile(ctx context.Context, ws system.Workspace, rel string, maxBytes int64) ([]byte, bool, system.ResolvedPath, error) {
+func readWorkspaceFile(ctx context.Context, ws runtimeworkspace.Workspace, rel string, maxBytes int64) ([]byte, bool, runtimeworkspace.ResolvedPath, error) {
 	resolved, err := ws.ResolveExisting(ctx, rel)
 	if err != nil {
-		return nil, false, system.ResolvedPath{}, err
+		return nil, false, runtimeworkspace.ResolvedPath{}, err
 	}
-	fsys, err := system.WorkspaceFileSystem(ws)
+	fsys, err := runtimeworkspace.FileSystem(ws)
 	if err != nil {
-		return nil, false, system.ResolvedPath{}, err
+		return nil, false, runtimeworkspace.ResolvedPath{}, err
 	}
-	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, system.WorkspacePathName(resolved), maxBytes)
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, runtimeworkspace.PathName(resolved), maxBytes)
 	return data, truncated, resolved, err
 }
 
-func walkWorkspace(ctx context.Context, ws system.Workspace, rel string, opts fpsystem.WalkOptions) ([]fpsystem.WalkEntry, error) {
+func walkWorkspace(ctx context.Context, ws runtimeworkspace.Workspace, rel string, opts fpsystem.WalkOptions) ([]fpsystem.WalkEntry, error) {
 	resolved, err := ws.ResolveExisting(ctx, rel)
 	if err != nil {
 		return nil, err
 	}
-	fsys, err := system.WorkspaceFileSystem(ws)
+	fsys, err := runtimeworkspace.FileSystem(ws)
 	if err != nil {
 		return nil, err
 	}
-	entries, _, err := fpsystem.Walk(ctx, fsys, system.WorkspacePathName(resolved), opts)
+	entries, _, err := fpsystem.Walk(ctx, fsys, runtimeworkspace.PathName(resolved), opts)
 	return entries, err
 }
 

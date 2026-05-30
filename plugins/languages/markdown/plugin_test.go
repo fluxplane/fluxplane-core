@@ -10,6 +10,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
@@ -114,17 +115,17 @@ func runMarkdownOp(t *testing.T, sys system.System, name string, input map[strin
 	return operation.Rendered{}
 }
 
-func writeMarkdownFile(t *testing.T, ws system.Workspace, rel, content string) {
+func writeMarkdownFile(t *testing.T, ws runtimeworkspace.Workspace, rel, content string) {
 	t.Helper()
 	resolved, err := ws.ResolveCreate(context.Background(), rel)
 	if err != nil {
 		t.Fatalf("ResolveCreate(%s): %v", rel, err)
 	}
-	fsys, err := system.WorkspaceFileSystem(ws)
+	fsys, err := runtimeworkspace.FileSystem(ws)
 	if err != nil {
 		t.Fatalf("WorkspaceFileSystem(%s): %v", rel, err)
 	}
-	if err := fsys.WriteFile(context.Background(), system.WorkspacePathName(resolved), []byte(content), fpsystem.WriteFileOptions{Perm: 0644, Overwrite: true}); err != nil {
+	if err := fsys.WriteFile(context.Background(), runtimeworkspace.PathName(resolved), []byte(content), fpsystem.WriteFileOptions{Perm: 0644, Overwrite: true}); err != nil {
 		t.Fatalf("WriteFile(%s): %v", rel, err)
 	}
 }

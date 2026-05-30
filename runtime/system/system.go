@@ -955,23 +955,17 @@ func (w *HostWorkspace) resolved(input string, root workspaceRoot, abs string) (
 }
 
 func workspaceName(resolved ResolvedPath) string {
-	if strings.TrimSpace(resolved.Rel) == "" {
-		return "."
-	}
-	return resolved.Rel
+	return runtimeworkspace.PathName(resolved)
 }
 
 // WorkspacePathName returns the scoped filesystem name for resolved.
 func WorkspacePathName(resolved ResolvedPath) string {
-	return workspaceName(resolved)
+	return runtimeworkspace.PathName(resolved)
 }
 
 // WorkspaceFileSystem returns the scoped filesystem exposed by ws.
 func WorkspaceFileSystem(ws Workspace) (fpsystem.FileSystem, error) {
-	if ws == nil || ws.System() == nil || ws.System().FileSystem() == nil {
-		return nil, fmt.Errorf("workspace filesystem is nil")
-	}
-	return ws.System().FileSystem(), nil
+	return runtimeworkspace.FileSystem(ws)
 }
 
 func (w *HostWorkspace) filesystemName(resolved ResolvedPath) (fpsystem.FileSystem, string) {
