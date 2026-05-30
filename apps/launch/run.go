@@ -380,7 +380,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		available = opts.Plugins(PluginFactoryContext{System: runtimeSystem, Workspace: runtimeWorkspace, Dispatcher: dispatcher, TaskRunner: taskScheduler, NativeAuthStore: auth.Store, NativeAuthResolver: auth.Resolver})
 	}
 	if taskScheduler != nil {
-		available = replacePlugin(available, task.NewWithRunnerAndSystem(taskScheduler, runtimeSystem, runtimeWorkspace))
+		available = replacePlugin(available, task.NewWithConfig(task.Config{Runner: taskScheduler, Workspace: runtimeWorkspace}))
 	}
 	if opts.Dev {
 		available = appendPluginIfMissing(available, sessionhistory.New(threadStore))
@@ -675,7 +675,7 @@ func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace
 		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
 		openapi.New(hostSystem, ws),
 		memory.New(),
-		task.NewWithRunnerAndSystem(taskRunner, hostSystem, ws),
+		task.NewWithConfig(task.Config{Runner: taskRunner, Workspace: ws}),
 		skills.New(),
 		text.New(),
 	}

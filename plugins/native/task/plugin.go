@@ -69,7 +69,6 @@ const (
 // Plugin contributes task creation resources and operations.
 type Plugin struct {
 	Runner    TaskRunner
-	System    fpsystem.System
 	Workspace runtimeworkspace.Workspace
 }
 
@@ -92,10 +91,15 @@ func New() Plugin { return Plugin{} }
 // backed by the supplied runner.
 func NewWithRunner(runner TaskRunner) Plugin { return Plugin{Runner: runner} }
 
-// NewWithRunnerAndSystem returns the task plugin with scheduler controls and
-// a system boundary for safe artifact ref reads.
-func NewWithRunnerAndSystem(runner TaskRunner, sys fpsystem.System, workspace runtimeworkspace.Workspace) Plugin {
-	return Plugin{Runner: runner, System: sys, Workspace: workspace}
+// Config configures task plugin runtime boundaries.
+type Config struct {
+	Runner    TaskRunner
+	Workspace runtimeworkspace.Workspace
+}
+
+// NewWithConfig returns the task plugin with explicit runtime boundaries.
+func NewWithConfig(cfg Config) Plugin {
+	return Plugin{Runner: cfg.Runner, Workspace: cfg.Workspace}
 }
 
 // Manifest returns plugin metadata.
@@ -1023,7 +1027,7 @@ func readArtifactRef(ctx operation.Context, workspace runtimeworkspace.Workspace
 		})
 	}
 	if workspace == nil {
-		return operation.Failed("task_artifact_reader_missing", "task_read_artifact requires a runtime system for ref reads", map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
+		return operation.Failed("task_artifact_reader_missing", "task_read_artifact requires a runtime workspace for ref reads", map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
 	}
 	resolved, err := workspace.ResolveExisting(ctx, ref)
 	if err != nil {
