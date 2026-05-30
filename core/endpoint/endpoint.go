@@ -1,73 +1,22 @@
 package endpoint
 
-import (
-	"fmt"
-	"strings"
-)
+import shared "github.com/fluxplane/fluxplane-endpoint"
 
 // Ref identifies an endpoint stored or resolved by runtime code.
-type Ref string
+type Ref = shared.Ref
 
 // Spec describes an explicitly configured endpoint.
-type Spec struct {
-	Name        string            `json:"name"`
-	URL         string            `json:"url,omitempty"`
-	Product     string            `json:"product,omitempty"`
-	Protocol    string            `json:"protocol,omitempty"`
-	AuthRef     string            `json:"auth_ref,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	Annotations map[string]string `json:"annotations,omitempty"`
-}
+type Spec = shared.Spec
 
 // SourceRef describes where an endpoint came from without importing the source
 // system into core.
-type SourceRef struct {
-	Kind       string            `json:"kind,omitempty"`
-	Name       string            `json:"name,omitempty"`
-	Namespace  string            `json:"namespace,omitempty"`
-	Cluster    string            `json:"cluster,omitempty"`
-	UID        string            `json:"uid,omitempty"`
-	Attributes map[string]string `json:"attributes,omitempty"`
-}
+type SourceRef = shared.SourceRef
 
 // Resolved is the runtime-ready view of an endpoint.
-type Resolved struct {
-	Ref        Ref               `json:"ref,omitempty"`
-	URL        string            `json:"url"`
-	HeadersRef string            `json:"headers_ref,omitempty"`
-	AuthRef    string            `json:"auth_ref,omitempty"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	ExpiresAt  string            `json:"expires_at,omitempty"`
-	Source     SourceRef         `json:"source,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
-}
+type Resolved = shared.Resolved
 
 // NewRef returns the canonical endpoint ref for id.
-func NewRef(id string) Ref {
-	id = strings.TrimSpace(strings.TrimPrefix(id, "@endpoint/"))
-	if id == "" {
-		return ""
-	}
-	return Ref("@endpoint/" + id)
-}
+func NewRef(id string) Ref { return shared.NewRef(id) }
 
-// ID returns the ref id without the @endpoint/ prefix.
-func (r Ref) ID() string {
-	return strings.TrimSpace(strings.TrimPrefix(string(r), "@endpoint/"))
-}
-
-// Valid reports whether r is a non-empty endpoint ref.
-func (r Ref) Valid() bool {
-	return strings.HasPrefix(strings.TrimSpace(string(r)), "@endpoint/") && r.ID() != ""
-}
-
-// Validate checks the configured endpoint has an identity and target.
-func (s Spec) Validate() error {
-	if strings.TrimSpace(s.Name) == "" {
-		return fmt.Errorf("endpoint: name is empty")
-	}
-	if strings.TrimSpace(s.URL) == "" {
-		return fmt.Errorf("endpoint: url is empty")
-	}
-	return nil
-}
+// ParseRef parses a canonical endpoint ref or bare id.
+func ParseRef(value string) Ref { return shared.ParseRef(value) }
