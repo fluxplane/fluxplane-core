@@ -14,13 +14,12 @@ import (
 	"strings"
 	"time"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/adapters/auth/oauth2flow"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/authstatus"
 	"github.com/fluxplane/fluxplane-core/runtime/oauth2client"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -153,9 +152,9 @@ func runStatusWithOptions(ctx context.Context, opts options, cfg CommandOptions)
 	if err != nil {
 		return err
 	}
-	resolver := runtimesecret.ChainResolver{
+	resolver := coresecret.ChainResolver{
 		sharedsecret.NewFileStore(opts.authPath),
-		runtimesecret.EnvResolver{Environment: osEnvironment{}},
+		coresecret.EnvResolver{Environment: osEnvironment{}},
 	}
 	plans, maxLabel, err := statusPlans(ctx, targets, resolver)
 	if err != nil {
@@ -394,7 +393,7 @@ func filterMethods(methods []coresecret.AuthMethodSpec, requested string) ([]cor
 	return []coresecret.AuthMethodSpec{method}, nil
 }
 
-func statusPlans(ctx context.Context, targets []target, resolver runtimesecret.Resolver) ([]statusPlan, int, error) {
+func statusPlans(ctx context.Context, targets []target, resolver coresecret.Resolver) ([]statusPlan, int, error) {
 	plans := make([]statusPlan, 0, len(targets))
 	maxLabel := 0
 	for _, target := range targets {
@@ -422,7 +421,7 @@ func statusPlans(ctx context.Context, targets []target, resolver runtimesecret.R
 	return plans, maxLabel, nil
 }
 
-func runConnectivityTest(ctx context.Context, out io.Writer, resolver runtimesecret.Resolver, plan statusPlan, renderer statusRenderer) error {
+func runConnectivityTest(ctx context.Context, out io.Writer, resolver coresecret.Resolver, plan statusPlan, renderer statusRenderer) error {
 	tester, ok := plan.Target.auth.Plugin.(pluginhost.AuthTestContributor)
 	if !ok {
 		renderer.printTestReport(out, pluginhost.AuthTestReport{Method: plan.RequestedMethod, Check: "connection", Status: "skipped", Message: "plugin does not support auth testing"})
@@ -621,7 +620,7 @@ func (r statusRenderer) printSection(out io.Writer, label string) {
 	_, _ = fmt.Fprintf(out, "  %s\n", r.muted(strings.TrimSpace(label)))
 }
 
-func (r statusRenderer) printResolvedFields(out io.Writer, ctx context.Context, resolver runtimesecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec) {
+func (r statusRenderer) printResolvedFields(out io.Writer, ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec) {
 	if strings.TrimSpace(method.Name) == "" {
 		return
 	}
@@ -720,7 +719,7 @@ type resolvedField struct {
 	Sensitive bool
 }
 
-func resolvedFieldValues(ctx context.Context, resolver runtimesecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec) []resolvedField {
+func resolvedFieldValues(ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec) []resolvedField {
 	var out []resolvedField
 	if resolver == nil {
 		return out
@@ -746,7 +745,7 @@ func resolvedFieldValues(ctx context.Context, resolver runtimesecret.Resolver, r
 	return out
 }
 
-func resolveDisplayField(ctx context.Context, resolver runtimesecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec, spec coresecret.SetupFieldSpec) (string, string, bool, bool) {
+func resolveDisplayField(ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec, spec coresecret.SetupFieldSpec) (string, string, bool, bool) {
 	name := strings.TrimSpace(coresecret.SetupFieldName(spec))
 	refs := []coresecret.Ref{coresecret.Plugin(ref.Name, ref.InstanceName(), name)}
 	refs = append(refs, envRefs(spec.Env)...)

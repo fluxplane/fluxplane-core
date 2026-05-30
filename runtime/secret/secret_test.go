@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

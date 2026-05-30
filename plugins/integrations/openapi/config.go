@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 )
 
 const Name = "openapi"

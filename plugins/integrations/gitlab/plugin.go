@@ -7,15 +7,14 @@ import (
 	"strconv"
 	"strings"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	coreuser "github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/orchestration/identity"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"golang.org/x/oauth2"
@@ -58,7 +57,7 @@ type Plugin struct {
 	boundaries    Boundaries
 	ref           resource.PluginRef
 	cfg           Config
-	secrets       runtimesecret.Resolver
+	secrets       coresecret.Resolver
 	clientFactory gitlabClientFactory
 }
 
@@ -161,7 +160,7 @@ type gitlabClient interface {
 type gitlabClientFactory func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error)
 
 type resolvedGitLabAuth struct {
-	runtimesecret.Resolution
+	coresecret.Resolution
 	BaseURL string
 }
 
@@ -177,7 +176,7 @@ func New(sys fpsystem.System) Plugin {
 	return NewWithBoundaries(BoundariesFromSystem(sys))
 }
 
-func NewWithResolver(sys fpsystem.System, resolver runtimesecret.Resolver) Plugin {
+func NewWithResolver(sys fpsystem.System, resolver coresecret.Resolver) Plugin {
 	return NewWithBoundariesAndResolver(BoundariesFromSystem(sys), resolver)
 }
 
@@ -185,7 +184,7 @@ func NewWithBoundaries(boundaries Boundaries) Plugin {
 	return Plugin{boundaries: boundaries}
 }
 
-func NewWithBoundariesAndResolver(boundaries Boundaries, resolver runtimesecret.Resolver) Plugin {
+func NewWithBoundariesAndResolver(boundaries Boundaries, resolver coresecret.Resolver) Plugin {
 	return Plugin{boundaries: boundaries, secrets: resolver}
 }
 
@@ -252,7 +251,7 @@ func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context
 			reports <- p.authTestReport(p.cfg.Auth.Method, "current_user", "failed", "gitlabplugin: environment is nil", nil)
 			return nil
 		}
-		resolver = runtimesecret.EnvResolver{Environment: p.boundaries.Environment}
+		resolver = coresecret.EnvResolver{Environment: p.boundaries.Environment}
 	}
 	auth, err := authFromResolver(ctx, resolver, p.ref, p.cfg)
 	method := firstNonEmpty(auth.Method.Name, p.cfg.Auth.Method)
@@ -554,7 +553,7 @@ func newOfficialClient(ctx context.Context, boundaries Boundaries, ref resource.
 	return newOfficialClientFromAuth(boundaries.Network, cfg, auth)
 }
 
-func newOfficialClientWithResolver(ctx context.Context, boundaries Boundaries, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
+func newOfficialClientWithResolver(ctx context.Context, boundaries Boundaries, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
 	auth, err := authFromResolver(ctx, resolver, ref, cfg)
 	if err != nil {
 		return nil, err
@@ -593,14 +592,14 @@ func authFromSecrets(ctx context.Context, environment fpsystem.Environment, ref 
 	if environment == nil {
 		return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: environment is nil")
 	}
-	return authFromResolver(ctx, runtimesecret.EnvResolver{Environment: environment}, ref, cfg)
+	return authFromResolver(ctx, coresecret.EnvResolver{Environment: environment}, ref, cfg)
 }
 
-func authFromResolver(ctx context.Context, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (resolvedGitLabAuth, error) {
+func authFromResolver(ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) (resolvedGitLabAuth, error) {
 	if resolver == nil {
 		return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: secret resolver is nil")
 	}
-	broker := runtimesecret.NewBroker(resolver)
+	broker := coresecret.NewBroker(resolver)
 	methods := cfg.authMethods(ref)
 	if len(methods) == 0 {
 		return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: unsupported auth method %q", cfg.Auth.Method)
@@ -635,7 +634,7 @@ func authFromResolver(ctx context.Context, resolver runtimesecret.Resolver, ref 
 	return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: auth secret is not configured; set %s", cfg.Auth.TokenEnv)
 }
 
-func tokenAuthFromSetupFields(ctx context.Context, broker *runtimesecret.Broker, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config, method coresecret.AuthMethodSpec) (resolvedGitLabAuth, bool, error) {
+func tokenAuthFromSetupFields(ctx context.Context, broker *coresecret.Broker, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config, method coresecret.AuthMethodSpec) (resolvedGitLabAuth, bool, error) {
 	request := coresecret.AuthRequest{
 		Plugin:   Name,
 		Instance: ref.InstanceName(),
@@ -670,7 +669,7 @@ func tokenAuthFromSetupFields(ctx context.Context, broker *runtimesecret.Broker,
 		}
 	}
 	return resolvedGitLabAuth{
-		Resolution: runtimesecret.Resolution{
+		Resolution: coresecret.Resolution{
 			Ref:      tokenRef,
 			Method:   method,
 			Material: token,
@@ -679,7 +678,7 @@ func tokenAuthFromSetupFields(ctx context.Context, broker *runtimesecret.Broker,
 	}, true, nil
 }
 
-func resolveSetupField(ctx context.Context, resolver runtimesecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec, name string) (coresecret.Material, coresecret.Ref, bool, error) {
+func resolveSetupField(ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec, name string) (coresecret.Material, coresecret.Ref, bool, error) {
 	field, ok := setupField(method.SetupFields, name)
 	if !ok {
 		return coresecret.Material{}, coresecret.Ref{}, false, nil

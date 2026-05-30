@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"

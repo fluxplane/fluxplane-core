@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
+	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
@@ -27,7 +28,6 @@ import (
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )

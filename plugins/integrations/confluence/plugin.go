@@ -12,14 +12,13 @@ import (
 	"strconv"
 	"strings"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/internal/atlassian"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 )
 
 const (
@@ -41,7 +40,7 @@ type Plugin struct {
 	pluginhost.Configurable[atlassian.Config]
 	network  fpsystem.Network
 	store    sharedsecret.FileStore
-	resolver runtimesecret.Resolver
+	resolver coresecret.Resolver
 	ref      resource.PluginRef
 	cfg      atlassian.Config
 }
@@ -60,7 +59,7 @@ func New(sys fpsystem.System, stores ...sharedsecret.FileStore) Plugin {
 	return NewWithResolver(sys, store, store)
 }
 
-func NewWithResolver(sys fpsystem.System, store sharedsecret.FileStore, resolver runtimesecret.Resolver) Plugin {
+func NewWithResolver(sys fpsystem.System, store sharedsecret.FileStore, resolver coresecret.Resolver) Plugin {
 	if resolver == nil {
 		resolver = store
 	}

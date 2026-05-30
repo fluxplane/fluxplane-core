@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
@@ -24,7 +25,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-policy"

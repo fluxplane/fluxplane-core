@@ -7,10 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 )
 
 func TestCollectFieldsRejectsSensitivePromptOnNonTerminal(t *testing.T) {
@@ -201,7 +200,7 @@ func TestRunStatusPrintsResolvedFieldsAndRedactsSensitiveValues(t *testing.T) {
 func TestPrintResolvedFieldsShowsEnvSourceAndResolvedValue(t *testing.T) {
 	t.Setenv("SERVICE_EMAIL", "user@example.invalid")
 	out := bytes.Buffer{}
-	newStatusRenderer(&out).printResolvedFields(&out, context.Background(), runtimesecret.EnvResolver{Environment: osEnvironment{}}, resource.PluginRef{Name: "issues", Instance: "issues"}, coresecret.AuthMethodSpec{
+	newStatusRenderer(&out).printResolvedFields(&out, context.Background(), coresecret.EnvResolver{Environment: osEnvironment{}}, resource.PluginRef{Name: "issues", Instance: "issues"}, coresecret.AuthMethodSpec{
 		Name:   "token",
 		Method: coresecret.AuthMethodEnv,
 		SetupFields: []coresecret.SetupFieldSpec{{

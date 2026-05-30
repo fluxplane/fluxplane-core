@@ -12,10 +12,9 @@ import (
 	"sort"
 	"strings"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-policy"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -157,7 +156,7 @@ func (o openAPIOperation) applyAuth(ctx operation.Context, req *http.Request, in
 	}
 	for _, schemeName := range schemeNames {
 		method := o.def.AuthByScheme[schemeName]
-		broker := runtimesecret.NewBroker(runtimesecret.EnvResolver{Environment: o.environment, Kind: method.Kind})
+		broker := coresecret.NewBroker(coresecret.EnvResolver{Environment: o.environment, Kind: method.Kind})
 		resolution, ok, err := broker.UseAvailable(ctx, coresecret.AuthRequest{
 			Plugin:   Name,
 			Instance: o.def.Instance,

@@ -9,12 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/internal/atlassian"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
@@ -308,9 +307,9 @@ func (s fakeSystem) Clock() fpsystem.Clock {
 func newTestPlugin(t *testing.T, network fpsystem.Network, env map[string]string) Plugin {
 	t.Helper()
 	store := sharedsecret.NewFileStore(t.TempDir())
-	resolver := runtimesecret.ChainResolver{
+	resolver := coresecret.ChainResolver{
 		store,
-		runtimesecret.EnvResolver{Environment: fakeEnvironment{values: env}},
+		coresecret.EnvResolver{Environment: fakeEnvironment{values: env}},
 	}
 	return NewWithResolver(fakeSystem{network: network}, store, resolver)
 }

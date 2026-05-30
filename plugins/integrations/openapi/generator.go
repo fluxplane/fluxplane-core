@@ -8,11 +8,11 @@ import (
 	"sort"
 	"strings"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	"github.com/getkin/kin-openapi/openapi3"
 )

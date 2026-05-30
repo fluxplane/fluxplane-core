@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	coreevent "github.com/fluxplane/fluxplane-event"

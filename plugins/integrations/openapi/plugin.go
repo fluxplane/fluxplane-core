@@ -8,9 +8,9 @@ import (
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 )
 

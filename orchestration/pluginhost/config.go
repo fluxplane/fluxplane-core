@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"reflect"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	invjsonschema "github.com/invopop/jsonschema"
 )
 

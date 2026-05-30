@@ -5,20 +5,19 @@ import (
 	"fmt"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"golang.org/x/oauth2"
 )
 
 // TokenScopes resolves the current GitLab token and returns the scopes reported by GitLab.
-func TokenScopes(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
+func TokenScopes(ctx context.Context, sys fpsystem.System, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
 	return TokenScopesWithBoundaries(ctx, BoundariesFromSystem(sys), resolver, ref, cfg)
 }
 
-func TokenScopesWithBoundaries(ctx context.Context, boundaries Boundaries, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
+func TokenScopesWithBoundaries(ctx context.Context, boundaries Boundaries, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
 	cfg = normalizeConfig(cfg)
 	client, err := tokenScopeClient(ctx, boundaries.Network, resolver, ref, cfg)
 	if err != nil {
@@ -34,7 +33,7 @@ func TokenScopesWithBoundaries(ctx context.Context, boundaries Boundaries, resol
 	return append([]string(nil), token.Scopes...), true, nil
 }
 
-func tokenScopeClient(ctx context.Context, network fpsystem.Network, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (*gitlab.Client, error) {
+func tokenScopeClient(ctx context.Context, network fpsystem.Network, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) (*gitlab.Client, error) {
 	if network == nil {
 		return nil, fmt.Errorf("gitlabplugin: network is nil")
 	}

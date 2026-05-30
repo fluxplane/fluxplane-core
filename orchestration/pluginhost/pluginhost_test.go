@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/command"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
@@ -11,7 +12,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/core/skill"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 )

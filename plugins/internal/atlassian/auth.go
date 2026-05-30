@@ -13,10 +13,9 @@ import (
 	"strings"
 	"time"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/oauth2client"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
@@ -129,18 +128,18 @@ func Resolve(ctx context.Context, sys fpsystem.System, store sharedsecret.FileSt
 	return ResolveWithBoundaries(ctx, BoundariesFromSystem(sys), store, store, pluginName, ref, product, cfg)
 }
 
-func ResolveWithResolver(ctx context.Context, sys fpsystem.System, store sharedsecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func ResolveWithResolver(ctx context.Context, sys fpsystem.System, store sharedsecret.FileStore, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	return ResolveWithBoundaries(ctx, BoundariesFromSystem(sys), store, resolver, pluginName, ref, product, cfg)
 }
 
-func ResolveWithBoundaries(ctx context.Context, boundaries Boundaries, store sharedsecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func ResolveWithBoundaries(ctx context.Context, boundaries Boundaries, store sharedsecret.FileStore, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	if resolver == nil {
 		resolver = store
 	}
 	return resolve(ctx, boundaries, store, resolver, pluginName, ref, product, cfg)
 }
 
-func resolve(ctx context.Context, boundaries Boundaries, store sharedsecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func resolve(ctx context.Context, boundaries Boundaries, store sharedsecret.FileStore, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	cfg = NormalizeConfig(cfg)
 	method := cfg.Auth.Method
 	switch method {
@@ -356,16 +355,16 @@ func resolveOAuth(ctx context.Context, boundaries Boundaries, store sharedsecret
 	return session, true, nil
 }
 
-func resolveTokenWithResolver(ctx context.Context, boundaries Boundaries, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func resolveTokenWithResolver(ctx context.Context, boundaries Boundaries, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	session, _, err := resolveBearerToken(ctx, boundaries, resolver, pluginName, ref, product, cfg, true)
 	return session, err
 }
 
-func resolveBearerToken(ctx context.Context, boundaries Boundaries, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
+func resolveBearerToken(ctx context.Context, boundaries Boundaries, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
 	if resolver == nil {
 		return Session{}, false, fmt.Errorf("atlassianplugin: secret resolver is nil")
 	}
-	broker := runtimesecret.NewBroker(resolver)
+	broker := coresecret.NewBroker(resolver)
 	methods := []coresecret.AuthMethodSpec{tokenAuthMethod(product, cfg.Auth.TokenEnv, cfg.Auth.EmailEnv)}
 	resolution, ok, err := broker.UseAvailable(ctx, coresecret.AuthRequest{
 		Plugin:   pluginName,
@@ -408,12 +407,12 @@ func resolveBearerToken(ctx context.Context, boundaries Boundaries, resolver run
 	return session, true, nil
 }
 
-func resolveAPIToken(ctx context.Context, store sharedsecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
+func resolveAPIToken(ctx context.Context, store sharedsecret.FileStore, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
 	method := apiTokenAuthMethod(pluginName, ref, product, cfg)
 	if resolver == nil {
 		resolver = store
 	}
-	broker := runtimesecret.NewBroker(resolver)
+	broker := coresecret.NewBroker(resolver)
 	if _, _, err := broker.Use(ctx, coresecret.AuthRequest{Plugin: pluginName, Instance: ref.InstanceName(), Purpose: AccessTokenPurpose}.SecretRef()); err != nil {
 		return Session{}, false, fmt.Errorf("atlassianplugin: use api token auth secret: %w", err)
 	}
@@ -897,7 +896,7 @@ func isAPITokenMethod(method string) bool {
 	}
 }
 
-func resolveSetupField(ctx context.Context, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, method coresecret.AuthMethodSpec, name string) (string, bool, error) {
+func resolveSetupField(ctx context.Context, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, method coresecret.AuthMethodSpec, name string) (string, bool, error) {
 	field, ok := setupField(method.SetupFields, name)
 	if !ok {
 		return "", false, nil
@@ -913,7 +912,7 @@ func resolveSetupField(ctx context.Context, resolver runtimesecret.Resolver, plu
 	return "", false, nil
 }
 
-func resolveSiteLocatorFields(ctx context.Context, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, method coresecret.AuthMethodSpec, cfg Config) (string, string, string, error) {
+func resolveSiteLocatorFields(ctx context.Context, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, method coresecret.AuthMethodSpec, cfg Config) (string, string, string, error) {
 	cloudID := strings.TrimSpace(cfg.CloudID)
 	siteURL := strings.TrimRight(strings.TrimSpace(cfg.SiteURL), "/")
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")

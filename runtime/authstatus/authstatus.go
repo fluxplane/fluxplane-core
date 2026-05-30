@@ -6,11 +6,10 @@ import (
 	"strings"
 	"time"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 )
 
 const (
@@ -48,7 +47,7 @@ type FieldStatus struct {
 }
 
 // Evaluate returns the first locally resolvable auth method for target.
-func Evaluate(ctx context.Context, resolver runtimesecret.Resolver, target Target) Status {
+func Evaluate(ctx context.Context, resolver coresecret.Resolver, target Target) Status {
 	ref := target.Ref
 	status := Status{
 		Plugin:   strings.TrimSpace(ref.Name),
@@ -88,7 +87,7 @@ func FriendlyMethodName(method coresecret.AuthMethodSpec) string {
 	}
 }
 
-func methodConfigured(ctx context.Context, resolver runtimesecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec) (bool, []FieldStatus) {
+func methodConfigured(ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec) (bool, []FieldStatus) {
 	if resolver == nil {
 		return false, nil
 	}
@@ -112,7 +111,7 @@ func methodConfigured(ctx context.Context, resolver runtimesecret.Resolver, ref 
 	return false, nil
 }
 
-func setupFieldsConfigured(ctx context.Context, resolver runtimesecret.Resolver, ref resource.PluginRef, fields []coresecret.SetupFieldSpec) (bool, []FieldStatus) {
+func setupFieldsConfigured(ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, fields []coresecret.SetupFieldSpec) (bool, []FieldStatus) {
 	configured := map[string]bool{}
 	statuses := make([]FieldStatus, 0, len(fields))
 	anySet := false
@@ -163,7 +162,7 @@ func refsForMethod(method coresecret.AuthMethodSpec) []coresecret.Ref {
 	}
 }
 
-func envConfigured(ctx context.Context, resolver runtimesecret.Resolver, spec coresecret.EnvSpec) bool {
+func envConfigured(ctx context.Context, resolver coresecret.Resolver, spec coresecret.EnvSpec) bool {
 	for _, ref := range envRefs(spec) {
 		if secretConfigured(ctx, resolver, ref) {
 			return true
@@ -187,7 +186,7 @@ func envRefs(spec coresecret.EnvSpec) []coresecret.Ref {
 	return refs
 }
 
-func secretConfigured(ctx context.Context, resolver runtimesecret.Resolver, ref coresecret.Ref) bool {
+func secretConfigured(ctx context.Context, resolver coresecret.Resolver, ref coresecret.Ref) bool {
 	material, ok, err := resolver.ResolveSecret(ctx, ref)
 	return err == nil && ok && strings.TrimSpace(string(material.Value)) != ""
 }
@@ -215,7 +214,7 @@ func requiredGroups(fields []coresecret.SetupFieldSpec) map[string][]string {
 }
 
 // NewObserver returns a startup observer for auth readiness.
-func NewObserver(targets []Target, resolver runtimesecret.Resolver) runtimeevidence.Observer {
+func NewObserver(targets []Target, resolver coresecret.Resolver) runtimeevidence.Observer {
 	return observer{targets: append([]Target(nil), targets...), resolver: resolver}
 }
 
@@ -226,7 +225,7 @@ func NewAssertionDeriver() runtimeevidence.AssertionDeriver {
 
 type observer struct {
 	targets  []Target
-	resolver runtimesecret.Resolver
+	resolver coresecret.Resolver
 }
 
 func (observer) Spec() coreevidence.ObserverSpec {

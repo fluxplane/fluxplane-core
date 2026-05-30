@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core"
 	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
 	"github.com/fluxplane/fluxplane-core/adapters/distribution/localruntime"
@@ -58,7 +59,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"

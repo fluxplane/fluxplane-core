@@ -7,9 +7,8 @@ import (
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 )
 
 const (
@@ -107,11 +106,11 @@ func Resolve(ctx context.Context, sys fpsystem.System, store sharedsecret.FileSt
 	return resolve(ctx, sys, store, ref, cfg)
 }
 
-func ResolveWithResolver(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
+func ResolveWithResolver(ctx context.Context, sys fpsystem.System, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
 	return ResolveWithEnvironment(ctx, environmentFromSystem(sys), resolver, ref, cfg)
 }
 
-func ResolveWithEnvironment(ctx context.Context, environment fpsystem.Environment, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
+func ResolveWithEnvironment(ctx context.Context, environment fpsystem.Environment, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
 	if resolver == nil {
 		return resolveWithEnvironment(ctx, environment, sharedsecret.NewFileStore(DefaultAuthStorePath), ref, cfg)
 	}
@@ -222,7 +221,7 @@ func oauth2AuthMethod(ref resource.PluginRef) coresecret.AuthMethodSpec {
 	}
 }
 
-func resolveStoredOrEnvResolver(ctx context.Context, environment fpsystem.Environment, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config, method string) (Session, error) {
+func resolveStoredOrEnvResolver(ctx context.Context, environment fpsystem.Environment, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config, method string) (Session, error) {
 	session := Session{Method: method}
 	session.BotToken = loadResolvedValue(ctx, resolver, BotTokenSecretRef(ref))
 	session.AppToken = loadResolvedValue(ctx, resolver, AppTokenSecretRef(ref))
@@ -237,7 +236,7 @@ func resolveStoredOrEnvResolver(ctx context.Context, environment fpsystem.Enviro
 	return session, nil
 }
 
-func resolveEnvResolver(ctx context.Context, environment fpsystem.Environment, resolver runtimesecret.Resolver, cfg Config) (Session, error) {
+func resolveEnvResolver(ctx context.Context, environment fpsystem.Environment, resolver coresecret.Resolver, cfg Config) (Session, error) {
 	session := envSession(ctx, environment, cfg)
 	session.Method = EnvMethod
 	session.BotToken = firstNonEmpty(session.BotToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv))))
@@ -249,7 +248,7 @@ func resolveEnvResolver(ctx context.Context, environment fpsystem.Environment, r
 	return session, nil
 }
 
-func resolveOAuthResolver(ctx context.Context, environment fpsystem.Environment, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
+func resolveOAuthResolver(ctx context.Context, environment fpsystem.Environment, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
 	session := Session{Method: OAuth2Method}
 	session.BotToken = loadResolvedValue(ctx, resolver, OAuth2SecretRef(ref))
 	session.AppToken = loadResolvedValue(ctx, resolver, AppTokenSecretRef(ref))
@@ -285,7 +284,7 @@ func lookupEnv(ctx context.Context, environment fpsystem.Environment, name strin
 	return strings.TrimSpace(value)
 }
 
-func loadResolvedValue(ctx context.Context, resolver runtimesecret.Resolver, ref coresecret.Ref) string {
+func loadResolvedValue(ctx context.Context, resolver coresecret.Resolver, ref coresecret.Ref) string {
 	if resolver == nil {
 		return ""
 	}

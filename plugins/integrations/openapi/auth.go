@@ -3,8 +3,8 @@ package openapi
 import (
 	"strings"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 

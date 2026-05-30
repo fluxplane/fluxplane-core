@@ -6,14 +6,13 @@ import (
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/activation"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	"github.com/slack-go/slack"
 )
@@ -45,7 +44,7 @@ type Plugin struct {
 	network       fpsystem.Network
 	environment   fpsystem.Environment
 	store         sharedsecret.FileStore
-	secrets       runtimesecret.Resolver
+	secrets       coresecret.Resolver
 	ref           resource.PluginRef
 	cfg           Config
 	dispatcher    *Dispatcher
@@ -66,7 +65,7 @@ func NewWithDispatcher(sys fpsystem.System, dispatcher *Dispatcher, stores ...sh
 	return NewWithResolver(sys, dispatcher, nil, stores...)
 }
 
-func NewWithResolver(sys fpsystem.System, dispatcher *Dispatcher, resolver runtimesecret.Resolver, stores ...sharedsecret.FileStore) Plugin {
+func NewWithResolver(sys fpsystem.System, dispatcher *Dispatcher, resolver coresecret.Resolver, stores ...sharedsecret.FileStore) Plugin {
 	if dispatcher == nil {
 		dispatcher = NewDispatcher()
 	}

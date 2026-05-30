@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 )
 
 func TestResolveAuthTargetsPreservesInstancesAndConfig(t *testing.T) {

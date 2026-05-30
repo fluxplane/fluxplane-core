@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/examples/echo"
 )

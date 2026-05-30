@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
+	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 

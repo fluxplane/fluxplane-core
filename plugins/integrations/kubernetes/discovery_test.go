@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"

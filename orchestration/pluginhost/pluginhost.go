@@ -4,18 +4,17 @@ import (
 	"context"
 	"fmt"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/channelruntime"
 	"github.com/fluxplane/fluxplane-core/orchestration/identity"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-policy"
@@ -37,7 +36,7 @@ type Context struct {
 	Discovery  *fpendpoint.DiscoveryRegistry `json:"-"`
 	Discoverer *fpendpoint.Runner            `json:"-"`
 	Endpoints  *fpendpoint.Registry          `json:"-"`
-	Secrets    runtimesecret.Resolver        `json:"-"`
+	Secrets    coresecret.Resolver           `json:"-"`
 }
 
 // Plugin contributes resources during app composition.
@@ -109,7 +108,7 @@ type DiscoveryProviderContributor interface {
 // SecretResolverContributor is implemented by plugins that can resolve
 // non-model-visible credential material for trusted operation code.
 type SecretResolverContributor interface {
-	SecretResolvers(context.Context, Context) ([]runtimesecret.Resolver, error)
+	SecretResolvers(context.Context, Context) ([]coresecret.Resolver, error)
 }
 
 // AuthMethodContributor is implemented by plugins that declare supported
@@ -157,7 +156,7 @@ type DiscoveryProviderContribution struct {
 // SecretResolverContribution is one credential resolver contribution.
 type SecretResolverContribution struct {
 	Source   resource.SourceRef
-	Resolver runtimesecret.Resolver
+	Resolver coresecret.Resolver
 }
 
 // ContextProviderContribution is one executable context provider contribution.
@@ -202,7 +201,7 @@ type AuthMethodContribution struct {
 type AuthTestRequest struct {
 	Ref     resource.PluginRef
 	Method  string
-	Secrets runtimesecret.Resolver
+	Secrets coresecret.Resolver
 }
 
 // AuthTestReport describes the outcome of one live credential check.
@@ -248,7 +247,7 @@ type Host struct {
 	discovery  *fpendpoint.DiscoveryRegistry
 	discoverer *fpendpoint.Runner
 	endpoints  *fpendpoint.Registry
-	secrets    *runtimesecret.Registry
+	secrets    *coresecret.Registry
 }
 
 // New returns a plugin host.
@@ -298,7 +297,7 @@ func (h *Host) SetEndpointRegistry(registry *fpendpoint.Registry) {
 }
 
 // SetSecretRegistry configures the shared secret resolver registry.
-func (h *Host) SetSecretRegistry(registry *runtimesecret.Registry) {
+func (h *Host) SetSecretRegistry(registry *coresecret.Registry) {
 	if h != nil {
 		h.secrets = registry
 	}
@@ -559,7 +558,7 @@ func (h *Host) ensureSharedRegistries() {
 		h.discoverer = fpendpoint.NewRunner(h.discovery, h.endpoints)
 	}
 	if h.secrets == nil {
-		h.secrets = runtimesecret.NewRegistry()
+		h.secrets = coresecret.NewRegistry()
 	}
 }
 

@@ -5,11 +5,10 @@ import (
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"testing"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 )
 
 func TestEvaluateUsesRequiredGroupSetupField(t *testing.T) {
@@ -79,7 +78,7 @@ func TestEvaluateReportsPartialRequiredGroupFields(t *testing.T) {
 
 func TestEvaluateUsesEnvironmentAlias(t *testing.T) {
 	env := fakeEnvironment{values: map[string]string{"GITLAB_TOKEN": "glpat-test"}}
-	status := Evaluate(context.Background(), runtimesecret.EnvResolver{Environment: env}, Target{
+	status := Evaluate(context.Background(), coresecret.EnvResolver{Environment: env}, Target{
 		Ref: resource.PluginRef{Name: "gitlab", Instance: "gitlab"},
 		Methods: []coresecret.AuthMethodSpec{{
 			Name:   "personal_access_token",

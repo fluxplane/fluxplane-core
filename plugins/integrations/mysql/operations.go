@@ -11,9 +11,8 @@ import (
 
 	mysql "github.com/go-sql-driver/mysql"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/sqlclient"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 )
@@ -112,7 +111,7 @@ func (p Plugin) resolveCredential(ctx operation.Context, authRef string) (corese
 	if authRef == "" {
 		return coresecret.Material{}, false, nil
 	}
-	broker := runtimesecret.NewBroker(p.secrets)
+	broker := coresecret.NewBroker(p.secrets)
 	if broker == nil {
 		return coresecret.Material{}, false, fmt.Errorf("secret resolver is nil")
 	}

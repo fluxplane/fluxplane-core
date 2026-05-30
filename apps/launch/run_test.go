@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	fluxplane "github.com/fluxplane/fluxplane-core"
 	"github.com/fluxplane/fluxplane-core/adapters/distribution/localruntime"
 	embedaxon "github.com/fluxplane/fluxplane-core/adapters/embeddings/axon"
@@ -15,7 +16,6 @@ import (
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"

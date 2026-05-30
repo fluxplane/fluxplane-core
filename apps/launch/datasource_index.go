@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	embedaxon "github.com/fluxplane/fluxplane-core/adapters/embeddings/axon"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
@@ -30,7 +31,6 @@ import (
 	usageplugin "github.com/fluxplane/fluxplane-core/plugins/native/usage"
 	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-event"
 )
 

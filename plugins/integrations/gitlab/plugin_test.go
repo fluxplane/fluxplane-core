@@ -10,15 +10,14 @@ import (
 	"strings"
 	"testing"
 
+	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreoperation "github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	coreuser "github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/orchestration/identity"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-policy"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
@@ -577,7 +576,7 @@ func TestDatasourceProviderUsesInjectedSecretResolver(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		boundaries: BoundariesFromSystem(fakeSystem{network: network}),
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
-		secrets: runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
+		secrets: coresecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
 			gitlabTokenEnv: "resolver-token",
 			gitlabURLEnv:   "gitlab.example",
 		}}},
