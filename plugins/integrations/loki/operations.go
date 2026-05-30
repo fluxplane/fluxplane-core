@@ -261,7 +261,7 @@ func usableProbe(probe corediscovery.ProbeResult) bool {
 
 func (p Plugin) probeCandidate(ctx operation.Context, candidate corediscovery.Candidate) corediscovery.ProbeResult {
 	timeout := p.cfg.AutoDiscover.ProbeTimeout
-	client := lokiClient{system: p.system, baseURL: candidate.URL, timeout: durationOrDefault(timeout, 5*time.Second)}
+	client := lokiClient{network: p.network, baseURL: candidate.URL, timeout: durationOrDefault(timeout, 5*time.Second)}
 	test := client.test(ctx)
 	status := "failed"
 	if test.Ready {
@@ -298,8 +298,8 @@ func (p Plugin) probeCandidateWithRetry(ctx operation.Context, candidate coredis
 }
 
 func (p Plugin) portForwardCandidate(ctx operation.Context, candidate corediscovery.Candidate) (corediscovery.Candidate, error) {
-	if p.system == nil || p.system.Process() == nil {
-		return corediscovery.Candidate{}, fmt.Errorf("loki kubernetes port-forward requires process system")
+	if p.process == nil {
+		return corediscovery.Candidate{}, fmt.Errorf("loki kubernetes port-forward requires process manager")
 	}
 	namespace := strings.TrimSpace(candidate.Source.Namespace)
 	name := strings.TrimSpace(candidate.Source.Name)
@@ -324,7 +324,7 @@ func (p Plugin) portForwardCandidate(ctx operation.Context, candidate corediscov
 	}
 	kubeconfig := strings.TrimSpace(candidate.Source.Attributes["kubeconfig"])
 	if kubeconfig == "" {
-		kubeconfig, _, _ = lookupEnv(ctx, p.system, candidate.Source.Attributes["kubeconfig_env"])
+		kubeconfig, _, _ = lookupEnv(ctx, p.environment, candidate.Source.Attributes["kubeconfig_env"])
 	}
 	if kubeconfig != "" {
 		args = append(args, "--kubeconfig", kubeconfig)
@@ -332,7 +332,7 @@ func (p Plugin) portForwardCandidate(ctx operation.Context, candidate corediscov
 	resource := kind + "/" + name
 	args = append(args, "-n", namespace, "port-forward", "--address", "127.0.0.1", resource, fmt.Sprintf("%d:%d", localPort, remotePort))
 	label := fmt.Sprintf("loki-%s-%s-%d", namespace, name, remotePort)
-	_, _, err := p.system.Process().Ensure(ctx, fpsystem.ProcessRequest{
+	_, _, err := p.process.Ensure(ctx, fpsystem.ProcessRequest{
 		Command:   "kubectl",
 		Args:      args,
 		Label:     label,
@@ -414,7 +414,7 @@ func (p Plugin) clientFor(ctx operation.Context, inputURL, endpointRef, tenantID
 		target = resolved.URL
 	}
 	if target == "" && cfg.URLEnv != "" {
-		target, _, _ = lookupEnv(ctx, p.system, cfg.URLEnv)
+		target, _, _ = lookupEnv(ctx, p.environment, cfg.URLEnv)
 	}
 	if target == "" && cfg.AutoDiscover.Enabled {
 		if record, ok := p.selectDiscoveredEndpoint(); ok {
@@ -435,9 +435,9 @@ func (p Plugin) clientFor(ctx operation.Context, inputURL, endpointRef, tenantID
 	}
 	tenant := firstNonEmpty(tenantID, cfg.TenantID)
 	if tenant == "" && cfg.TenantIDEnv != "" {
-		tenant, _, _ = lookupEnv(ctx, p.system, cfg.TenantIDEnv)
+		tenant, _, _ = lookupEnv(ctx, p.environment, cfg.TenantIDEnv)
 	}
-	return lokiClient{system: p.system, baseURL: target, tenantID: tenant, timeout: durationOrDefault(timeout, 10*time.Second)}, target, nil
+	return lokiClient{network: p.network, baseURL: target, tenantID: tenant, timeout: durationOrDefault(timeout, 10*time.Second)}, target, nil
 }
 
 func (p Plugin) selectDiscoveredEndpoint() (runtimeendpoint.Record, bool) {
@@ -706,7 +706,7 @@ func (p Plugin) accessTarget(ctx operation.Context, input any) string {
 		}
 	}
 	if target == "" && cfg.URLEnv != "" {
-		target, _, _ = lookupEnv(ctx, p.system, cfg.URLEnv)
+		target, _, _ = lookupEnv(ctx, p.environment, cfg.URLEnv)
 	}
 	if target == "" {
 		target = "*"

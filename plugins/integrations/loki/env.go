@@ -6,13 +6,13 @@ import (
 	"strings"
 )
 
-func lookupEnv(ctx context.Context, sys fpsystem.System, key string) (string, bool, error) {
+func lookupEnv(ctx context.Context, env fpsystem.Environment, key string) (string, bool, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return "", false, nil
 	}
-	if sys != nil && sys.Environment() != nil {
-		return sys.Environment().Lookup(ctx, key)
+	if env != nil {
+		return env.Lookup(ctx, key)
 	}
 	return "", false, nil
 }

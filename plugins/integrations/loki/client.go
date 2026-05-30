@@ -15,7 +15,7 @@ import (
 )
 
 type lokiClient struct {
-	system   fpsystem.System
+	network  fpsystem.Network
 	baseURL  string
 	tenantID string
 	timeout  time.Duration
@@ -135,8 +135,8 @@ func (c lokiClient) queryRange(ctx context.Context, query string, start, end tim
 }
 
 func (c lokiClient) get(ctx context.Context, path string, values url.Values, maxBytes int) (systemkit.HTTPResponse, error) {
-	if c.system == nil || c.system.Network() == nil {
-		return systemkit.HTTPResponse{}, fmt.Errorf("loki system network is nil")
+	if c.network == nil {
+		return systemkit.HTTPResponse{}, fmt.Errorf("loki network is nil")
 	}
 	base := strings.TrimRight(strings.TrimSpace(c.baseURL), "/")
 	if base == "" {
@@ -154,7 +154,7 @@ func (c lokiClient) get(ctx context.Context, path string, values url.Values, max
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	return systemkit.DoHTTP(ctx, c.system.Network(), systemkit.HTTPRequest{
+	return systemkit.DoHTTP(ctx, c.network, systemkit.HTTPRequest{
 		URL:       target,
 		Method:    http.MethodGet,
 		Headers:   headers,

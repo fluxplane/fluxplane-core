@@ -62,11 +62,20 @@ type AutoDiscoverConfig struct {
 // Plugin contributes Loki resources.
 type Plugin struct {
 	pluginhost.Configurable[Config]
-	system    fpsystem.System
-	ref       resource.PluginRef
-	cfg       Config
-	discovery *runtimediscovery.Registry
-	endpoints *runtimeendpoint.Registry
+	process     fpsystem.ProcessManager
+	network     fpsystem.Network
+	environment fpsystem.Environment
+	ref         resource.PluginRef
+	cfg         Config
+	discovery   *runtimediscovery.Registry
+	endpoints   *runtimeendpoint.Registry
+}
+
+// Boundaries are the host capabilities used by the Loki plugin.
+type Boundaries struct {
+	Process     fpsystem.ProcessManager
+	Network     fpsystem.Network
+	Environment fpsystem.Environment
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -76,7 +85,18 @@ var _ pluginhost.DatasourceProviderContributor = Plugin{}
 
 // New returns a Loki plugin.
 func New(sys fpsystem.System) Plugin {
-	return Plugin{system: sys, discovery: runtimediscovery.NewRegistry(), endpoints: runtimeendpoint.NewRegistry(15 * time.Minute)}
+	return NewWithBoundaries(boundariesFromSystem(sys))
+}
+
+func NewWithBoundaries(boundaries Boundaries) Plugin {
+	return Plugin{process: boundaries.Process, network: boundaries.Network, environment: boundaries.Environment, discovery: runtimediscovery.NewRegistry(), endpoints: runtimeendpoint.NewRegistry(15 * time.Minute)}
+}
+
+func boundariesFromSystem(sys fpsystem.System) Boundaries {
+	if sys == nil {
+		return Boundaries{}
+	}
+	return Boundaries{Process: sys.Process(), Network: sys.Network(), Environment: sys.Environment()}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -115,8 +135,8 @@ func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.Con
 }
 
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
-	if p.system == nil {
-		return nil, fmt.Errorf("lokiplugin: system is nil")
+	if p.network == nil {
+		return nil, fmt.Errorf("lokiplugin: network is nil")
 	}
 	return []operation.Operation{
 		operationruntime.NewTypedResult[TestInput, TestOutput](testSpec(), p.test(), operationruntime.WithAccess(func(ctx operation.Context, in TestInput) ([]operationruntime.AccessDescriptor, error) {
