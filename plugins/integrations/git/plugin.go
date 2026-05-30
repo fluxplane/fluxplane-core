@@ -25,14 +25,24 @@ const (
 
 // Plugin contributes basic git operations.
 type Plugin struct {
-	system fpsystem.System
+	process fpsystem.ProcessManager
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
 // New returns a git plugin.
-func New(sys fpsystem.System) Plugin { return Plugin{system: sys} }
+func New(sys fpsystem.System) Plugin { return Plugin{process: processFromSystem(sys)} }
+
+// NewWithProcess returns a git plugin using an explicit process boundary.
+func NewWithProcess(process fpsystem.ProcessManager) Plugin { return Plugin{process: process} }
+
+func processFromSystem(sys fpsystem.System) fpsystem.ProcessManager {
+	if sys == nil {
+		return nil
+	}
+	return sys.Process()
+}
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -50,8 +60,8 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 
 // Operations returns executable git operations.
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
-	if p.system == nil {
-		return nil, fmt.Errorf("gitplugin: system is nil")
+	if p.process == nil {
+		return nil, fmt.Errorf("gitplugin: process manager is nil")
 	}
 	return []operation.Operation{
 		operationruntime.NewTypedResult[statusInput, map[string]any](statusSpec(), p.status(), operationruntime.WithIntent(statusIntent)),
@@ -299,7 +309,7 @@ func operationRefs(specs []operation.Spec) []operation.Ref {
 
 func (p Plugin) status() operationruntime.TypedResultHandler[statusInput, map[string]any] {
 	return func(ctx operation.Context, _ statusInput) operation.Result {
-		result, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{
+		result, err := p.process.Run(ctx, fpsystem.ProcessRequest{
 			Command: "git",
 			Args:    []string{"status", "--short", "--branch"},
 			Timeout: 30 * time.Second,
@@ -332,7 +342,7 @@ func (p Plugin) diff() operationruntime.TypedResultHandler[diffInput, map[string
 			return operation.Failed("invalid_git_diff_input", err.Error(), nil)
 		}
 		maxBytes := gitDiffMaxBytes(req)
-		result, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 256 * 1024})
+		result, err := p.process.Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 256 * 1024})
 		text, truncated := capGitDiffText(strings.TrimSpace(result.Stdout), maxBytes)
 		mode := gitDiffMode(req)
 		data := map[string]any{"stdout": text, "stderr": compactGitErrorText(result.Stderr), "exit_code": result.ExitCode, "mode": mode, "truncated": truncated, "max_bytes": maxBytes}
@@ -460,7 +470,7 @@ func (p Plugin) add() operationruntime.TypedResultHandler[addInput, map[string]a
 		if result.IsError() {
 			return result
 		}
-		run, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second})
+		run, err := p.process.Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second})
 		data := processData(run)
 		if err != nil {
 			return operation.Failed("git_add_failed", err.Error(), data)
@@ -482,7 +492,7 @@ func (p Plugin) commit() operationruntime.TypedResultHandler[commitInput, map[st
 			if result.IsError() {
 				return result
 			}
-			addResult, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second})
+			addResult, err := p.process.Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second})
 			if err != nil {
 				return operation.Failed("git_commit_stage_failed", err.Error(), processData(addResult))
 			}
@@ -492,12 +502,12 @@ func (p Plugin) commit() operationruntime.TypedResultHandler[commitInput, map[st
 			args = append(args, "--allow-empty")
 		}
 		args = append(args, "-m", message)
-		commitResult, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
+		commitResult, err := p.process.Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
 		data := processData(commitResult)
 		if err != nil {
 			return operation.Failed("git_commit_failed", err.Error(), data)
 		}
-		headResult, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: []string{"rev-parse", "HEAD"}, Timeout: 30 * time.Second, MaxStdout: 1024, MaxStderr: 1024})
+		headResult, err := p.process.Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: []string{"rev-parse", "HEAD"}, Timeout: 30 * time.Second, MaxStdout: 1024, MaxStderr: 1024})
 		if err != nil {
 			data["rev_parse_stdout"] = headResult.Stdout
 			data["rev_parse_stderr"] = headResult.Stderr
@@ -509,7 +519,7 @@ func (p Plugin) commit() operationruntime.TypedResultHandler[commitInput, map[st
 		// When staging only explicit paths (not all), warn about any remaining dirty files
 		// so partial commits are visible to the caller.
 		if req.Stage && !req.All && len(req.Paths) > 0 {
-			if dirty := remainingDirtyFiles(ctx, p.system); len(dirty) > 0 {
+			if dirty := remainingDirtyFiles(ctx, p.process); len(dirty) > 0 {
 				data["remaining_dirty"] = dirty
 				text := commitText(commit, commitResult) + "\n\n⚠ uncommitted changes remain in: " + strings.Join(dirty, ", ")
 				return operation.OK(operation.Rendered{Text: text, Data: data})
@@ -525,7 +535,7 @@ func (p Plugin) tag() operationruntime.TypedResultHandler[tagInput, map[string]a
 		if result.IsError() {
 			return result
 		}
-		run, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
+		run, err := p.process.Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
 		data := processData(run)
 		data["tag"] = strings.TrimSpace(req.Name)
 		if err != nil {
@@ -541,7 +551,7 @@ func (p Plugin) push() operationruntime.TypedResultHandler[pushInput, map[string
 		if result.IsError() {
 			return result
 		}
-		run, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 2 * time.Minute, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
+		run, err := p.process.Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 2 * time.Minute, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
 		data := processData(run)
 		data["remote"] = gitPushRemote(req)
 		data["refspecs"] = append([]string(nil), req.Refspecs...)
@@ -695,8 +705,11 @@ func commitText(commit string, result fpsystem.ProcessResult) string {
 // remainingDirtyFiles returns paths that have unstaged changes or are untracked
 // after a partial commit. It runs git status --porcelain and collects XY codes
 // where the worktree column (Y) is non-space, or the file is untracked (??).
-func remainingDirtyFiles(ctx operation.Context, sys fpsystem.System) []string {
-	result, err := sys.Process().Run(ctx, fpsystem.ProcessRequest{
+func remainingDirtyFiles(ctx operation.Context, process fpsystem.ProcessManager) []string {
+	if process == nil {
+		return nil
+	}
+	result, err := process.Run(ctx, fpsystem.ProcessRequest{
 		Command: "git",
 		Args:    []string{"status", "--porcelain"},
 		Timeout: 30 * time.Second,
