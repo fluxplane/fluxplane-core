@@ -14,6 +14,8 @@ type Workspace interface {
 	fpsystem.ScratchProvider
 	fpsystem.BoundedFileReader
 	System() fpsystem.System
+	fpsystem.BoundedFileCopier
+	fpsystem.BoundedFileMover
 	Root() string
 	Roots() []Root
 }

@@ -3,7 +3,6 @@ package filesystem
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -962,59 +961,11 @@ func globWorkspace(ctx context.Context, ws runtimeworkspace.Workspace, pattern s
 }
 
 func copyWorkspaceFile(ctx context.Context, ws runtimeworkspace.Workspace, rawSrc, rawDst string, overwrite bool) (runtimeworkspace.ResolvedPath, runtimeworkspace.ResolvedPath, int64, error) {
-	src, err := ws.ResolveExisting(ctx, rawSrc)
-	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
-	}
-	dst, err := ws.ResolveCreate(ctx, rawDst)
-	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
-	}
-	fsys, err := runtimeworkspace.FileSystem(ws)
-	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
-	}
-	srcName := runtimeworkspace.PathName(src)
-	info, err := fsys.Stat(srcName)
-	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
-	}
-	if info.IsDir() {
-		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, fmt.Errorf("source path is a directory")
-	}
-	dstName := runtimeworkspace.PathName(dst)
-	if !overwrite {
-		if _, err := fsys.Stat(dstName); err == nil {
-			return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, fmt.Errorf("path already exists")
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
-		}
-	}
-	data, err := fsys.ReadFile(srcName)
-	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
-	}
-	if err := fsys.WriteFile(ctx, dstName, data, fpsystem.WriteFileOptions{Perm: info.Mode().Perm(), Overwrite: overwrite}); err != nil {
-		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
-	}
-	return src, dst, int64(len(data)), nil
+	return ws.CopyFile(ctx, rawSrc, rawDst, overwrite)
 }
 
 func moveWorkspaceFile(ctx context.Context, ws runtimeworkspace.Workspace, rawSrc, rawDst string, overwrite bool) (runtimeworkspace.ResolvedPath, runtimeworkspace.ResolvedPath, int64, error) {
-	src, dst, written, err := copyWorkspaceFile(ctx, ws, rawSrc, rawDst, overwrite)
-	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
-	}
-	fsys, err := runtimeworkspace.FileSystem(ws)
-	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
-	}
-	if src.Rel != dst.Rel {
-		if err := fsys.Remove(ctx, runtimeworkspace.PathName(src)); err != nil {
-			return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, written, err
-		}
-	}
-	return src, dst, written, nil
+	return ws.MoveFile(ctx, rawSrc, rawDst, overwrite)
 }
 
 func entryType(entry fs.DirEntry) string {
