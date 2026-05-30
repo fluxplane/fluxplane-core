@@ -149,6 +149,8 @@ func (p *fakeProcess) Ensure(context.Context, system.ProcessRequest) (system.Pro
 	return nil, false, errors.New("not implemented")
 }
 
+func (p *fakeProcess) Group(string) system.ProcessGroup { return nil }
+
 func (p *fakeProcess) List(context.Context) ([]system.ProcessInfo, error) {
 	return nil, errors.New("not implemented")
 }

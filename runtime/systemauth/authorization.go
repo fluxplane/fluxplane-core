@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-policy"
@@ -242,6 +241,10 @@ func (p authorizedProcessManager) Ensure(ctx context.Context, req system.Process
 	return p.base.Ensure(ctx, req)
 }
 
+func (p authorizedProcessManager) Group(name string) system.ProcessGroup {
+	return authorizedProcessGroup{base: p.base.Group(name), cfg: p.cfg, name: strings.TrimSpace(name)}
+}
+
 func (p authorizedProcessManager) List(ctx context.Context) ([]system.ProcessInfo, error) {
 	if err := Authorize(ctx, p.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: "*"}, policy.ActionProcessExec); err != nil {
 		return nil, err
@@ -249,39 +252,92 @@ func (p authorizedProcessManager) List(ctx context.Context) ([]system.ProcessInf
 	return p.base.List(ctx)
 }
 
-func (p authorizedProcessManager) Status(ctx context.Context, id string) (system.ProcessInfo, error) {
-	if err := Authorize(ctx, p.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, ID: strings.TrimSpace(id)}, policy.ActionProcessExec); err != nil {
-		return system.ProcessInfo{}, err
-	}
-	return p.base.Status(ctx, id)
+type authorizedProcessGroup struct {
+	base system.ProcessGroup
+	cfg  Config
+	name string
 }
 
-func (p authorizedProcessManager) Output(ctx context.Context, id string) (system.ProcessOutput, error) {
-	if err := Authorize(ctx, p.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, ID: strings.TrimSpace(id)}, policy.ActionProcessExec); err != nil {
-		return system.ProcessOutput{}, err
+func (g authorizedProcessGroup) Name() string { return g.base.Name() }
+
+func (g authorizedProcessGroup) List(ctx context.Context) ([]system.ProcessInfo, error) {
+	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessExec); err != nil {
+		return nil, err
 	}
-	return p.base.Output(ctx, id)
+	return g.base.List(ctx)
 }
 
-func (p authorizedProcessManager) Wait(ctx context.Context, id string, timeout time.Duration) (system.ProcessResult, error) {
-	if err := Authorize(ctx, p.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, ID: strings.TrimSpace(id)}, policy.ActionProcessExec); err != nil {
+func (g authorizedProcessGroup) Subscribe(ctx context.Context) <-chan system.ProcessEvent {
+	return g.base.Subscribe(ctx)
+}
+
+func (g authorizedProcessGroup) Wait(ctx context.Context) (system.ProcessResult, error) {
+	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessExec); err != nil {
 		return system.ProcessResult{}, err
 	}
-	return p.base.Wait(ctx, id, timeout)
+	return g.base.Wait(ctx)
 }
 
-func (p authorizedProcessManager) Stop(ctx context.Context, id string) error {
-	if err := Authorize(ctx, p.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, ID: strings.TrimSpace(id)}, policy.ActionProcessAdmin); err != nil {
+func (g authorizedProcessGroup) Stop(ctx context.Context) error {
+	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessAdmin); err != nil {
 		return err
 	}
-	return p.base.Stop(ctx, id)
+	return g.base.Stop(ctx)
 }
 
-func (p authorizedProcessManager) Kill(ctx context.Context, id string) error {
-	if err := Authorize(ctx, p.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, ID: strings.TrimSpace(id)}, policy.ActionProcessAdmin); err != nil {
+func (g authorizedProcessGroup) Kill(ctx context.Context) error {
+	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessAdmin); err != nil {
 		return err
 	}
-	return p.base.Kill(ctx, id)
+	return g.base.Kill(ctx)
+}
+
+func (g authorizedProcessGroup) Signal(ctx context.Context, signal fpsystem.ProcessSignal) error {
+	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessAdmin); err != nil {
+		return err
+	}
+	return g.base.Signal(ctx, signal)
+}
+
+func (g authorizedProcessGroup) Interrupt(ctx context.Context) error {
+	return g.Signal(ctx, fpsystem.ProcessSignalInterrupt)
+}
+func (g authorizedProcessGroup) Reload(ctx context.Context) error {
+	return g.Signal(ctx, fpsystem.ProcessSignalReload)
+}
+func (g authorizedProcessGroup) Pause(ctx context.Context) error {
+	return g.Signal(ctx, fpsystem.ProcessSignalPause)
+}
+func (g authorizedProcessGroup) Resume(ctx context.Context) error {
+	return g.Signal(ctx, fpsystem.ProcessSignalResume)
+}
+
+func (g authorizedProcessGroup) Write(ctx context.Context, data []byte) (int, error) {
+	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessAdmin); err != nil {
+		return 0, err
+	}
+	return g.base.Write(ctx, data)
+}
+
+func (g authorizedProcessGroup) CloseInput(ctx context.Context) error {
+	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessAdmin); err != nil {
+		return err
+	}
+	return g.base.CloseInput(ctx)
+}
+
+func (g authorizedProcessGroup) Restart(ctx context.Context) (system.ProcessHandle, error) {
+	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessAdmin); err != nil {
+		return nil, err
+	}
+	return g.base.Restart(ctx)
+}
+
+func (g authorizedProcessGroup) Detach(ctx context.Context) error {
+	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessAdmin); err != nil {
+		return err
+	}
+	return g.base.Detach(ctx)
 }
 
 func (p authorizedProcessManager) exec(ctx context.Context, command string) error {

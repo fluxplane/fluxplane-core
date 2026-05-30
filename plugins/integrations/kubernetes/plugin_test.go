@@ -25,6 +25,7 @@ import (
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
@@ -759,6 +760,8 @@ func (p *recordingProcess) Ensure(_ context.Context, req system.ProcessRequest) 
 	return handle, p.started, nil
 }
 
+func (p *recordingProcess) Group(string) system.ProcessGroup { return nil }
+
 func (p *recordingProcess) List(context.Context) ([]system.ProcessInfo, error) {
 	return nil, errors.New("not implemented")
 }
@@ -793,8 +796,22 @@ func (h fakeProcessHandle) Events() <-chan system.ProcessEvent {
 	return ch
 }
 
+func (h fakeProcessHandle) Subscribe(context.Context) <-chan system.ProcessEvent { return h.Events() }
+
 func (h fakeProcessHandle) Wait(context.Context) (system.ProcessResult, error) {
 	return system.ProcessResult{Command: h.info.Command, Args: h.info.Args}, nil
 }
+
+func (h fakeProcessHandle) Stop(context.Context) error                            { return nil }
+func (h fakeProcessHandle) Kill(context.Context) error                            { return nil }
+func (h fakeProcessHandle) Signal(context.Context, fpsystem.ProcessSignal) error  { return nil }
+func (h fakeProcessHandle) Interrupt(context.Context) error                       { return nil }
+func (h fakeProcessHandle) Reload(context.Context) error                          { return nil }
+func (h fakeProcessHandle) Pause(context.Context) error                           { return nil }
+func (h fakeProcessHandle) Resume(context.Context) error                          { return nil }
+func (h fakeProcessHandle) Write(context.Context, []byte) (int, error)            { return 0, nil }
+func (h fakeProcessHandle) CloseInput(context.Context) error                      { return nil }
+func (h fakeProcessHandle) Restart(context.Context) (system.ProcessHandle, error) { return h, nil }
+func (h fakeProcessHandle) Detach(context.Context) error                          { return nil }
 
 var _ = metav1.NamespaceDefault

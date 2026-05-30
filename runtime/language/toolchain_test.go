@@ -66,6 +66,8 @@ func (p *fakeProcess) Ensure(ctx context.Context, req system.ProcessRequest) (sy
 	return handle, true, err
 }
 
+func (p *fakeProcess) Group(string) system.ProcessGroup { return nil }
+
 func (p *fakeProcess) List(context.Context) ([]system.ProcessInfo, error) { return nil, nil }
 
 func (p *fakeProcess) Status(context.Context, string) (system.ProcessInfo, error) {

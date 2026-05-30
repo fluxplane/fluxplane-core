@@ -337,6 +337,8 @@ func (p *fakeTaskProcess) Ensure(ctx context.Context, req system.ProcessRequest)
 	return handle, true, err
 }
 
+func (p *fakeTaskProcess) Group(string) system.ProcessGroup { return nil }
+
 func (p *fakeTaskProcess) List(context.Context) ([]system.ProcessInfo, error) { return nil, nil }
 
 func (p *fakeTaskProcess) Status(context.Context, string) (system.ProcessInfo, error) {
@@ -369,7 +371,21 @@ func (h fakeTaskHandle) Info() system.ProcessInfo {
 
 func (h fakeTaskHandle) Events() <-chan system.ProcessEvent { return h.events }
 
+func (h fakeTaskHandle) Subscribe(context.Context) <-chan system.ProcessEvent { return h.Events() }
+
 func (h fakeTaskHandle) Wait(context.Context) (system.ProcessResult, error) { return h.result, nil }
+
+func (h fakeTaskHandle) Stop(context.Context) error                            { return nil }
+func (h fakeTaskHandle) Kill(context.Context) error                            { return nil }
+func (h fakeTaskHandle) Signal(context.Context, fpsystem.ProcessSignal) error  { return nil }
+func (h fakeTaskHandle) Interrupt(context.Context) error                       { return nil }
+func (h fakeTaskHandle) Reload(context.Context) error                          { return nil }
+func (h fakeTaskHandle) Pause(context.Context) error                           { return nil }
+func (h fakeTaskHandle) Resume(context.Context) error                          { return nil }
+func (h fakeTaskHandle) Write(context.Context, []byte) (int, error)            { return 0, nil }
+func (h fakeTaskHandle) CloseInput(context.Context) error                      { return nil }
+func (h fakeTaskHandle) Restart(context.Context) (system.ProcessHandle, error) { return h, nil }
+func (h fakeTaskHandle) Detach(context.Context) error                          { return nil }
 
 func sameStrings(got, want []string) bool {
 	if len(got) != len(want) {

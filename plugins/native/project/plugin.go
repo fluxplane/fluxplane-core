@@ -594,21 +594,24 @@ func (p Plugin) taskRun(manager *runtimeproject.Manager) operationruntime.TypedR
 			Workdir:   selection.Workdir,
 			Env:       system.DefaultProcessEnv(),
 			Timeout:   taskTimeout(req.TimeoutMS),
-			MaxStdout: taskOutputBytes(req.MaxOutputBytes),
-			MaxStderr: taskOutputBytes(req.MaxOutputBytes),
+			MaxStdout: int64(taskOutputBytes(req.MaxOutputBytes)),
+			MaxStderr: int64(taskOutputBytes(req.MaxOutputBytes)),
 		}
 		handle, err := p.system.Process().Start(ctx, processReq)
 		if err != nil {
 			return taskRunFailed(err.Error(), result)
 		}
+		eventCtx, cancelEvents := context.WithCancel(ctx)
+		events := handle.Subscribe(eventCtx)
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			for event := range handle.Events() {
+			for event := range events {
 				ctx.Events().Emit(event)
 			}
 		}()
 		processResult, waitErr := handle.Wait(ctx)
+		cancelEvents()
 		<-done
 		emitTaskProcessUsage(ctx, processResult)
 		result.Executable = processResult.Command

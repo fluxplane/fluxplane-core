@@ -13,6 +13,7 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-policy"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
@@ -264,25 +265,36 @@ func TestProcessManagerAllowsManagedLifecycle(t *testing.T) {
 	if _, err := manager.List(ctx); err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if _, err := manager.Status(ctx, handle.ID()); err != nil {
-		t.Fatalf("Status: %v", err)
-	}
-	if _, err := manager.Output(ctx, handle.ID()); err != nil {
-		t.Fatalf("Output: %v", err)
-	}
-	result, err := manager.Wait(ctx, handle.ID(), time.Second)
-	if err != nil {
+	if _, err := handle.Wait(ctx); err != nil {
 		t.Fatalf("Wait: %v", err)
 	}
-	if result.Stdout != "hello" {
-		t.Fatalf("stdout = %q, want hello", result.Stdout)
+	capture, err := fpsystem.RunProcessCapture(ctx, manager, system.ProcessRequest{
+		Command: "sh",
+		Args:    []string{"-c", "printf hello"},
+		Timeout: time.Second,
+	}, 1024)
+	if err != nil {
+		t.Fatalf("RunProcessCapture: %v", err)
 	}
-	if err := manager.Stop(ctx, handle.ID()); err != nil {
-		t.Fatalf("Stop: %v", err)
+	if capture.Stdout != "hello" {
+		t.Fatalf("stdout = %q, want hello", capture.Stdout)
 	}
-	if err := manager.Kill(ctx, handle.ID()); err != nil {
-		t.Fatalf("Kill: %v", err)
+	stopHandle, err := manager.Start(ctx, system.ProcessRequest{Command: "sh", Args: []string{"-c", "sleep 10"}, Group: "admin-stop", Timeout: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("Start stop process: %v", err)
 	}
+	if err := manager.Group("admin-stop").Stop(ctx); err != nil {
+		t.Fatalf("Group Stop: %v", err)
+	}
+	_, _ = stopHandle.Wait(ctx)
+	killHandle, err := manager.Start(ctx, system.ProcessRequest{Command: "sh", Args: []string{"-c", "sleep 10"}, Group: "admin-kill", Timeout: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("Start kill process: %v", err)
+	}
+	if err := manager.Group("admin-kill").Kill(ctx); err != nil {
+		t.Fatalf("Group Kill: %v", err)
+	}
+	_, _ = killHandle.Wait(ctx)
 }
 
 func authorizedTestContext(grants []policy.Grant) context.Context {

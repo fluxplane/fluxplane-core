@@ -26,6 +26,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimeproject "github.com/fluxplane/fluxplane-core/runtime/project"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
@@ -72,8 +73,14 @@ const (
 
 // Plugin contributes Go language support operations.
 type Plugin struct {
-	system  system.System
-	manager *runtimeproject.Manager
+	workspace runtimeworkspace.Workspace
+	process   system.ProcessManager
+	manager   *runtimeproject.Manager
+}
+
+type Config struct {
+	Workspace runtimeworkspace.Workspace
+	Process   system.ProcessManager
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -83,12 +90,12 @@ var _ pluginhost.ObserverContributor = Plugin{}
 var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
 // New returns a Go language plugin.
-func New(sys system.System) Plugin {
+func New(cfg Config) Plugin {
 	var manager *runtimeproject.Manager
-	if sys != nil && sys.Workspace() != nil {
-		manager = runtimeproject.NewManager(sys.Workspace())
+	if cfg.Workspace != nil {
+		manager = runtimeproject.NewManager(cfg.Workspace)
 	}
-	return Plugin{system: sys, manager: manager}
+	return Plugin{workspace: cfg.Workspace, process: cfg.Process, manager: manager}
 }
 
 // Manifest returns plugin metadata.
@@ -154,14 +161,11 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 
 // EnvironmentObservers returns executable Go environment observers.
 func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
-	if p.system == nil {
-		return nil, nil
-	}
 	support := LanguageSupport().SupportSpec()
 	if len(support.Toolchains) == 0 {
 		return nil, nil
 	}
-	return []runtimeevidence.Observer{goToolchainObserver{system: p.system, spec: support.Toolchains[0]}}, nil
+	return []runtimeevidence.Observer{goToolchainObserver{process: p.process, workspace: p.workspace, spec: support.Toolchains[0]}}, nil
 }
 
 // AssertionDerivers returns executable Go assertion derivation.
@@ -171,24 +175,24 @@ func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimee
 
 // ContextProviders returns executable Go context providers.
 func (p Plugin) ContextProviders(context.Context, pluginhost.Context) ([]corecontext.Provider, error) {
-	if p.system == nil || p.system.Workspace() == nil {
+	if p.workspace == nil {
 		return nil, nil
 	}
 	manager := p.manager
 	if manager == nil {
-		manager = runtimeproject.NewManager(p.system.Workspace())
+		manager = runtimeproject.NewManager(p.workspace)
 	}
 	return []corecontext.Provider{summaryProvider{plugin: p, manager: manager}}, nil
 }
 
 // Operations returns executable Go operations.
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
-	if p.system == nil || p.system.Workspace() == nil {
-		return nil, fmt.Errorf("golang: system workspace is nil")
+	if p.workspace == nil {
+		return nil, fmt.Errorf("golang: workspace is nil")
 	}
 	manager := p.manager
 	if manager == nil {
-		manager = runtimeproject.NewManager(p.system.Workspace())
+		manager = runtimeproject.NewManager(p.workspace)
 	}
 	return []operation.Operation{
 		operationruntime.NewTypedResult[golang.ProjectQuery, operation.Rendered](specByName(ProjectOp), p.goProject(manager)),
@@ -386,8 +390,9 @@ func goToolchainSpec(ops []operation.Ref) language.ToolchainSpec {
 }
 
 type goToolchainObserver struct {
-	system system.System
-	spec   language.ToolchainSpec
+	process   system.ProcessManager
+	workspace runtimeworkspace.Workspace
+	spec      language.ToolchainSpec
 }
 
 func (goToolchainObserver) Spec() coreevidence.ObserverSpec {
@@ -395,13 +400,10 @@ func (goToolchainObserver) Spec() coreevidence.ObserverSpec {
 }
 
 func (o goToolchainObserver) Observe(ctx context.Context, _ runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
-	if o.system == nil {
-		return nil, nil
-	}
-	status := runtimelanguage.ResolveToolchainStatus(ctx, o.system.Process(), o.spec)
+	status := runtimelanguage.ResolveToolchainStatus(ctx, o.process, o.spec)
 	scope := "local"
-	if workspace := o.system.Workspace(); workspace != nil && strings.TrimSpace(workspace.Root()) != "" {
-		scope = "workspace:" + workspace.Root()
+	if o.workspace != nil && strings.TrimSpace(o.workspace.Root()) != "" {
+		scope = "workspace:" + o.workspace.Root()
 	}
 	return []coreevidence.Observation{{
 		ID:      "toolchain:" + status.ID,
@@ -493,7 +495,7 @@ type summaryProvider struct {
 func (p summaryProvider) Spec() corecontext.ProviderSpec { return summaryContextSpec() }
 
 func (p summaryProvider) Build(ctx context.Context, _ corecontext.Request) ([]corecontext.Block, error) {
-	if p.plugin.system == nil || p.manager == nil {
+	if p.manager == nil {
 		return nil, nil
 	}
 	inventory, _, err := p.manager.Inventory(ctx, coreproject.InventoryQuery{})
@@ -787,7 +789,7 @@ func (p Plugin) collectPackages(ctx context.Context, rawPath string, limit int, 
 	}
 	builders := map[string]*pkgBuilder{}
 	for _, rel := range files {
-		data, truncated, _, err := readWorkspaceFile(ctx, p.system.Workspace(), rel, int64(readLimit))
+		data, truncated, _, err := readWorkspaceFile(ctx, p.workspace, rel, int64(readLimit))
 		if err != nil {
 			return nil, err
 		}
@@ -855,7 +857,7 @@ func (p Plugin) collectPackages(ctx context.Context, rawPath string, limit int, 
 func (p Plugin) goFilesForPath(ctx context.Context, rawPath string) ([]string, error) {
 	rel := cleanRel(rawPath)
 	if rel != "" {
-		if info, _, err := statWorkspacePath(ctx, p.system.Workspace(), rel); err == nil && !info.IsDir() {
+		if info, _, err := statWorkspacePath(ctx, p.workspace, rel); err == nil && !info.IsDir() {
 			if strings.HasSuffix(rel, ".go") {
 				if isVendoredPath(rel) {
 					return nil, nil
@@ -869,7 +871,7 @@ func (p Plugin) goFilesForPath(ctx context.Context, rawPath string) ([]string, e
 	if root == "" {
 		root = "."
 	}
-	entries, _, _, err := walkWorkspace(ctx, p.system.Workspace(), root, fpsystem.WalkOptions{Depth: 50, ShowHidden: false, MaxEntries: 10000, FilesOnly: true, SkipDirs: noisyDirs()})
+	entries, _, _, err := walkWorkspace(ctx, p.workspace, root, fpsystem.WalkOptions{Depth: 50, ShowHidden: false, MaxEntries: 10000, FilesOnly: true, SkipDirs: noisyDirs()})
 	if err != nil {
 		return nil, err
 	}
@@ -893,7 +895,7 @@ func isVendoredPath(rel string) bool {
 }
 
 func (p Plugin) parseFileSymbols(ctx context.Context, rel string, includeDocs bool, docLimit int) ([]language.Symbol, error) {
-	data, truncated, _, err := readWorkspaceFile(ctx, p.system.Workspace(), rel, int64(defaultSourceBytes))
+	data, truncated, _, err := readWorkspaceFile(ctx, p.workspace, rel, int64(defaultSourceBytes))
 	if err != nil {
 		return nil, err
 	}

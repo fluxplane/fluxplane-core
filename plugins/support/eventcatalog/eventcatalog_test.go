@@ -61,7 +61,7 @@ func TestAllCoversPluginContributedEventTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("project contributions: %v", err)
 	}
-	goBundle, err := golang.New(nil).Contributions(context.Background(), pluginhost.Context{})
+	goBundle, err := golang.New(golang.Config{}).Contributions(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("go contributions: %v", err)
 	}

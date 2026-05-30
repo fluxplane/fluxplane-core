@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native workspace and shell-adjacent plugins now depend on explicit workspace,
   process, and environment capabilities instead of the aggregate
   `runtime/system.System` where only a narrower boundary is needed.
+- Native human/code plugins and the Go language plugin now receive explicit
+  process/workspace capabilities through config structs instead of storing the
+  aggregate `runtime/system.System`.
 
 ## [0.22.0] - 2026-05-29
 

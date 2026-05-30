@@ -22,6 +22,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 	"github.com/fluxplane/fluxplane-event"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
@@ -378,6 +379,8 @@ func (p *recordingLokiProcess) Ensure(_ context.Context, req system.ProcessReque
 	return lokiProcessHandle{info: system.ProcessInfo{ID: "proc-1", Label: req.Label, Command: req.Command, Args: req.Args, Running: true}}, true, nil
 }
 
+func (p *recordingLokiProcess) Group(string) system.ProcessGroup { return nil }
+
 func (p *recordingLokiProcess) List(context.Context) ([]system.ProcessInfo, error) {
 	return nil, errors.New("not implemented")
 }
@@ -416,6 +419,20 @@ func (h lokiProcessHandle) Events() <-chan system.ProcessEvent {
 	return ch
 }
 
+func (h lokiProcessHandle) Subscribe(context.Context) <-chan system.ProcessEvent { return h.Events() }
+
 func (h lokiProcessHandle) Wait(context.Context) (system.ProcessResult, error) {
 	return system.ProcessResult{Command: h.info.Command, Args: h.info.Args}, nil
 }
+
+func (h lokiProcessHandle) Stop(context.Context) error                            { return nil }
+func (h lokiProcessHandle) Kill(context.Context) error                            { return nil }
+func (h lokiProcessHandle) Signal(context.Context, fpsystem.ProcessSignal) error  { return nil }
+func (h lokiProcessHandle) Interrupt(context.Context) error                       { return nil }
+func (h lokiProcessHandle) Reload(context.Context) error                          { return nil }
+func (h lokiProcessHandle) Pause(context.Context) error                           { return nil }
+func (h lokiProcessHandle) Resume(context.Context) error                          { return nil }
+func (h lokiProcessHandle) Write(context.Context, []byte) (int, error)            { return 0, nil }
+func (h lokiProcessHandle) CloseInput(context.Context) error                      { return nil }
+func (h lokiProcessHandle) Restart(context.Context) (system.ProcessHandle, error) { return h, nil }
+func (h lokiProcessHandle) Detach(context.Context) error                          { return nil }

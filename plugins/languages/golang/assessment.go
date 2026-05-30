@@ -65,10 +65,10 @@ func (p Plugin) goAssess(review bool) operationruntime.TypedResultHandler[golang
 }
 
 func (p Plugin) runCodegateAssessment(ctx context.Context, req golang.AssessmentQuery, review bool) (codegate.AssessmentReport, *codegate.ArchitectureRules, error) {
-	if p.system == nil || p.system.Workspace() == nil {
-		return codegate.AssessmentReport{}, nil, fmt.Errorf("golang: system workspace is nil")
+	if p.workspace == nil {
+		return codegate.AssessmentReport{}, nil, fmt.Errorf("golang: workspace is nil")
 	}
-	source := workspaceAssessmentSource{workspace: p.system.Workspace()}
+	source := workspaceAssessmentSource{workspace: p.workspace}
 	engine, err := codegate.New().
 		Roots(".").
 		WithSource(source).
@@ -111,7 +111,7 @@ func (p Plugin) assessmentRules(ctx context.Context, rulesPath string) (*codegat
 	if rel == "" {
 		rel = defaultAssessmentRulesPath
 	}
-	data, truncated, _, err := readWorkspaceFile(ctx, p.system.Workspace(), rel, 0)
+	data, truncated, _, err := readWorkspaceFile(ctx, p.workspace, rel, 0)
 	if err != nil {
 		if rulesPath == "" {
 			return nil, nil

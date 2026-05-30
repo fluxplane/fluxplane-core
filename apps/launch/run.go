@@ -294,7 +294,10 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		FileSystem:   runtimeSystem.Workspace().System().FileSystem(),
 		Headless:     browserHeadless(),
 	})
-	humanPlugin := human.NewWithSystem(runtimeSystem, clarifier)
+	humanPlugin := human.NewWithConfig(human.Config{
+		Process:   runtimeSystem.Process(),
+		Clarifier: clarifier,
+	})
 	nativePlugins := nativePluginOptions{Browser: &browserPlugin, Human: &humanPlugin}
 
 	var semanticIndex interface{ Close() error }

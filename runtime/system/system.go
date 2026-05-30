@@ -1126,13 +1126,12 @@ type ProcessManager interface {
 	ProcessRunner
 	Start(context.Context, ProcessRequest) (ProcessHandle, error)
 	Ensure(context.Context, ProcessRequest) (ProcessHandle, bool, error)
+	Group(string) ProcessGroup
 	List(context.Context) ([]ProcessInfo, error)
-	Status(context.Context, string) (ProcessInfo, error)
-	Output(context.Context, string) (ProcessOutput, error)
-	Wait(context.Context, string, time.Duration) (ProcessResult, error)
-	Stop(context.Context, string) error
-	Kill(context.Context, string) error
 }
+
+// ProcessGroup controls the managed processes assigned to one group.
+type ProcessGroup = fpsystem.ProcessGroup
 
 // ProcessHandle identifies a running or completed managed process.
 type ProcessHandle = fpsystem.ProcessHandle
@@ -1156,11 +1155,12 @@ const (
 // ProcessRequest describes one bounded process execution.
 type ProcessRequest = fpsystem.ProcessRequest
 
+// ProcessOutput is retained only for legacy test doubles that still declare
+// extra Output methods; ProcessManager no longer exposes output snapshots.
+type ProcessOutput = fpsystem.CapturedProcessResult
+
 // ProcessResult is the captured process outcome.
 type ProcessResult = fpsystem.ProcessResult
-
-// ProcessOutput is a bounded output snapshot for a managed process.
-type ProcessOutput = fpsystem.ProcessOutput
 
 // HostProcess executes direct host processes without a shell interpreter.
 type HostProcess struct {
@@ -1189,11 +1189,12 @@ func NewHostProcessWithEnvironment(workspace *HostWorkspace, env *WorkspaceEnvir
 
 // Run executes one direct process and waits for completion.
 func (p *HostProcess) Run(ctx context.Context, req ProcessRequest) (ProcessResult, error) {
-	preparedCtx, prepared, err := p.prepare(ctx, req)
-	if err != nil {
-		return ProcessResult{}, err
+	maxBytes := req.MaxStdout
+	if req.MaxStderr > maxBytes {
+		maxBytes = req.MaxStderr
 	}
-	return p.process.Run(preparedCtx, prepared)
+	capture, err := fpsystem.RunProcessCapture(ctx, p, req, maxBytes)
+	return capture.Result, err
 }
 
 // Start launches one direct process under management.
@@ -1214,34 +1215,14 @@ func (p *HostProcess) Ensure(ctx context.Context, req ProcessRequest) (ProcessHa
 	return p.process.Ensure(preparedCtx, prepared)
 }
 
+// Group returns controls for a managed process group.
+func (p *HostProcess) Group(name string) ProcessGroup {
+	return p.process.Group(name)
+}
+
 // List returns known managed processes.
 func (p *HostProcess) List(context.Context) ([]ProcessInfo, error) {
 	return p.process.List(context.Background())
-}
-
-// Status returns one managed process info.
-func (p *HostProcess) Status(ctx context.Context, id string) (ProcessInfo, error) {
-	return p.process.Status(ctx, id)
-}
-
-// Output returns a bounded output snapshot for one managed process.
-func (p *HostProcess) Output(ctx context.Context, id string) (ProcessOutput, error) {
-	return p.process.Output(ctx, id)
-}
-
-// Wait waits for one managed process to exit.
-func (p *HostProcess) Wait(ctx context.Context, id string, timeout time.Duration) (ProcessResult, error) {
-	return p.process.Wait(ctx, id, timeout)
-}
-
-// Stop gracefully terminates a managed process.
-func (p *HostProcess) Stop(ctx context.Context, id string) error {
-	return p.process.Stop(ctx, id)
-}
-
-// Kill terminates a managed process.
-func (p *HostProcess) Kill(ctx context.Context, id string) error {
-	return p.process.Kill(ctx, id)
 }
 
 func (p *HostProcess) prepare(ctx context.Context, req ProcessRequest) (context.Context, ProcessRequest, error) {

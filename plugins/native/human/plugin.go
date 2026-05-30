@@ -49,21 +49,28 @@ func (NotificationSent) EventName() event.Name { return EventNotificationSent }
 
 // Plugin contributes human-in-the-loop operations.
 type Plugin struct {
-	system    system.System
+	process   system.ProcessManager
 	clarifier runtimehuman.Clarifier
 	speak     func(string) error
+}
+
+type Config struct {
+	Process   system.ProcessManager
+	Clarifier runtimehuman.Clarifier
+	Speak     func(string) error
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
 // New returns the human plugin.
-func New(clarifier runtimehuman.Clarifier) Plugin { return Plugin{clarifier: clarifier} }
+func New(clarifier runtimehuman.Clarifier) Plugin {
+	return NewWithConfig(Config{Clarifier: clarifier})
+}
 
-// NewWithSystem returns the human plugin using the runtime system boundary for
-// OS notifications and audio.
-func NewWithSystem(sys system.System, clarifier runtimehuman.Clarifier) Plugin {
-	return Plugin{system: sys, clarifier: clarifier}
+// NewWithConfig returns the human plugin using explicit runtime capabilities.
+func NewWithConfig(cfg Config) Plugin {
+	return Plugin{process: cfg.Process, clarifier: cfg.Clarifier, speak: cfg.Speak}
 }
 
 // Manifest returns plugin metadata.
@@ -214,8 +221,8 @@ func (p Plugin) notify(ctx operation.Context, req notifyInput) operation.Result 
 	if err := validateNotifyInput(req); err != nil {
 		return operation.Failed("invalid_notify_input", err.Error(), nil)
 	}
-	if p.system == nil || p.system.Process() == nil {
-		return operation.Failed("notify_unavailable", "notify requires a runtime system with process execution", nil)
+	if p.process == nil {
+		return operation.Failed("notify_unavailable", "notify requires process execution", nil)
 	}
 
 	execCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -326,7 +333,7 @@ func validateNotifyInput(req notifyInput) error {
 }
 
 func (p Plugin) runNotifySend(ctx context.Context, req notifyInput) (string, error) {
-	result, err := p.system.Process().Run(ctx, system.ProcessRequest{
+	result, err := p.process.Run(ctx, system.ProcessRequest{
 		Command: "notify-send",
 		Args:    buildNotifyArgs(req),
 		Timeout: 15 * time.Second,
@@ -339,7 +346,7 @@ func (p Plugin) runNotifySend(ctx context.Context, req notifyInput) (string, err
 
 func (p Plugin) playTone(ctx context.Context, tone string) error {
 	if file := toneFiles[tone]; file != "" {
-		result, err := p.system.Process().Run(ctx, system.ProcessRequest{
+		result, err := p.process.Run(ctx, system.ProcessRequest{
 			Command: "paplay",
 			Args:    []string{file},
 			Timeout: 5 * time.Second,
@@ -349,7 +356,7 @@ func (p Plugin) playTone(ctx context.Context, tone string) error {
 		}
 		_ = result
 	}
-	result, err := p.system.Process().Run(ctx, system.ProcessRequest{
+	result, err := p.process.Run(ctx, system.ProcessRequest{
 		Command: "play",
 		Args:    soxArgs(tone),
 		Timeout: 5 * time.Second,

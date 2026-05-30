@@ -251,7 +251,7 @@ func Good() {}
 		if invalidImportDirection.Status != operation.StatusFailed || invalidImportDirection.Error == nil || !strings.Contains(invalidImportDirection.Error.Message, "unsupported import direction") {
 			t.Fatalf("invalid import direction result = %#v, want unsupported direction failure", invalidImportDirection)
 		}
-		providers, err := New(sys).ContextProviders(context.Background(), pluginhost.Context{})
+		providers, err := pluginForSystem(sys).ContextProviders(context.Background(), pluginhost.Context{})
 		if err != nil {
 			t.Fatalf("ContextProviders: %v", err)
 		}
@@ -887,7 +887,7 @@ func TestGoPluginContributesPostEditFmtCheck(t *testing.T) {
 }
 
 func TestGoToolchainObserverAndAssertionDeriver(t *testing.T) {
-	plugin := New(systemtest.NewMemory())
+	plugin := pluginForSystem(systemtest.NewMemory())
 	observers, err := plugin.EnvironmentObservers(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("EnvironmentObservers: %v", err)
@@ -1565,7 +1565,7 @@ func goModTidyResultFromRendered(t *testing.T, rendered operation.Rendered) gola
 
 func runGoResult(t *testing.T, sys system.System, name string, input map[string]any) operation.Result {
 	t.Helper()
-	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	ops, err := pluginForSystem(sys).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -1576,6 +1576,13 @@ func runGoResult(t *testing.T, sys system.System, name string, input map[string]
 	}
 	t.Fatalf("operation %s not found", name)
 	return operation.Result{}
+}
+
+func pluginForSystem(sys system.System) Plugin {
+	if sys == nil {
+		return New(Config{})
+	}
+	return New(Config{Workspace: sys.Workspace(), Process: sys.Process()})
 }
 
 func writeGoFile(t *testing.T, ws runtimeworkspace.Workspace, rel, content string) {

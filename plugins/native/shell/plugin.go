@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -38,6 +39,8 @@ var supportedShells = []string{"sh", "bash", "zsh", "fish", "pwsh", "powershell"
 type Plugin struct {
 	process     system.ProcessManager
 	environment system.Environment
+	handles     *sync.Map
+	captures    *sync.Map
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -51,7 +54,7 @@ type Config struct {
 
 // New returns a shell plugin.
 func New(cfg Config) Plugin {
-	return Plugin{process: cfg.Process, environment: cfg.Environment}
+	return Plugin{process: cfg.Process, environment: cfg.Environment, handles: &sync.Map{}, captures: &sync.Map{}}
 }
 
 // Manifest returns plugin metadata.
@@ -222,19 +225,32 @@ func (p Plugin) run() operationruntime.TypedResultHandler[execInput, map[string]
 }
 
 func (p Plugin) runProcess(ctx operation.Context, request system.ProcessRequest) operation.Result {
+	if strings.TrimSpace(request.Group) == "" {
+		request.Group = fmt.Sprintf("shell-run-%d", time.Now().UnixNano())
+	}
+	eventCtx, cancelEvents := context.WithCancel(ctx)
+	events := p.process.Group(request.Group).Subscribe(eventCtx)
+	defer cancelEvents()
 	handle, err := p.process.Start(ctx, request)
 	if err != nil {
 		return operation.Failed("process_run_failed", err.Error(), nil)
 	}
+	capture := &processCapture{}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for event := range handle.Events() {
+		for event := range events {
+			if event.ProcessID != handle.ID() {
+				continue
+			}
+			capture.append(event)
 			ctx.Events().Emit(event)
 		}
 	}()
 	result, waitErr := handle.Wait(ctx)
+	cancelEvents()
 	<-done
+	capture.apply(&result)
 	emitProcessUsage(ctx, result)
 	data := processResultData(result)
 	text := renderResult(result)
@@ -281,6 +297,8 @@ func (p Plugin) startProcess(ctx operation.Context, request system.ProcessReques
 	if err != nil {
 		return operation.Failed("process_start_failed", err.Error(), nil)
 	}
+	p.storeHandle(handle)
+	p.captureHandle(context.Background(), handle, func(event system.ProcessEvent) { ctx.Events().Emit(event) })
 	info := handle.Info()
 	data := processInfoData(info)
 	data["started"] = started
@@ -333,10 +351,11 @@ func (p Plugin) status() operationruntime.TypedResultHandler[processIDInput, map
 		if invalid != nil {
 			return *invalid
 		}
-		info, err := p.process.Status(ctx, id)
+		handle, err := p.lookupHandle(id)
 		if err != nil {
 			return operation.Failed("process_status_failed", err.Error(), nil)
 		}
+		info := handle.Info()
 		data := processInfoData(info)
 		return operation.OK(operation.Rendered{Text: fmt.Sprintf("%s running=%v exit=%d", info.ID, info.Running, info.ExitCode), Data: data})
 	}
@@ -348,12 +367,16 @@ func (p Plugin) output() operationruntime.TypedResultHandler[processIDInput, map
 		if invalid != nil {
 			return *invalid
 		}
-		output, err := p.process.Output(ctx, id)
-		if err != nil {
+		if _, err := p.lookupHandle(id); err != nil {
 			return operation.Failed("process_output_failed", err.Error(), nil)
 		}
-		data := map[string]any{"process_id": output.ProcessID, "stdout": output.Stdout, "stderr": output.Stderr, "stdout_truncated": output.StdoutTruncated, "stderr_truncated": output.StderrTruncated}
-		text := renderOutput(output.Stdout, output.Stderr)
+		capture := p.lookupCapture(id)
+		stdout, stderr := "", ""
+		if capture != nil {
+			stdout, stderr = capture.output()
+		}
+		data := map[string]any{"process_id": id, "stdout": stdout, "stderr": stderr, "stdout_truncated": false, "stderr_truncated": false}
+		text := renderOutput(stdout, stderr)
 		return operation.OK(operation.Rendered{Text: text, Data: data})
 	}
 }
@@ -364,7 +387,20 @@ func (p Plugin) wait() operationruntime.TypedResultHandler[processIDInput, map[s
 		if invalid != nil {
 			return *invalid
 		}
-		result, err := p.process.Wait(ctx, id, time.Duration(req.TimeoutMS)*time.Millisecond)
+		handle, err := p.lookupHandle(id)
+		if err != nil {
+			return operation.Failed("process_wait_failed", err.Error(), nil)
+		}
+		waitCtx := context.Context(ctx)
+		if req.TimeoutMS > 0 {
+			var cancel context.CancelFunc
+			waitCtx, cancel = context.WithTimeout(ctx, time.Duration(req.TimeoutMS)*time.Millisecond)
+			defer cancel()
+		}
+		result, err := handle.Wait(waitCtx)
+		if capture := p.lookupCapture(id); capture != nil {
+			capture.apply(&result)
+		}
 		data := processResultData(result)
 		if err != nil {
 			return operation.Failed("process_wait_failed", err.Error(), data)
@@ -379,7 +415,11 @@ func (p Plugin) stop() operationruntime.TypedResultHandler[processIDInput, map[s
 		if invalid != nil {
 			return *invalid
 		}
-		if err := p.process.Stop(ctx, id); err != nil {
+		handle, lookupErr := p.lookupHandle(id)
+		if lookupErr != nil {
+			return operation.Failed("process_stop_failed", lookupErr.Error(), nil)
+		}
+		if err := handle.Stop(ctx); err != nil {
 			return operation.Failed("process_stop_failed", err.Error(), nil)
 		}
 		return operation.OK(operation.Rendered{Text: "Stopped " + id, Data: map[string]any{"process_id": id}})
@@ -392,11 +432,113 @@ func (p Plugin) kill() operationruntime.TypedResultHandler[processIDInput, map[s
 		if invalid != nil {
 			return *invalid
 		}
-		if err := p.process.Kill(ctx, id); err != nil {
+		handle, lookupErr := p.lookupHandle(id)
+		if lookupErr != nil {
+			return operation.Failed("process_kill_failed", lookupErr.Error(), nil)
+		}
+		if err := handle.Kill(ctx); err != nil {
 			return operation.Failed("process_kill_failed", err.Error(), nil)
 		}
 		return operation.OK(operation.Rendered{Text: "Killed " + id, Data: map[string]any{"process_id": id}})
 	}
+}
+
+type processCapture struct {
+	mu     sync.Mutex
+	stdout strings.Builder
+	stderr strings.Builder
+}
+
+func (c *processCapture) append(event system.ProcessEvent) {
+	if c == nil || event.Kind != system.ProcessEventOutput {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch event.Stream {
+	case "stdout":
+		c.stdout.WriteString(event.Data)
+	case "stderr":
+		c.stderr.WriteString(event.Data)
+	}
+}
+
+func (c *processCapture) output() (string, string) {
+	if c == nil {
+		return "", ""
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.stdout.String(), c.stderr.String()
+}
+
+func (c *processCapture) apply(result *system.ProcessResult) {
+	if c == nil || result == nil {
+		return
+	}
+	result.Stdout, result.Stderr = c.output()
+}
+
+func (p Plugin) captureHandle(ctx context.Context, handle system.ProcessHandle, emit func(system.ProcessEvent)) *processCapture {
+	capture := &processCapture{}
+	if p.captures != nil && handle != nil {
+		p.captures.Store(handle.ID(), capture)
+		if label := strings.TrimSpace(handle.Info().Label); label != "" {
+			p.captures.Store(label, capture)
+		}
+	}
+	eventCtx, cancel := context.WithCancel(ctx)
+	events := handle.Subscribe(eventCtx)
+	go func() {
+		for event := range events {
+			capture.append(event)
+			if emit != nil {
+				emit(event)
+			}
+		}
+	}()
+	go func() {
+		_, _ = handle.Wait(context.Background())
+		cancel()
+	}()
+	return capture
+}
+
+func (p Plugin) lookupCapture(id string) *processCapture {
+	if p.captures == nil {
+		return nil
+	}
+	if value, ok := p.captures.Load(strings.TrimSpace(id)); ok {
+		if capture, ok := value.(*processCapture); ok {
+			return capture
+		}
+	}
+	return nil
+}
+
+func (p Plugin) storeHandle(handle system.ProcessHandle) {
+	if handle == nil || p.handles == nil {
+		return
+	}
+	p.handles.Store(handle.ID(), handle)
+	if label := strings.TrimSpace(handle.Info().Label); label != "" {
+		p.handles.Store(label, handle)
+	}
+}
+
+func (p Plugin) lookupHandle(id string) (system.ProcessHandle, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, fmt.Errorf("process id is empty")
+	}
+	if p.handles != nil {
+		if value, ok := p.handles.Load(id); ok {
+			if handle, ok := value.(system.ProcessHandle); ok && handle != nil {
+				return handle, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("process %q not found in plugin handle registry", id)
 }
 
 func processSelector(req processIDInput) (string, *operation.Result) {

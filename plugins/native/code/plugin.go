@@ -13,6 +13,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 )
 
 const (
@@ -22,14 +23,22 @@ const (
 
 // Plugin contributes scratch code execution operations.
 type Plugin struct {
-	system system.System
+	workspace runtimeworkspace.Workspace
+	process   system.ProcessManager
+}
+
+type Config struct {
+	Workspace runtimeworkspace.Workspace
+	Process   system.ProcessManager
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
 // New returns a code execution plugin.
-func New(sys system.System) Plugin { return Plugin{system: sys} }
+func New(cfg Config) Plugin {
+	return Plugin{workspace: cfg.Workspace, process: cfg.Process}
+}
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -47,8 +56,11 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 
 // Operations returns executable code operations.
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
-	if p.system == nil {
-		return nil, fmt.Errorf("codeplugin: system is nil")
+	if p.workspace == nil {
+		return nil, fmt.Errorf("codeplugin: workspace is nil")
+	}
+	if p.process == nil {
+		return nil, fmt.Errorf("codeplugin: process manager is nil")
 	}
 	return []operation.Operation{operationruntime.NewTypedResult[executeInput, ExecuteResult](executeSpec(), p.execute(), operationruntime.WithIntent(executeIntent))}, nil
 }
@@ -170,7 +182,7 @@ func (p Plugin) execute() operationruntime.TypedResultHandler[executeInput, Exec
 		if len(req.Files) == 0 {
 			return operation.Failed("invalid_code_execute_input", "files are required", nil)
 		}
-		scratch, err := p.system.Workspace().CreateScratch(ctx, "fluxplane-code-*")
+		scratch, err := p.workspace.CreateScratch(ctx, "fluxplane-code-*")
 		if err != nil {
 			return operation.Failed("code_execute_setup_failed", err.Error(), nil)
 		}
@@ -208,7 +220,7 @@ func (p Plugin) execute() operationruntime.TypedResultHandler[executeInput, Exec
 		}
 		args := []string{"run", "--rm", "--network", "none", "-v", scratch.Root() + ":/workspace", "-w", "/workspace", preset.Image}
 		args = append(args, command...)
-		result, err := p.system.Process().Run(ctx, system.ProcessRequest{
+		result, err := p.process.Run(ctx, system.ProcessRequest{
 			Command:   "docker",
 			Args:      args,
 			Timeout:   timeout,

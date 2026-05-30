@@ -368,7 +368,7 @@ func (p Plugin) goBuild() operationruntime.TypedResultHandler[golang.GoBuildQuer
 			listRun, listErr := p.runGoTool(ctx, req.Path, []string{"list", "-json", patterns[0]}, req.MaxOutputBytes, defaultToolchainTimeout)
 			records, _, _ := parseGoListJSON(listRun.Stdout, 1)
 			if listErr == nil && len(records) == 1 && goListRecordString(records[0], "Name") == "main" {
-				scratch, err := p.system.Workspace().CreateScratch(ctx, "fluxplane-go-build-*")
+				scratch, err := p.workspace.CreateScratch(ctx, "fluxplane-go-build-*")
 				if err != nil {
 					return operation.Failed("go_build_failed", err.Error(), nil)
 				}
@@ -514,22 +514,22 @@ func (p Plugin) runGoTool(ctx operation.Context, workdir string, args []string, 
 }
 
 func (p Plugin) runGoToolEnv(ctx operation.Context, workdir string, args []string, env []string, maxBytesValue int, timeout time.Duration) (system.ProcessResult, error) {
-	if p.system == nil || p.system.Process() == nil {
-		return system.ProcessResult{}, fmt.Errorf("golang: system process is nil")
+	if p.process == nil {
+		return system.ProcessResult{}, fmt.Errorf("golang: process manager is nil")
 	}
 	rel, err := cleanOptionalWorkspacePath(workdir)
 	if err != nil {
 		return system.ProcessResult{}, err
 	}
 	limit := maxBytes(maxBytesValue)
-	return p.system.Process().Run(ctx, system.ProcessRequest{
+	return p.process.Run(ctx, system.ProcessRequest{
 		Command:   "go",
 		Args:      append([]string(nil), args...),
 		Workdir:   rel,
 		Env:       append(system.DefaultProcessEnv(), env...),
 		Timeout:   timeout,
-		MaxStdout: limit,
-		MaxStderr: limit,
+		MaxStdout: int64(limit),
+		MaxStderr: int64(limit),
 	})
 }
 

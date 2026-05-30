@@ -10,8 +10,8 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
-	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 	"github.com/fluxplane/fluxplane-event"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 func TestNotifySendRunsDesktopNotificationAndEmitsEvent(t *testing.T) {
@@ -113,8 +113,7 @@ func operationForTest(t *testing.T, name string, process system.ProcessManager) 
 
 func operationForTestWithSpeech(t *testing.T, name string, process system.ProcessManager, speak func(string) error) operation.Operation {
 	t.Helper()
-	plugin := NewWithSystem(notifyTestSystem{MemorySystem: systemtest.NewMemory(), process: process}, nil)
-	plugin.speak = speak
+	plugin := NewWithConfig(Config{Process: process, Speak: speak})
 	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
@@ -127,13 +126,6 @@ func operationForTestWithSpeech(t *testing.T, name string, process system.Proces
 	t.Fatalf("operation %q not found", name)
 	return nil
 }
-
-type notifyTestSystem struct {
-	*systemtest.MemorySystem
-	process system.ProcessManager
-}
-
-func (s notifyTestSystem) Process() system.ProcessManager { return s.process }
 
 type recordingProcess struct {
 	runs   []system.ProcessRequest
@@ -155,6 +147,7 @@ func (p *recordingProcess) Ensure(ctx context.Context, req system.ProcessRequest
 	return handle, false, err
 }
 
+func (p *recordingProcess) Group(string) system.ProcessGroup                   { return nil }
 func (p *recordingProcess) List(context.Context) ([]system.ProcessInfo, error) { return nil, nil }
 func (p *recordingProcess) Status(context.Context, string) (system.ProcessInfo, error) {
 	return system.ProcessInfo{}, fmt.Errorf("not found")
@@ -189,6 +182,19 @@ func (h recordingHandle) Events() <-chan system.ProcessEvent {
 	close(ch)
 	return ch
 }
+func (h recordingHandle) Subscribe(context.Context) <-chan system.ProcessEvent { return h.Events() }
 func (h recordingHandle) Wait(context.Context) (system.ProcessResult, error) {
 	return system.ProcessResult{Command: h.info.Command, Args: h.info.Args}, nil
 }
+
+func (h recordingHandle) Stop(context.Context) error                            { return nil }
+func (h recordingHandle) Kill(context.Context) error                            { return nil }
+func (h recordingHandle) Signal(context.Context, fpsystem.ProcessSignal) error  { return nil }
+func (h recordingHandle) Interrupt(context.Context) error                       { return nil }
+func (h recordingHandle) Reload(context.Context) error                          { return nil }
+func (h recordingHandle) Pause(context.Context) error                           { return nil }
+func (h recordingHandle) Resume(context.Context) error                          { return nil }
+func (h recordingHandle) Write(context.Context, []byte) (int, error)            { return 0, nil }
+func (h recordingHandle) CloseInput(context.Context) error                      { return nil }
+func (h recordingHandle) Restart(context.Context) (system.ProcessHandle, error) { return h, nil }
+func (h recordingHandle) Detach(context.Context) error                          { return nil }

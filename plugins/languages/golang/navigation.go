@@ -139,12 +139,12 @@ func validateNavigationQuery(req golang.NavigationQuery) error {
 }
 
 func (p Plugin) parseGoSource(ctx context.Context, rel string, readLimit int) (parsedGoFile, error) {
-	if info, _, err := statWorkspacePath(ctx, p.system.Workspace(), rel); err != nil {
+	if info, _, err := statWorkspacePath(ctx, p.workspace, rel); err != nil {
 		return parsedGoFile{}, err
 	} else if info.IsDir() {
 		return parsedGoFile{}, fmt.Errorf("path must be a Go source file")
 	}
-	data, truncated, _, err := readWorkspaceFile(ctx, p.system.Workspace(), rel, int64(readLimit))
+	data, truncated, _, err := readWorkspaceFile(ctx, p.workspace, rel, int64(readLimit))
 	if err != nil {
 		return parsedGoFile{}, err
 	}

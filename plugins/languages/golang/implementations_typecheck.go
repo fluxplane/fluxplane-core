@@ -50,13 +50,13 @@ func (p Plugin) typeCheckedImplementations(ctx context.Context, req golang.Imple
 
 func (p Plugin) typeCheckedImplementationIndex(ctx context.Context, req golang.ImplementationQuery, selected language.Symbol) (typeCheckedImplementationIndex, bool) {
 	root := ""
-	if p.system != nil && p.system.Workspace() != nil {
-		root = p.system.Workspace().Root()
+	if p.workspace != nil {
+		root = p.workspace.Root()
 	}
 	if strings.TrimSpace(root) == "" {
 		return typeCheckedImplementationIndex{}, false
 	}
-	if _, ok := p.system.Workspace().(*runtimesystem.HostWorkspace); !ok {
+	if _, ok := p.workspace.(*runtimesystem.HostWorkspace); !ok {
 		return typeCheckedImplementationIndex{}, false
 	}
 	root = filepath.Clean(root)

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
@@ -405,10 +406,13 @@ func TestHostProcessDetachedStartSurvivesCallerCancel(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	eventCtx, eventCancel := context.WithCancel(context.Background())
+	events := sys.Process().Group("detached-output").Subscribe(eventCtx)
 	handle, err := sys.Process().Start(ctx, ProcessRequest{
 		Command:  "sh",
 		Args:     []string{"-c", "printf start; sleep 0.2; printf done"},
 		Detached: true,
+		Group:    "detached-output",
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -421,8 +425,15 @@ func TestHostProcessDetachedStartSurvivesCallerCancel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Wait: %v", err)
 	}
-	if result.Stdout != "startdone" {
-		t.Fatalf("stdout = %q, want detached process to complete after caller cancel", result.Stdout)
+	eventCancel()
+	var stdout strings.Builder
+	for event := range events {
+		if event.ProcessID == handle.ID() && event.Kind == ProcessEventOutput && event.Stream == "stdout" {
+			stdout.WriteString(event.Data)
+		}
+	}
+	if result.ExitCode != 0 || stdout.String() != "startdone" {
+		t.Fatalf("result/stdout = %#v/%q, want detached process to complete after caller cancel", result, stdout.String())
 	}
 }
 
@@ -433,10 +444,14 @@ func TestHostProcessCapturesShortLivedOutputBeforeExit(t *testing.T) {
 	}
 	for i := 0; i < 200; i++ {
 		want := fmt.Sprintf("hello-%03d", i)
+		group := fmt.Sprintf("short-lived-%03d", i)
+		eventCtx, eventCancel := context.WithCancel(context.Background())
+		eventStream := sys.Process().Group(group).Subscribe(eventCtx)
 		handle, err := sys.Process().Start(context.Background(), ProcessRequest{
 			Command: "printf",
 			Args:    []string{want},
 			Timeout: 2 * time.Second,
+			Group:   group,
 		})
 		if err != nil {
 			t.Fatalf("Start iteration %d: %v", i, err)
@@ -445,26 +460,22 @@ func TestHostProcessCapturesShortLivedOutputBeforeExit(t *testing.T) {
 		events := make([]ProcessEvent, 0, 3)
 		go func() {
 			defer close(eventsDone)
-			for event := range handle.Events() {
-				events = append(events, event)
+			for event := range eventStream {
+				if event.ProcessID == handle.ID() {
+					events = append(events, event)
+				}
 			}
 		}()
 		waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		result, err := handle.Wait(waitCtx)
 		cancel()
+		eventCancel()
 		<-eventsDone
 		if err != nil {
 			t.Fatalf("Wait iteration %d: %v", i, err)
 		}
-		if result.Stdout != want {
-			t.Fatalf("stdout iteration %d = %q, want %q", i, result.Stdout, want)
-		}
-		output, err := sys.Process().Output(context.Background(), handle.ID())
-		if err != nil {
-			t.Fatalf("Output iteration %d: %v", i, err)
-		}
-		if output.Stdout != want {
-			t.Fatalf("output snapshot iteration %d = %q, want %q", i, output.Stdout, want)
+		if result.ExitCode != 0 {
+			t.Fatalf("result iteration %d = %#v", i, result)
 		}
 		startedIndex, outputIndex, exitedIndex := -1, -1, -1
 		var eventOutput strings.Builder
@@ -547,7 +558,7 @@ func TestHostProcessUsesWorkspaceScopedEnvFiles(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 
-	rootRun, err := sys.Process().Run(context.Background(), ProcessRequest{Command: "env", Timeout: time.Second})
+	rootRun, err := system.RunProcessCapture(context.Background(), sys.Process(), ProcessRequest{Command: "env", Timeout: time.Second}, 1<<20)
 	if err != nil {
 		t.Fatalf("Run root env: %v", err)
 	}
@@ -555,7 +566,7 @@ func TestHostProcessUsesWorkspaceScopedEnvFiles(t *testing.T) {
 		t.Fatalf("root env stdout = %q, want only root env", rootRun.Stdout)
 	}
 
-	namedRun, err := sys.Process().Run(context.Background(), ProcessRequest{Command: "env", Workdir: "@named", Timeout: time.Second})
+	namedRun, err := system.RunProcessCapture(context.Background(), sys.Process(), ProcessRequest{Command: "env", Workdir: "@named", Timeout: time.Second}, 1<<20)
 	if err != nil {
 		t.Fatalf("Run named env: %v", err)
 	}
@@ -588,11 +599,11 @@ func TestHostProcessAllowsConfiguredAndToolchainEnvOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	run, err := sys.Process().Run(context.Background(), ProcessRequest{
+	run, err := system.RunProcessCapture(context.Background(), sys.Process(), ProcessRequest{
 		Command: "env",
 		Env:     []string{"CONFIGURED=override", "GOOS=testos"},
 		Timeout: time.Second,
-	})
+	}, 1<<20)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -611,7 +622,7 @@ func TestHostProcessPreservesForwardedHostEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	run, err := sys.Process().Run(context.Background(), ProcessRequest{Command: "env", Timeout: time.Second})
+	run, err := system.RunProcessCapture(context.Background(), sys.Process(), ProcessRequest{Command: "env", Timeout: time.Second}, 1<<20)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

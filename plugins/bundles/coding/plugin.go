@@ -22,6 +22,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/native/project"
 	"github.com/fluxplane/fluxplane-core/plugins/native/shell"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
+	runtimehuman "github.com/fluxplane/fluxplane-core/runtime/human"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
@@ -60,22 +61,43 @@ func NewWithOptions(sys system.System, opts Options) Plugin {
 	if opts.Browser != nil {
 		browserPlugin = *opts.Browser
 	}
-	humanPlugin := human.NewWithSystem(sys, nil)
+	humanPlugin := human.NewWithConfig(humanConfig(sys, nil))
 	if opts.Human != nil {
 		humanPlugin = *opts.Human
 	}
 	return Plugin{system: sys, plugins: []pluginhost.Plugin{
 		project.New(sys),
 		filesystem.New(workspace),
-		golang.New(sys),
+		golang.New(golangConfig(sys)),
 		markdown.New(workspace),
 		web.New(sys),
 		browserPlugin,
 		git.New(sys),
 		shell.New(shellConfig(sys)),
-		code.New(sys),
+		code.New(codeConfig(sys)),
 		humanPlugin,
 	}}
+}
+
+func codeConfig(sys system.System) code.Config {
+	if sys == nil {
+		return code.Config{}
+	}
+	return code.Config{Workspace: sys.Workspace(), Process: sys.Process()}
+}
+
+func golangConfig(sys system.System) golang.Config {
+	if sys == nil {
+		return golang.Config{}
+	}
+	return golang.Config{Workspace: sys.Workspace(), Process: sys.Process()}
+}
+
+func humanConfig(sys system.System, clarifier runtimehuman.Clarifier) human.Config {
+	if sys == nil {
+		return human.Config{Clarifier: clarifier}
+	}
+	return human.Config{Process: sys.Process(), Clarifier: clarifier}
 }
 
 func shellConfig(sys system.System) shell.Config {
