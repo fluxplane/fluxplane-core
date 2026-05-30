@@ -411,7 +411,7 @@ events -> projector -> snapshot/read model
 events -> session replay -> runtime state
 ```
 
-`core/event.Store` is the generic append-only event stream port. It knows about
+`fluxplane-event.Store` is the generic append-only event stream port. It knows about
 stream IDs, stream-local sequences, typed event records, schema versions,
 causation, correlation, sensitivity, and runtime scope. It must not know about
 thread branches, node ancestry, app sessions, SQLite tables, JSONL files, or
@@ -437,7 +437,7 @@ thread.index
 thread:<thread-id>
 ```
 
-Memory event stores belong in `runtime/eventstore`, not in `core/event`.
+Memory event stores belong in `runtime/eventstore`, not in `fluxplane-event`.
 Although they are IO-free, they are mutable runtime implementations: they
 assign IDs, timestamps, schema defaults, and stream-local sequence numbers, and
 they own concurrency behavior. Filesystem, SQL, and protocol-backed event
@@ -445,8 +445,8 @@ stores belong in adapters such as `adapters/sqleventstore` or
 `adapters/eventjsonl`.
 
 Shared event record normalization and typed JSON payload encoding belong in
-`runtime/eventcodec`. Core owns the event model and registry contract, but
-runtime owns defaults and serialization behavior.
+`runtime/eventcodec`. The `fluxplane-event` module owns the event model and
+registry contract, but runtime owns defaults and serialization behavior.
 
 Projection freshness policy belongs in orchestration. `orchestration/projections`
 coordinates runtime projection runners for use cases, such as ensuring a thread
@@ -472,7 +472,7 @@ we audit every package in detail.
 | Tools | later near `core/agent/llmagent` or model adapter layer | Do not recreate old executable tool concept. LLM tools are driver-facing projections of operations. |
 | Commands | `core/command` + `orchestration/session` command dispatch | Channel-facing invocation specs. Slash parsing/rendering belongs in adapters. |
 | Workflows | `core/workflow` + `orchestration/workflow` or `runtime/workflow` | Specs/events/projectors in core; executor placement depends on whether it composes runtime implementations. |
-| Thread/event state | `core/event` + `core/thread` + `runtime/thread` or `adapters/event*` | Generic event stream port in core; thread-domain port in core; event-backed thread projection in runtime. |
+| Thread/event state | `github.com/fluxplane/fluxplane-event` + `core/thread` + `runtime/thread` or `adapters/event*` | Generic event stream port in fluxplane-event; thread-domain port in core; event-backed thread projection in runtime. |
 | Projections/read models | `core/projection` + `runtime/projection` + runtime read models | Checkpoints/projector contracts in core; runner/checkpoint stores in runtime; concrete read models near their concept. |
 | Context providers | `core/context` + `runtime/context` | Structured context blocks in core; provider execution/materialization in runtime. |
 | Capabilities | `core/capability` + `runtime/capability` | Capability specs/events in core; state machine implementations in runtime/plugins. |
@@ -529,7 +529,7 @@ ported.
 | `daemon` | `apps/serve` + `adapters/httpcontrol` + channel adapters | Process host/control plane outward; user messages still enter through channel adapters and harness. |
 | `datasource` | `core/datasource` + `runtime/datasource` | Source contract/core types; registry runtime. |
 | `datasource/filesource` | `plugins/datasources/filesource` or `adapters/filesource` | File-backed implementation. |
-| `eventstore` | `core/event` + `runtime/eventstore` + `adapters/sqleventstore` | `core/event.Store` keeps the append/load stream contract. In-memory store proves runtime; SQLite proves adapter boundary. |
+| `eventstore` | `github.com/fluxplane/fluxplane-event` + `runtime/eventstore` + `adapters/sqleventstore` | `fluxplane-event.Store` keeps the append/load stream contract. In-memory store proves runtime; SQLite proves adapter boundary. |
 | `expand` | audit | Likely resource/appconfig helper; place by actual IO/purity. |
 | `harness` | `orchestration/harness` + `orchestration/session` | Split adapter-facing session binding from per-thread execution. |
 | `harness/worker` | `orchestration/worker` or `orchestration/session/worker` | Generic child-session supervisor. Preserve capacity limits, cancellation, progress, parent/child causation, and prepare-then-start semantics so callers can persist dispatch state before work begins. |
@@ -547,7 +547,7 @@ ported.
 | `terminal` | `adapters/terminal` + `apps/cli` | Rendering and CLI host. |
 | `thread` | `core/thread` + `runtime/thread` | IDs, thread lifecycle event payloads, branch/node model, snapshot helpers, and `thread.Store` port in core. Live/buffered handles and event-store-backed implementation in runtime. |
 | `thread/jsonlstore` | `adapters/eventjsonl` | Concrete persistence adapter. |
-| `thread/eventstorebackend` | `runtime/thread` | Implemented as `runtime/thread.Store` by replaying `core/event.Store`; this is projection/storage semantics, not core. |
+| `thread/eventstorebackend` | `runtime/thread` | Implemented as `runtime/thread.Store` by replaying `fluxplane-event.Store`; this is projection/storage semantics, not core. |
 | `tool` | later LLM-driver projection package, likely near `core/agent/llmagent` | Avoid generic `core/tool` until "tool" is proven driver-independent. Executable behavior belongs to operations. |
 | `toolactivation` | `runtime/tool/activation` | Runtime activation manager; activation state data may be core. |
 | `toolmw` | `runtime/tool/middleware` | Compatibility bridge; may shrink if operations are primary. |
@@ -601,7 +601,7 @@ The current rewrite proves the inner-to-outer path for the first executable
 slice:
 
 ```text
-core operation/command/channel/session/thread/event model
+core operation/command/channel/session/thread model + fluxplane-event
   -> runtime operation/event/thread implementations
   -> orchestration session + harness + client handles
   -> direct channel and HTTP/SSE channel adapters
@@ -617,7 +617,7 @@ Implemented and green:
   tool refs, command refs, skill refs, inference hints, max-step policy, and
   stop-condition declarations.
 - `core/skill`: pure skill metadata specs and source refs.
-- `core/event`: event records, stream store port, registry, append conflict and
+- `github.com/fluxplane/fluxplane-event`: event records, stream store port, registry, append conflict and
   batch append contracts.
 - `core/session`: configured session specs, session lifecycle event payloads,
   and reserved delegation policy shape for future sub-agents.
