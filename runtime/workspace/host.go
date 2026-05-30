@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -249,39 +248,13 @@ func workspaceBaseRoot(roots []workspaceRoot) (string, error) {
 	}
 	base := filepath.Clean(roots[0].root)
 	for _, root := range roots[1:] {
-		next, err := commonPathAncestor(base, filepath.Clean(root.root))
+		next, err := fpsystem.CommonPathAncestor(base, filepath.Clean(root.root))
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("workspace roots must share a filesystem volume")
 		}
 		base = next
 	}
 	return base, nil
-}
-
-func commonPathAncestor(a, b string) (string, error) {
-	volumeA := filepath.VolumeName(a)
-	volumeB := filepath.VolumeName(b)
-	if !strings.EqualFold(volumeA, volumeB) {
-		return "", fmt.Errorf("workspace roots must share a filesystem volume")
-	}
-	rel, err := filepath.Rel(a, b)
-	if err == nil && !pathEscapes(rel) {
-		return a, nil
-	}
-	for {
-		parent := filepath.Dir(a)
-		if parent == a {
-			if volumeA != "" {
-				return volumeA + string(os.PathSeparator), nil
-			}
-			return parent, nil
-		}
-		a = parent
-		rel, err = filepath.Rel(a, b)
-		if err == nil && !pathEscapes(rel) {
-			return a, nil
-		}
-	}
 }
 
 func workspaceMountPath(base, root string) (string, error) {
@@ -289,17 +262,13 @@ func workspaceMountPath(base, root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if pathEscapes(rel) {
+	if fpsystem.RelPathEscapes(rel) {
 		return "", fmt.Errorf("workspace root %q escapes workspace base %q", root, base)
 	}
 	if rel == "." || rel == "" {
 		return ".", nil
 	}
 	return filepath.ToSlash(rel), nil
-}
-
-func pathEscapes(rel string) bool {
-	return rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel)
 }
 
 // ResolveExisting resolves an existing path and rejects symlink escapes.
@@ -311,7 +280,7 @@ func (w *HostWorkspace) ResolveExisting(_ context.Context, raw string) (Resolved
 	if !root.read {
 		return ResolvedPath{}, fmt.Errorf("workspace root is not readable")
 	}
-	real, err := filepath.EvalSymlinks(candidate)
+	real, err := fpsystem.ResolveExistingUnderRoot(root.root, candidate)
 	if err != nil {
 		return ResolvedPath{}, err
 	}
@@ -329,7 +298,7 @@ func (w *HostWorkspace) ResolveProcessWorkdir(raw string) (ResolvedPath, error) 
 	if !root.write {
 		return ResolvedPath{}, fmt.Errorf("workspace root is not writable")
 	}
-	real, err := filepath.EvalSymlinks(candidate)
+	real, err := fpsystem.ResolveExistingUnderRoot(root.root, candidate)
 	if err != nil {
 		return ResolvedPath{}, err
 	}
@@ -345,38 +314,11 @@ func (w *HostWorkspace) ResolveCreate(_ context.Context, raw string) (ResolvedPa
 	if !root.write {
 		return ResolvedPath{}, fmt.Errorf("workspace root is not writable")
 	}
-	if _, err := os.Lstat(candidate); err == nil {
-		real, err := filepath.EvalSymlinks(candidate)
-		if err != nil {
-			return ResolvedPath{}, err
-		}
-		return w.resolved(raw, root, real)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return ResolvedPath{}, err
+	real, err := fpsystem.ResolveCreateUnderRoot(root.root, candidate)
+	if err != nil {
+		return ResolvedPath{}, fmt.Errorf("path escapes workspace root")
 	}
-
-	missing := []string{filepath.Base(candidate)}
-	parent := filepath.Dir(candidate)
-	for {
-		if _, err := os.Lstat(parent); err == nil {
-			realParent, err := filepath.EvalSymlinks(parent)
-			if err != nil {
-				return ResolvedPath{}, err
-			}
-			for i := len(missing) - 1; i >= 0; i-- {
-				realParent = filepath.Join(realParent, missing[i])
-			}
-			return w.resolved(raw, root, realParent)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return ResolvedPath{}, err
-		}
-		next := filepath.Dir(parent)
-		if next == parent {
-			return ResolvedPath{}, fmt.Errorf("path escapes workspace root")
-		}
-		missing = append(missing, filepath.Base(parent))
-		parent = next
-	}
+	return w.resolved(raw, root, real)
 }
 
 // ReadFile reads a bounded file from the workspace.
@@ -704,13 +646,13 @@ func workspaceMountName(raw string) (string, error) {
 		if clean == "." {
 			return "@" + name, nil
 		}
-		if pathEscapes(clean) || filepath.IsAbs(clean) {
+		if fpsystem.RelPathEscapes(clean) || filepath.IsAbs(clean) {
 			return "", fmt.Errorf("path escapes workspace root")
 		}
 		return "@" + name + "/" + filepath.ToSlash(clean), nil
 	}
 	clean := filepath.Clean(filepath.FromSlash(raw))
-	if pathEscapes(clean) || filepath.IsAbs(clean) {
+	if fpsystem.RelPathEscapes(clean) || filepath.IsAbs(clean) {
 		return "", fmt.Errorf("path escapes workspace root")
 	}
 	return filepath.ToSlash(clean), nil
