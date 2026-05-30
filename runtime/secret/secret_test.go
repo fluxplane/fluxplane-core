@@ -2,12 +2,13 @@ package secret
 
 import (
 	"context"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestEnvResolverFindsEnvSecret(t *testing.T) {
@@ -41,7 +42,7 @@ func TestBrokerMintAndResolveScopedPlaceholder(t *testing.T) {
 
 func TestBrokerRequiresSecretUse(t *testing.T) {
 	broker := NewBroker(EnvResolver{Environment: mapEnvironment{"GITLAB_PERSONAL_ACCESS_TOKEN": "pat"}})
-	ctx := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged},
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
@@ -59,7 +60,7 @@ func TestBrokerRequiresSecretUse(t *testing.T) {
 
 func TestBrokerUseFirstSkipsMissingCandidateBeforeAuthorization(t *testing.T) {
 	broker := NewBroker(EnvResolver{Environment: mapEnvironment{"GITLAB_TOKEN": "fallback"}})
-	ctx := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged},
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
@@ -77,7 +78,7 @@ func TestBrokerUseFirstSkipsMissingCandidateBeforeAuthorization(t *testing.T) {
 
 func TestBrokerUseAvailableAuthorizesLogicalPluginSecret(t *testing.T) {
 	broker := NewBroker(EnvResolver{Environment: mapEnvironment{"GITLAB_PERSONAL_ACCESS_TOKEN": "pat"}})
-	ctx := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged},
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
@@ -157,7 +158,7 @@ func TestBrokerExpiresHandles(t *testing.T) {
 }
 
 func authorizedPluginContext() context.Context {
-	return policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	return policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged},
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
@@ -170,7 +171,7 @@ func authorizedPluginContext() context.Context {
 }
 
 func authorizedContext() context.Context {
-	return policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	return policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged},
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{

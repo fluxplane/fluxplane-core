@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestAccessFieldsBuildsTypedDescriptors(t *testing.T) {

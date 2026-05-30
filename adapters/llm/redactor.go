@@ -1,8 +1,8 @@
 package llm
 
 import (
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Redactor controls which provider-normalized stream data is exposed through

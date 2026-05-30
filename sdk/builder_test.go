@@ -5,8 +5,8 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestBuildAppContribution(t *testing.T) {

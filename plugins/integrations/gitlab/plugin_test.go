@@ -3,6 +3,7 @@ package gitlab
 import (
 	"context"
 	"encoding/base64"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"regexp"
 	"strconv"
 	"strings"
@@ -10,7 +11,6 @@ import (
 
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreoperation "github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	coreuser "github.com/fluxplane/fluxplane-core/core/user"
@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-policy"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -3767,7 +3768,7 @@ func headerValue(headers map[string]string, key string) string {
 }
 
 func denySecretUseContext() context.Context {
-	return policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	return policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged},
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{

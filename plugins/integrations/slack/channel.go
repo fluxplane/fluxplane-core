@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/orchestration/channelruntime"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-policy"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"

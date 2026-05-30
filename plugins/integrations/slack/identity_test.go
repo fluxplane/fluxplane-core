@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/orchestration/identity"
+	"github.com/fluxplane/fluxplane-policy"
 	"github.com/slack-go/slack"
 )
 

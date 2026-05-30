@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // AccessDescriptor describes one protected resource/action an operation will

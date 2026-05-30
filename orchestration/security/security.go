@@ -2,18 +2,19 @@ package security
 
 import (
 	"context"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/user"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // ContextForInbound builds the effective authorization context for one inbound
 // turn.
 func ContextForInbound(ctx context.Context, configured policy.AuthorizationPolicy, inbound channel.Inbound, agentSpec agent.Spec, traceAllows bool) context.Context {
-	return policy.ContextWithAuthorization(ctx, policy.AuthorizationContext{
+	return policyauth.ContextWithAuthorization(ctx, policyauth.AuthorizationContext{
 		Policy:      configured,
 		Subjects:    SubjectsForInbound(inbound, agentSpec),
 		Trust:       inbound.Trust,

@@ -10,10 +10,10 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	coreusage "github.com/fluxplane/fluxplane-core/core/usage"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	coreevent "github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestDistributionDeclaresInteractiveSurfaces(t *testing.T) {

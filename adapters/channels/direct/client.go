@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/orchestration/harness"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 var _ clientapi.ChannelClient = (*Client)(nil)

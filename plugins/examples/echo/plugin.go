@@ -6,9 +6,9 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/command"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 const Name = "echo"

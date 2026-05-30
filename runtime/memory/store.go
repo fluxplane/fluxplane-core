@@ -12,8 +12,8 @@ import (
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	corememory "github.com/fluxplane/fluxplane-core/core/memory"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 type Store struct {

@@ -6,8 +6,8 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resourceaddr"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Name identifies a model-facing tool projection.

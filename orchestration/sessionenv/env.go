@@ -4,19 +4,20 @@ package sessionenv
 import (
 	"context"
 	"errors"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	contextruntime "github.com/fluxplane/fluxplane-core/runtime/context"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimeskill "github.com/fluxplane/fluxplane-core/runtime/skill"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // SessionSpec aliases the core session spec used by session orchestration.
@@ -276,7 +277,7 @@ func datasourceAccessContext(ctx context.Context, agent agent.Agent, active *Act
 }
 
 func datasourceAuthorized(ctx context.Context, name coredatasource.Name) bool {
-	auth, ok := policy.AuthorizationFromContext(ctx)
+	auth, ok := policyauth.AuthorizationFromContext(ctx)
 	if !ok || auth.Policy.IsZero() {
 		return true
 	}

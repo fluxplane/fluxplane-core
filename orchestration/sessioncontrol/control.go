@@ -16,11 +16,11 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/environment"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Resolver aliases the core resource resolver used by session configuration.

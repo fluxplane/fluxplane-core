@@ -11,8 +11,8 @@ import (
 	"github.com/fluxplane/fluxplane-core/adapters/resources/agentdir"
 	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Result is the set of resource bundles discovered from a local root.

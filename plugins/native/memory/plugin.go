@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"strings"
 	"time"
 
@@ -12,7 +13,6 @@ import (
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	corememory "github.com/fluxplane/fluxplane-core/core/memory"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/user"
@@ -22,6 +22,7 @@ import (
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	runtimememory "github.com/fluxplane/fluxplane-core/runtime/memory"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 const (
@@ -508,7 +509,7 @@ func authorizedAccessScope(ctx context.Context, requested coredata.Scope) (cored
 
 func authorizedScopes(ctx context.Context) []coredata.Scope {
 	var scopes []coredata.Scope
-	if auth, ok := policy.AuthorizationFromContext(ctx); ok {
+	if auth, ok := policyauth.AuthorizationFromContext(ctx); ok {
 		for _, subject := range auth.Subjects {
 			if subject.Kind == policy.SubjectUser {
 				if id := strings.TrimSpace(subject.ID); id != "" {

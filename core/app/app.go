@@ -6,9 +6,9 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/user"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Name identifies an application manifest.

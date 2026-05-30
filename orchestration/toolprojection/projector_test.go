@@ -2,17 +2,18 @@ package toolprojection
 
 import (
 	"context"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/command"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/core/resourceaddr"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestProjectIncludesReadOnlyOperationCommand(t *testing.T) {
@@ -335,7 +336,7 @@ func TestProjectAppliesAuthorizationPolicy(t *testing.T) {
 		AllowSideEffects:      true,
 		Caller:                policy.Caller{Kind: policy.CallerUser},
 		Trust:                 policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
-		Authorization: policy.AuthorizationContext{
+		Authorization: policyauth.AuthorizationContext{
 			Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
 				Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 				Resources: []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "allowed"}},

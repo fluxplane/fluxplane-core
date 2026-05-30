@@ -13,7 +13,6 @@ import (
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/appresources"
@@ -29,6 +28,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Config describes app composition input.

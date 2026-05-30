@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/user"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Request describes the evidence available when resolving an inbound actor.

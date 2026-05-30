@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/core/command"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	coreevent "github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Server exposes a ChannelClient through JSON endpoints and SSE event streams.

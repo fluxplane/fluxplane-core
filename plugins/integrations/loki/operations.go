@@ -14,10 +14,10 @@ import (
 	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
 	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 type TestInput struct {

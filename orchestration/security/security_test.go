@@ -2,11 +2,12 @@ package security
 
 import (
 	"context"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestContextForInboundCarriesSubjectsWithoutConfiguredPolicy(t *testing.T) {
@@ -16,7 +17,7 @@ func TestContextForInboundCarriesSubjectsWithoutConfiguredPolicy(t *testing.T) {
 		Kind:  channel.InboundMessage,
 	}, agent.Spec{Name: "assistant"}, false)
 
-	auth, ok := policy.AuthorizationFromContext(ctx)
+	auth, ok := policyauth.AuthorizationFromContext(ctx)
 	if !ok {
 		t.Fatalf("AuthorizationFromContext = false, want true")
 	}

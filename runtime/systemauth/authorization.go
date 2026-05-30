@@ -3,13 +3,15 @@ package systemauth
 import (
 	"context"
 	"fmt"
+	corepolicy "github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"net"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-policy"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
@@ -19,7 +21,7 @@ type Config struct {
 }
 
 // System wraps sys so context-bearing filesystem, network, process, and
-// environment accesses are checked against policy.AuthorizationContext when one
+// environment accesses are checked against policyauth.AuthorizationContext when one
 // is present on the call context. Calls without an authorization context keep
 // the existing embedding behavior and are allowed.
 func System(sys system.System, cfg Config) system.System {
@@ -340,7 +342,7 @@ func Authorize(ctx context.Context, cfg Config, resource policy.ResourceRef, act
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	auth, ok := policy.AuthorizationFromContext(ctx)
+	auth, ok := policyauth.AuthorizationFromContext(ctx)
 	if !ok || auth.Policy.IsZero() {
 		return nil
 	}
@@ -352,7 +354,7 @@ func Authorize(ctx context.Context, cfg Config, resource policy.ResourceRef, act
 		Action:   action,
 	}
 	evaluation := policy.EvaluateAuthorization(auth.Policy, req)
-	policy.EmitAuthorizationDecision(ctx, auth, req, evaluation)
+	corepolicy.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 	if evaluation.Decision == policy.DecisionAllow {
 		return nil
 	}

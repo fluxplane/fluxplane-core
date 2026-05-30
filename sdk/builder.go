@@ -15,9 +15,9 @@ import (
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // NewApp starts a pure app contribution builder.

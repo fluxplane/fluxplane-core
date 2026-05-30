@@ -10,7 +10,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/command"
 	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	corereview "github.com/fluxplane/fluxplane-core/core/review"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
@@ -19,6 +18,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 	runtimegoal "github.com/fluxplane/fluxplane-core/runtime/goal"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestExecuteCommandSetsDurableThreadGoal(t *testing.T) {

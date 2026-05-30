@@ -5,12 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	corepolicy "github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Environment is the system environment boundary shape used by EnvResolver.
@@ -303,7 +305,7 @@ func envRefs(names []string) []coresecret.Ref {
 }
 
 func authorize(ctx context.Context, ref coresecret.Ref) error {
-	auth, ok := policy.AuthorizationFromContext(ctx)
+	auth, ok := policyauth.AuthorizationFromContext(ctx)
 	if !ok || auth.Policy.IsZero() {
 		return nil
 	}
@@ -314,7 +316,7 @@ func authorize(ctx context.Context, ref coresecret.Ref) error {
 		Action:   policy.ActionSecretUse,
 	}
 	evaluation := policy.EvaluateAuthorization(auth.Policy, req)
-	policy.EmitAuthorizationDecision(ctx, auth, req, evaluation)
+	corepolicy.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 	if evaluation.Decision == policy.DecisionAllow {
 		return nil
 	}

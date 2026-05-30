@@ -11,7 +11,6 @@ import (
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	"github.com/fluxplane/fluxplane-core/core/testrun"
@@ -21,6 +20,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestRendererRendersFocusAndSurfaceEvents(t *testing.T) {

@@ -15,11 +15,11 @@ import (
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Load loads a local path into an ephemeral runnable distribution.

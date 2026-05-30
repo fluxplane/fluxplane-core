@@ -22,7 +22,6 @@ import (
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/agentfactory"
 	"github.com/fluxplane/fluxplane-core/orchestration/app"
@@ -64,6 +63,7 @@ import (
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 type LocalRuntimeConfig struct {

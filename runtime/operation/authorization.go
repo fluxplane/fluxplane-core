@@ -3,13 +3,15 @@ package operationruntime
 import (
 	"encoding/json"
 	"fmt"
+	corepolicy "github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
-// AuthorizationGate enforces the policy.AuthorizationContext carried on the
+// AuthorizationGate enforces the policyauth.AuthorizationContext carried on the
 // operation context. When no authorization policy is configured, it preserves
 // existing behavior.
 type AuthorizationGate struct{}
@@ -35,7 +37,7 @@ func (e AuthorizationApprovalRequired) Error() string {
 
 // Authorize implements AccessController.
 func (AuthorizationGate) Authorize(ctx operation.Context, op operation.Operation, input operation.Value) error {
-	auth, ok := policy.AuthorizationFromContext(ctx)
+	auth, ok := policyauth.AuthorizationFromContext(ctx)
 	if !ok || auth.Policy.IsZero() {
 		return nil
 	}
@@ -52,16 +54,16 @@ func (AuthorizationGate) Authorize(ctx operation.Context, op operation.Operation
 		}
 		evaluation := policy.EvaluateAuthorization(auth.Policy, req)
 		if evaluation.Decision == policy.DecisionAllow {
-			policy.EmitAuthorizationDecision(ctx, auth, req, evaluation)
+			corepolicy.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 			continue
 		}
 		if evaluation.Decision == policy.DecisionApprovalRequired {
-			policy.EmitAuthorizationDecision(ctx, auth, req, evaluation)
+			corepolicy.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 			return AuthorizationApprovalRequired{Subjects: auth.Subjects, Resource: target.Resource, Action: target.Action, Reason: evaluation.Reason}
 		}
 		if target.Resource.Kind == policy.ResourceDatasource && target.Resource.Name == "*" {
 			fallback := authorizeAnyDatasource(auth, target.Action)
-			policy.EmitAuthorizationDecision(ctx, auth, req, fallback)
+			corepolicy.EmitAuthorizationDecision(ctx, auth, req, fallback)
 			switch fallback.Decision {
 			case policy.DecisionAllow:
 				continue
@@ -69,13 +71,13 @@ func (AuthorizationGate) Authorize(ctx operation.Context, op operation.Operation
 				return AuthorizationApprovalRequired{Subjects: auth.Subjects, Resource: target.Resource, Action: target.Action, Reason: fallback.Reason}
 			}
 		}
-		policy.EmitAuthorizationDecision(ctx, auth, req, evaluation)
+		corepolicy.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 		return fmt.Errorf("%s: %s %s", evaluation.Reason, target.Action, resourceLabel(target.Resource))
 	}
 	return nil
 }
 
-func authorizeAnyDatasource(auth policy.AuthorizationContext, action policy.Action) policy.Evaluation {
+func authorizeAnyDatasource(auth policyauth.AuthorizationContext, action policy.Action) policy.Evaluation {
 	approval := policy.Evaluation{}
 	for _, grant := range auth.Policy.Grants {
 		for _, resource := range grant.Resources {

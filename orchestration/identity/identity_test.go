@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/user"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestDefaultResolverMarksCanonicalUserResolved(t *testing.T) {

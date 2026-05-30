@@ -10,8 +10,8 @@ import (
 	"github.com/fluxplane/fluxplane-core/adapters/llm/openrouter"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func main() {

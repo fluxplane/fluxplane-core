@@ -10,7 +10,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/command"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/orchestration/harness"
@@ -19,6 +18,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestClientSendsCommandThroughHarness(t *testing.T) {

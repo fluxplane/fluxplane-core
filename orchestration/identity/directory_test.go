@@ -6,8 +6,8 @@ import (
 
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/user"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestDirectoryResolverMapsSlackUserToCanonicalUserAndGroups(t *testing.T) {

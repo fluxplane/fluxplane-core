@@ -6,8 +6,8 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestScriptedModelStreamsAndReturnsStructuredResponse(t *testing.T) {

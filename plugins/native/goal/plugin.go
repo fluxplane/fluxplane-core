@@ -15,7 +15,6 @@ import (
 	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	corereview "github.com/fluxplane/fluxplane-core/core/review"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
@@ -27,6 +26,7 @@ import (
 	runtimegoal "github.com/fluxplane/fluxplane-core/runtime/goal"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 const (

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	corepolicy "github.com/fluxplane/fluxplane-core/core/policy"
 	"io"
 	"math"
 	"sort"
@@ -17,7 +18,6 @@ import (
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/skill"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	"github.com/fluxplane/fluxplane-core/core/testrun"
@@ -29,6 +29,7 @@ import (
 	runtimehuman "github.com/fluxplane/fluxplane-core/runtime/human"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	coreevent "github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
@@ -202,7 +203,7 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	case fpsystem.ProcessEvent:
 		r.flushContent()
 		renderProcessEvent(out, payload)
-	case policy.AuthorizationDecision:
+	case corepolicy.AuthorizationDecision:
 		r.flushContent()
 		renderAuthorizationDecision(out, payload)
 	case operationruntime.ApprovalRequested:
@@ -1145,7 +1146,7 @@ func renderProcessEvent(out io.Writer, event fpsystem.ProcessEvent) {
 	}
 }
 
-func renderAuthorizationDecision(out io.Writer, decision policy.AuthorizationDecision) {
+func renderAuthorizationDecision(out io.Writer, decision corepolicy.AuthorizationDecision) {
 	color := ansiYellow
 	switch decision.Decision {
 	case policy.DecisionDeny:

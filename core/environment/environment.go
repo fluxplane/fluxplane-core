@@ -3,7 +3,7 @@ package environment
 import (
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Name identifies an environment.

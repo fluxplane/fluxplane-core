@@ -16,7 +16,6 @@ import (
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
@@ -31,6 +30,7 @@ import (
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 

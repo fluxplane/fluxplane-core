@@ -8,12 +8,12 @@ import (
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 const (

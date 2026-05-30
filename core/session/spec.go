@@ -9,7 +9,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/command"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Name identifies a configured session profile.

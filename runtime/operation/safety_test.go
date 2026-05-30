@@ -3,12 +3,13 @@ package operationruntime
 import (
 	"context"
 	"errors"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"strings"
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestSafetyEnvelopeRejectsSideEffectingOperationWithoutSandbox(t *testing.T) {
@@ -607,7 +608,7 @@ func (denyApproval) Approve(operation.Context, ApprovalRequest) error {
 }
 
 func approvalPolicyContext(grants []policy.Grant, sink event.Sink) operation.Context {
-	base := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	base := policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Policy:   policy.AuthorizationPolicy{Grants: grants},
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},

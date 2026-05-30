@@ -18,12 +18,12 @@ import (
 	distserve "github.com/fluxplane/fluxplane-core/adapters/distribution/serve"
 	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/orchestration/agentfactory"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	orchestrationsession "github.com/fluxplane/fluxplane-core/orchestration/session"
+	"github.com/fluxplane/fluxplane-policy"
 
 	"github.com/fluxplane/fluxplane-core/orchestration/channelruntime"
 	"github.com/fluxplane/fluxplane-core/orchestration/daemon"

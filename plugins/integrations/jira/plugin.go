@@ -14,7 +14,6 @@ import (
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
@@ -23,6 +22,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 const (

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"strings"
 	"testing"
 
@@ -9,17 +10,17 @@ import (
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	corememory "github.com/fluxplane/fluxplane-core/core/memory"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestPluginOperationsUseHybridMemoryStore(t *testing.T) {
-	ctx := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "user-a"}},
 	})
 	ops, err := New().Operations(ctx, pluginhost.Context{
@@ -61,7 +62,7 @@ func TestPluginOperationsUseHybridMemoryStore(t *testing.T) {
 }
 
 func TestPluginOperationsRejectAccessScopeOutsideCaller(t *testing.T) {
-	ctx := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "user-a"}},
 	})
 	ops, err := New().Operations(ctx, pluginhost.Context{
@@ -85,7 +86,7 @@ func TestPluginOperationsRejectAccessScopeOutsideCaller(t *testing.T) {
 }
 
 func TestPluginOperationsAllowAccessScopeCoveredByCallerAndSession(t *testing.T) {
-	ctx := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "user-a"}},
 	})
 	ops, err := New().Operations(ctx, pluginhost.Context{
@@ -108,7 +109,7 @@ func TestPluginOperationsAllowAccessScopeCoveredByCallerAndSession(t *testing.T)
 }
 
 func TestPluginOperationsDefaultAccessScopeToUserSubject(t *testing.T) {
-	ctx := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "user-a"}},
 	})
 	ops, err := New().Operations(ctx, pluginhost.Context{
@@ -194,10 +195,10 @@ func TestPluginContributesDataSourceAndEventTypes(t *testing.T) {
 }
 
 func TestMemoryDatasourceSearchGetAndCorpusAreScoped(t *testing.T) {
-	ctxA := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctxA := policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "user-a"}},
 	})
-	ctxB := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctxB := policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "user-b"}},
 	})
 	events := eventstore.NewMemoryStore()

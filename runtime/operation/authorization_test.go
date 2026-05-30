@@ -3,11 +3,12 @@ package operationruntime
 import (
 	"context"
 	"fmt"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"strings"
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestStringFieldIgnoresNonStringValues(t *testing.T) {
@@ -35,7 +36,7 @@ func TestStringFieldIgnoresNonStringValues(t *testing.T) {
 }
 
 func TestAuthorizationGateDeniesMissingGrant(t *testing.T) {
-	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := operation.NewContext(policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
 			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "someoneelse@localhost"}},
 			Resources: []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "*"}},
@@ -52,7 +53,7 @@ func TestAuthorizationGateDeniesMissingGrant(t *testing.T) {
 }
 
 func TestAuthorizationGateAllowsOperationInvokeGrant(t *testing.T) {
-	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := operation.NewContext(policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
 			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 			Resources: []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "*"}},
@@ -68,7 +69,7 @@ func TestAuthorizationGateAllowsOperationInvokeGrant(t *testing.T) {
 }
 
 func TestAuthorizationGateReturnsApprovalRequired(t *testing.T) {
-	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := operation.NewContext(policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{
 			{
 				Subjects:         []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
@@ -94,7 +95,7 @@ func TestAuthorizationGateReturnsApprovalRequired(t *testing.T) {
 
 func TestSafetyEnvelopeRoutesAuthorizationApproval(t *testing.T) {
 	approval := recordingApproval{}
-	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := operation.NewContext(policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{
 			{
 				Subjects:         []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
@@ -128,7 +129,7 @@ func TestSafetyEnvelopeRoutesAuthorizationApproval(t *testing.T) {
 }
 
 func TestAuthorizationGateChecksDatasourceTarget(t *testing.T) {
-	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := operation.NewContext(policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
 			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectGroup, ID: "docs"}},
 			Resources: []policy.ResourceRef{{Kind: policy.ResourceDatasource, Name: "local_docs"}},
@@ -148,7 +149,7 @@ func TestAuthorizationGateChecksDatasourceTarget(t *testing.T) {
 }
 
 func TestAuthorizationGateAllowsDatasourceSearchWhenAnyDatasourceGranted(t *testing.T) {
-	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := operation.NewContext(policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
 			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectGroup, ID: "docs"}},
 			Resources: []policy.ResourceRef{{Kind: policy.ResourceDatasource, Name: "local_docs"}},
@@ -164,7 +165,7 @@ func TestAuthorizationGateAllowsDatasourceSearchWhenAnyDatasourceGranted(t *test
 }
 
 func TestAuthorizationGatePrefersTypedAccessDescriptor(t *testing.T) {
-	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := operation.NewContext(policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
 			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 			Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "docs/**"}},
@@ -193,7 +194,7 @@ func TestAuthorizationGatePrefersTypedAccessDescriptor(t *testing.T) {
 }
 
 func TestAuthorizationGateFailsClosedWhenTypedAccessFails(t *testing.T) {
-	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	ctx := operation.NewContext(policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
 			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 			Resources: []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "*"}},

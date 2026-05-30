@@ -9,11 +9,11 @@ import (
 	"time"
 
 	corechannel "github.com/fluxplane/fluxplane-core/core/channel"
-	corepolicy "github.com/fluxplane/fluxplane-core/core/policy"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	corepolicy "github.com/fluxplane/fluxplane-policy"
 )
 
 // Config wires the daemon trigger host.

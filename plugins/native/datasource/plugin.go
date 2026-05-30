@@ -16,13 +16,13 @@ import (
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 const (

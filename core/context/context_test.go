@@ -3,8 +3,8 @@ package context
 import (
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestProviderSpecValidateRequiresName(t *testing.T) {

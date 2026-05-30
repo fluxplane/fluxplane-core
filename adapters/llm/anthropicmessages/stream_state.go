@@ -9,11 +9,11 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	runtimeusage "github.com/fluxplane/fluxplane-core/runtime/usage"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 type streamState struct {

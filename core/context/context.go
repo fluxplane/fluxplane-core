@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // ProviderName identifies a context provider.

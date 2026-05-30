@@ -8,7 +8,6 @@ import (
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
@@ -20,6 +19,7 @@ import (
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // Manifest describes one plugin implementation.

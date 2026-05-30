@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // StaticPluginOptions configures plugin contribution materialization for

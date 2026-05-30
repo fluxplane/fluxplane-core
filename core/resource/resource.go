@@ -14,13 +14,13 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/language"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/reaction"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // ID identifies a resource contribution.

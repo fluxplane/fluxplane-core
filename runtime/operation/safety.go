@@ -3,10 +3,11 @@ package operationruntime
 import (
 	"errors"
 	"fmt"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 // SafetyGate rejects operation execution before the handler runs.
@@ -188,7 +189,7 @@ func (e SafetyEnvelope) approveAuthorization(ctx operation.Context, spec operati
 
 func (e SafetyEnvelope) approve(ctx operation.Context, spec operation.Spec, input operation.Value, risk CommandRisk) error {
 	req := ApprovalRequest{Spec: spec, Input: input, Risk: risk}
-	if auth, ok := policy.AuthorizationFromContext(ctx); ok {
+	if auth, ok := policyauth.AuthorizationFromContext(ctx); ok {
 		req.Subjects = auth.Subjects
 	}
 	return e.approveRequest(ctx, req)
@@ -253,7 +254,7 @@ func (e SafetyEnvelope) approveRequest(ctx operation.Context, req ApprovalReques
 }
 
 func (SafetyEnvelope) authorizeApproval(ctx operation.Context, req ApprovalRequest) error {
-	auth, ok := policy.AuthorizationFromContext(ctx)
+	auth, ok := policyauth.AuthorizationFromContext(ctx)
 	if !ok || auth.Policy.IsZero() {
 		return nil
 	}

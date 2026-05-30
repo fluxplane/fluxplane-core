@@ -2,18 +2,19 @@ package toolprojection
 
 import (
 	"fmt"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/core/resourceaddr"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 var invalidToolName = regexp.MustCompile(`[^A-Za-z0-9_]+`)
@@ -25,7 +26,7 @@ type Config struct {
 	ToolSets                session.ToolSetCatalog
 	Caller                  policy.Caller
 	Trust                   policy.Trust
-	Authorization           policy.AuthorizationContext
+	Authorization           policyauth.AuthorizationContext
 	AllowSideEffects        bool
 	AllowApprovalRequired   bool
 	MaxRisk                 operation.RiskLevel

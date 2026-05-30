@@ -12,7 +12,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/command"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	coreresource "github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	appcomposition "github.com/fluxplane/fluxplane-core/orchestration/app"
@@ -20,6 +19,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/plugins/examples/echo"
 	llmfluxplane "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 func TestServiceSubmitInputThroughTopLevelAPI(t *testing.T) {

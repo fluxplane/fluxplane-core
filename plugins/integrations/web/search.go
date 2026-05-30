@@ -7,9 +7,9 @@ import (
 	"sync"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-policy"
 )
 
 const (

@@ -2,6 +2,7 @@ package systemauth
 
 import (
 	"context"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-policy"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
@@ -285,7 +286,7 @@ func TestProcessManagerAllowsManagedLifecycle(t *testing.T) {
 }
 
 func authorizedTestContext(grants []policy.Grant) context.Context {
-	return policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+	return policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: grants},
 		Subjects: []policy.SubjectRef{
 			{Kind: policy.SubjectUser, ID: "timo@localhost"},

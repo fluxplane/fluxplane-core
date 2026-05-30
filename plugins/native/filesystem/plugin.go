@@ -13,12 +13,12 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	"github.com/fluxplane/fluxplane-policy"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
