@@ -403,7 +403,7 @@ func validateServeLaunch(loaded orchestrationdistribution.Loaded, initPath strin
 func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel, bundles []resource.ContributionBundle, opts Options, dispatcher *slack.Dispatcher, sys fpsystem.System) ([]channelruntime.Channel, error) {
 	var out []channelruntime.Channel
 	auth := NewPluginAuthContext(PluginAuthOptions{
-		System:             sys,
+		Environment:        pluginAuthEnvironment(sys),
 		AuthPath:           opts.AuthPath,
 		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 	})

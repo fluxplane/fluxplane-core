@@ -94,7 +94,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	}
 	dispatcher := slack.NewDispatcher()
 	auth := NewPluginAuthContext(PluginAuthOptions{
-		System:             hostSystem,
+		Environment:        pluginAuthEnvironment(hostSystem),
 		AuthPath:           opts.AuthPath,
 		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 	})

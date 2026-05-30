@@ -12,7 +12,7 @@ import (
 // PluginAuthOptions configures native plugin credential resolution for local
 // launch surfaces.
 type PluginAuthOptions struct {
-	System             fpsystem.System
+	Environment        fpsystem.Environment
 	AuthPath           string
 	AllowPluginAuthEnv bool
 }
@@ -32,7 +32,7 @@ func NewPluginAuthContext(opts PluginAuthOptions) PluginAuthContext {
 	store := runtimesecret.NewFileStore(pluginAuthPath(opts.AuthPath))
 	return PluginAuthContext{
 		Store:    store,
-		Resolver: pluginAuthResolver(opts.System, store, opts.AllowPluginAuthEnv),
+		Resolver: pluginAuthResolver(opts.Environment, store, opts.AllowPluginAuthEnv),
 	}
 }
 
@@ -43,15 +43,22 @@ func pluginAuthPath(path string) string {
 	return path
 }
 
-func pluginAuthResolver(sys fpsystem.System, store runtimesecret.FileStore, allowProcessEnvironment bool) runtimesecret.Resolver {
+func pluginAuthResolver(env fpsystem.Environment, store runtimesecret.FileStore, allowProcessEnvironment bool) runtimesecret.Resolver {
 	resolver := runtimesecret.ChainResolver{store}
-	if sys != nil && sys.Environment() != nil {
-		resolver = append(resolver, runtimesecret.EnvResolver{Environment: sys.Environment()})
+	if env != nil {
+		resolver = append(resolver, runtimesecret.EnvResolver{Environment: env})
 	}
 	if allowProcessEnvironment {
 		resolver = append(resolver, runtimesecret.EnvResolver{Environment: processAuthEnvironment{}})
 	}
 	return resolver
+}
+
+func pluginAuthEnvironment(sys fpsystem.System) fpsystem.Environment {
+	if sys == nil {
+		return nil
+	}
+	return sys.Environment()
 }
 
 type processAuthEnvironment struct{}

@@ -362,7 +362,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		eventStore = taskexecutor.NewNotifyingEventStore(eventStore, taskScheduler)
 	}
 	auth := NewPluginAuthContext(PluginAuthOptions{
-		System:             runtimeSystem,
+		Environment:        pluginAuthEnvironment(runtimeSystem),
 		AuthPath:           opts.AuthPath,
 		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 	})
@@ -638,7 +638,7 @@ func slackConfigForInstance(bundles []resource.ContributionBundle, instance stri
 
 func availablePlugins(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, authPath string, allowPluginAuthEnv bool) []pluginhost.Plugin {
 	auth := NewPluginAuthContext(PluginAuthOptions{
-		System:             hostSystem,
+		Environment:        pluginAuthEnvironment(hostSystem),
 		AuthPath:           authPath,
 		AllowPluginAuthEnv: allowPluginAuthEnv,
 	})
