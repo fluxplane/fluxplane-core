@@ -1,4 +1,4 @@
-package systemauth
+package system
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 )
 
 // Config controls policy enforcement at system boundaries.
-type Config struct {
+type AuthConfig struct {
 	TraceAllows bool
 }
 
@@ -21,7 +21,7 @@ type Config struct {
 // environment accesses are checked against policyauth.AuthorizationContext when one
 // is present on the call context. Calls without an authorization context keep
 // the existing embedding behavior and are allowed.
-func System(sys fpsystem.System, cfg Config) fpsystem.System {
+func WithAuthorization(sys fpsystem.System, cfg AuthConfig) fpsystem.System {
 	if sys == nil {
 		return nil
 	}
@@ -30,7 +30,7 @@ func System(sys fpsystem.System, cfg Config) fpsystem.System {
 
 // Workspace wraps workspace so context-bearing workspace accesses are checked
 // against policyauth.AuthorizationContext when one is present on the call context.
-func Workspace(workspace runtimeworkspace.Workspace, cfg Config) runtimeworkspace.Workspace {
+func WorkspaceWithAuthorization(workspace runtimeworkspace.Workspace, cfg AuthConfig) runtimeworkspace.Workspace {
 	if workspace == nil {
 		return nil
 	}
@@ -39,28 +39,28 @@ func Workspace(workspace runtimeworkspace.Workspace, cfg Config) runtimeworkspac
 
 type authorizedSystem struct {
 	base fpsystem.System
-	cfg  Config
+	cfg  AuthConfig
 }
 
 func (s authorizedSystem) FileSystem() fpsystem.FileSystem { return s.base.FileSystem() }
 
 func (s authorizedSystem) Network() fpsystem.Network {
 	if network := s.base.Network(); network != nil {
-		return Network(network, s.cfg)
+		return NetworkWithAuthorization(network, s.cfg)
 	}
 	return nil
 }
 
 func (s authorizedSystem) Process() fpsystem.ProcessManager {
 	if process := s.base.Process(); process != nil {
-		return Process(process, s.cfg)
+		return ProcessWithAuthorization(process, s.cfg)
 	}
 	return nil
 }
 
 func (s authorizedSystem) Environment() fpsystem.Environment {
 	if env := s.base.Environment(); env != nil {
-		return Environment(env, s.cfg)
+		return EnvironmentWithAuthorization(env, s.cfg)
 	}
 	return nil
 }
@@ -69,7 +69,7 @@ func (s authorizedSystem) Clock() fpsystem.Clock { return s.base.Clock() }
 
 type authorizedWorkspace struct {
 	base runtimeworkspace.Workspace
-	cfg  Config
+	cfg  AuthConfig
 }
 
 func (w authorizedWorkspace) Root() string                   { return w.base.Root() }
@@ -118,7 +118,7 @@ func (w authorizedWorkspace) CreateScratch(ctx context.Context, prefix string) (
 
 type authorizedScratchDir struct {
 	base runtimeworkspace.ScratchDir
-	cfg  Config
+	cfg  AuthConfig
 }
 
 func (s authorizedScratchDir) Root() string { return s.base.Root() }
@@ -139,11 +139,11 @@ func (s authorizedScratchDir) RemoveAll(ctx context.Context) error {
 
 type authorizedNetwork struct {
 	base fpsystem.Network
-	cfg  Config
+	cfg  AuthConfig
 }
 
 // Network wraps a network boundary with policy authorization.
-func Network(base fpsystem.Network, cfg Config) fpsystem.Network {
+func NetworkWithAuthorization(base fpsystem.Network, cfg AuthConfig) fpsystem.Network {
 	if base == nil {
 		return nil
 	}
@@ -163,7 +163,7 @@ func (n authorizedNetwork) Resolver() fpsystem.Resolver {
 
 type authorizedResolver struct {
 	base fpsystem.Resolver
-	cfg  Config
+	cfg  AuthConfig
 }
 
 func (r authorizedResolver) fetch(ctx context.Context, name string) error {
@@ -214,11 +214,11 @@ func (r authorizedResolver) LookupTXT(ctx context.Context, name string) ([]strin
 
 type authorizedProcessManager struct {
 	base fpsystem.ProcessManager
-	cfg  Config
+	cfg  AuthConfig
 }
 
 // Process wraps a process manager with policy authorization.
-func Process(base fpsystem.ProcessManager, cfg Config) fpsystem.ProcessManager {
+func ProcessWithAuthorization(base fpsystem.ProcessManager, cfg AuthConfig) fpsystem.ProcessManager {
 	if base == nil {
 		return nil
 	}
@@ -267,7 +267,7 @@ func (p authorizedProcessManager) List(ctx context.Context) ([]fpsystem.ProcessI
 
 type authorizedProcessGroup struct {
 	base fpsystem.ProcessGroup
-	cfg  Config
+	cfg  AuthConfig
 	name string
 }
 
@@ -352,7 +352,7 @@ func (g authorizedProcessGroup) Restart(ctx context.Context) (fpsystem.ProcessHa
 
 type authorizedProcessHandle struct {
 	base fpsystem.ProcessHandle
-	cfg  Config
+	cfg  AuthConfig
 }
 
 func (h authorizedProcessHandle) ID() string { return h.base.ID() }
@@ -474,13 +474,13 @@ func (p authorizedProcessManager) exec(ctx context.Context, command string) erro
 
 // NetworkURLAuthorizer returns a URL authorization callback for network-backed
 // adapters.
-func NetworkURLAuthorizer(cfg Config) func(context.Context, string) error {
+func NetworkURLAuthorizer(cfg AuthConfig) func(context.Context, string) error {
 	return func(ctx context.Context, target string) error {
 		return authorizeNetworkURL(ctx, cfg, target)
 	}
 }
 
-func authorizeNetworkURL(ctx context.Context, cfg Config, target string) error {
+func authorizeNetworkURL(ctx context.Context, cfg AuthConfig, target string) error {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		target = "*"
@@ -490,11 +490,11 @@ func authorizeNetworkURL(ctx context.Context, cfg Config, target string) error {
 
 type authorizedEnvironment struct {
 	base fpsystem.Environment
-	cfg  Config
+	cfg  AuthConfig
 }
 
 // Environment wraps an environment boundary with policy authorization.
-func Environment(base fpsystem.Environment, cfg Config) fpsystem.Environment {
+func EnvironmentWithAuthorization(base fpsystem.Environment, cfg AuthConfig) fpsystem.Environment {
 	if base == nil {
 		return nil
 	}
@@ -521,7 +521,7 @@ func (e authorizedEnvironment) ResolveExecutable(ctx context.Context, name strin
 }
 
 // Authorize evaluates one policy authorization request from ctx.
-func Authorize(ctx context.Context, cfg Config, resource policy.ResourceRef, action policy.Action) error {
+func Authorize(ctx context.Context, cfg AuthConfig, resource policy.ResourceRef, action policy.Action) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}

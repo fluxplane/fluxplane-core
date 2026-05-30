@@ -60,7 +60,6 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
-	"github.com/fluxplane/fluxplane-core/runtime/systemauth"
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-event"
@@ -290,11 +289,11 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
-	runtimeSystem := systemauth.System(hostSystem, systemauth.Config{TraceAllows: opts.Debug})
-	runtimeWorkspace := systemauth.Workspace(hostSystem.Workspace(), systemauth.Config{TraceAllows: opts.Debug})
+	runtimeSystem := system.WithAuthorization(hostSystem, system.AuthConfig{TraceAllows: opts.Debug})
+	runtimeWorkspace := system.WorkspaceWithAuthorization(hostSystem.Workspace(), system.AuthConfig{TraceAllows: opts.Debug})
 	clarifier := terminal.Prompter{In: os.Stdin, Out: os.Stderr}
 	browserPlugin := browserplugin.New(browserplugin.Config{
-		AuthorizeURL: systemauth.NetworkURLAuthorizer(systemauth.Config{TraceAllows: opts.Debug}),
+		AuthorizeURL: system.NetworkURLAuthorizer(system.AuthConfig{TraceAllows: opts.Debug}),
 		FileSystem:   runtimeWorkspace.System().FileSystem(),
 		Headless:     browserHeadless(),
 	})

@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
-	"github.com/fluxplane/fluxplane-core/runtime/systemauth"
 	"github.com/fluxplane/fluxplane-policy"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
@@ -48,7 +47,7 @@ func TestPollinationsGenerateUsesImageEndpoint(t *testing.T) {
 
 func TestProviderInfoUsesAuthorizationContextForEnvSecrets(t *testing.T) {
 	base := newProviderTestSystem(t, map[string]string{"OPENAI_API_KEY": "secret"}, systemkit.HTTPResponse{})
-	sys := systemauth.System(base, systemauth.Config{})
+	sys := system.WithAuthorization(base, system.AuthConfig{})
 	ctx := policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
 			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},

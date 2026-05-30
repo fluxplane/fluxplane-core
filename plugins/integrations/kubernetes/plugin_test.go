@@ -22,7 +22,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
@@ -33,7 +33,7 @@ func TestPortForwardUsesManagedKubectlProcess(t *testing.T) {
 		handle:  fakeProcessHandle{info: fpsystem.ProcessInfo{ID: "proc-1", Label: "custom-label", Command: "kubectl", Running: true}},
 		started: true,
 	}
-	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), process: process})
+	plugin := New(fakeSystem{MemorySystem: system.NewMemory(), process: process})
 	plugin.cfg = NormalizeConfig(Config{Namespaces: []string{"default"}, Context: "dev", Kubeconfig: "/tmp/kubeconfig"})
 
 	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
@@ -69,7 +69,7 @@ func TestPortForwardUsesManagedKubectlProcess(t *testing.T) {
 }
 func TestPortForwardInfersSingleServicePort(t *testing.T) {
 	process := &recordingProcess{}
-	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), process: process})
+	plugin := New(fakeSystem{MemorySystem: system.NewMemory(), process: process})
 	plugin.client = fake.NewSimpleClientset(&corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
 		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8080}}},
@@ -95,7 +95,7 @@ func TestPortForwardInfersSingleServicePort(t *testing.T) {
 
 func TestPortForwardFailsWhenServicePortInferenceIsAmbiguous(t *testing.T) {
 	process := &recordingProcess{}
-	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), process: process})
+	plugin := New(fakeSystem{MemorySystem: system.NewMemory(), process: process})
 	plugin.client = fake.NewSimpleClientset(&corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
 		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 80}, {Port: 443}}},
@@ -120,7 +120,7 @@ func TestPortForwardFailsWhenServicePortInferenceIsAmbiguous(t *testing.T) {
 
 func TestPortForwardRejectsNamespaceOutsidePolicy(t *testing.T) {
 	process := &recordingProcess{}
-	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), process: process})
+	plugin := New(fakeSystem{MemorySystem: system.NewMemory(), process: process})
 	plugin.cfg = NormalizeConfig(Config{Namespaces: []string{"default"}})
 
 	result := portForwardOperation(plugin).Run(operation.NewContext(context.Background(), nil), portForwardInput{
@@ -173,7 +173,7 @@ func TestKubernetesRestHTTPClientUsesSystemNetworkBoundary(t *testing.T) {
 	network := &recordingNetwork{
 		response: systemkit.HTTPResponse{StatusCode: http.StatusOK, Body: []byte("ok")},
 	}
-	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), network: network})
+	plugin := New(fakeSystem{MemorySystem: system.NewMemory(), network: network})
 	client, err := plugin.httpClientForRestConfig(&rest.Config{
 		Host:        "https://cluster.example",
 		BearerToken: "token",
@@ -702,7 +702,7 @@ func hasAssertion(assertions []coreevidence.Assertion, kind, target string) bool
 }
 
 type fakeSystem struct {
-	*systemtest.MemorySystem
+	*system.MemorySystem
 	process fpsystem.ProcessManager
 	network fpsystem.Network
 }

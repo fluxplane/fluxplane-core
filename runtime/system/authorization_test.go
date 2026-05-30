@@ -1,4 +1,4 @@
-package systemauth
+package system
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-policy"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
@@ -22,11 +21,11 @@ func TestSystemEnforcesWorkspaceActions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("docs"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	host, err := system.NewHost(system.Config{Root: root})
+	host, err := NewHost(Config{Root: root})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	workspace := Workspace(host.Workspace(), Config{})
+	workspace := WorkspaceWithAuthorization(host.Workspace(), AuthConfig{})
 	ctx := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
@@ -47,13 +46,13 @@ func TestWorkspaceAllowsSemanticOperations(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("line1\nline2\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	host, err := system.NewHost(system.Config{
+	host, err := NewHost(Config{
 		Root: root,
-		Workspace: system.WorkspaceConfig{
-			Roots: []system.WorkspaceRootConfig{{
+		Workspace: WorkspaceConfig{
+			Roots: []WorkspaceRootConfig{{
 				Name:   "scratch",
 				Path:   filepath.Join(root, "scratch-root"),
-				Access: system.WorkspaceAccessReadWrite,
+				Access: WorkspaceAccessReadWrite,
 				Create: true,
 			}},
 			ScratchRoot: "scratch",
@@ -62,9 +61,9 @@ func TestWorkspaceAllowsSemanticOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	sys := System(host, Config{})
+	sys := WithAuthorization(host, AuthConfig{})
 	_ = sys
-	workspace := Workspace(host.Workspace(), Config{})
+	workspace := WorkspaceWithAuthorization(host.Workspace(), AuthConfig{})
 	ctx := authorizedTestContext([]policy.Grant{
 		{
 			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
@@ -116,13 +115,13 @@ func TestSystemAuthorizesCanonicalWorkspacePath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "secret.txt"), []byte("secret"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	host, err := system.NewHost(system.Config{Root: root})
+	host, err := NewHost(Config{Root: root})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	sys := System(host, Config{})
+	sys := WithAuthorization(host, AuthConfig{})
 	_ = sys
-	workspace := Workspace(host.Workspace(), Config{})
+	workspace := WorkspaceWithAuthorization(host.Workspace(), AuthConfig{})
 	ctx := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "docs/**"}},
@@ -143,12 +142,12 @@ func TestSystemEnforcesEnvironmentSecretRead(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("FLUXPLANE_SYSTEM_TEST_SECRET=secret\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	host, err := system.NewHost(system.Config{Root: root, Workspace: system.WorkspaceConfig{EnvFiles: []string{".env"}}})
+	host, err := NewHost(Config{Root: root, Workspace: WorkspaceConfig{EnvFiles: []string{".env"}}})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	sys := System(host, Config{})
-	workspace := Workspace(host.Workspace(), Config{})
+	sys := WithAuthorization(host, AuthConfig{})
+	workspace := WorkspaceWithAuthorization(host.Workspace(), AuthConfig{})
 	_ = workspace
 	denied := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
@@ -177,11 +176,11 @@ func TestSystemEnforcesNetworkActions(t *testing.T) {
 		_, _ = w.Write([]byte("ok"))
 	}))
 	defer server.Close()
-	host, err := system.NewHost(system.Config{Root: t.TempDir(), AllowPrivateNetwork: true})
+	host, err := NewHost(Config{Root: t.TempDir(), AllowPrivateNetwork: true})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	sys := System(host, Config{})
+	sys := WithAuthorization(host, AuthConfig{})
 	ctx := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourceNetwork, Name: "*"}},
@@ -204,7 +203,7 @@ func TestSystemEnforcesNetworkActions(t *testing.T) {
 }
 
 func TestNetworkURLAuthorizerEnforcesNetworkAccess(t *testing.T) {
-	authorize := NetworkURLAuthorizer(Config{})
+	authorize := NetworkURLAuthorizer(AuthConfig{})
 	denied := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
@@ -225,11 +224,11 @@ func TestNetworkURLAuthorizerEnforcesNetworkAccess(t *testing.T) {
 }
 
 func TestSystemEnforcesProcessExec(t *testing.T) {
-	host, err := system.NewHost(system.Config{Root: t.TempDir()})
+	host, err := NewHost(Config{Root: t.TempDir()})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	sys := System(host, Config{})
+	sys := WithAuthorization(host, AuthConfig{})
 	ctx := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
@@ -242,11 +241,11 @@ func TestSystemEnforcesProcessExec(t *testing.T) {
 }
 
 func TestProcessManagerAllowsManagedLifecycle(t *testing.T) {
-	host, err := system.NewHost(system.Config{Root: t.TempDir()})
+	host, err := NewHost(Config{Root: t.TempDir()})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	sys := System(host, Config{})
+	sys := WithAuthorization(host, AuthConfig{})
 	ctx := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourceProcess, Name: "*"}},
@@ -304,11 +303,11 @@ func TestProcessManagerAllowsManagedLifecycle(t *testing.T) {
 }
 
 func TestProcessHandleRequiresAdminForControl(t *testing.T) {
-	host, err := system.NewHost(system.Config{Root: t.TempDir()})
+	host, err := NewHost(Config{Root: t.TempDir()})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	manager := System(host, Config{}).Process()
+	manager := WithAuthorization(host, AuthConfig{}).Process()
 	execOnly := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourceProcess, Name: "*"}},

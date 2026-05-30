@@ -1,5 +1,5 @@
-// Package systemtest provides small runtime/system implementations for tests.
-package systemtest
+// Memory-backed runtime system implementations for tests and lightweight fixtures.
+package system
 
 import (
 	"bytes"
@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/core/pathpattern"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
@@ -292,7 +291,7 @@ func (w *MemoryWorkspace) ReadDir(_ context.Context, raw string) ([]fs.DirEntry,
 	return out, w.resolved(raw, rel), nil
 }
 
-func (w *MemoryWorkspace) Walk(_ context.Context, raw string, opts system.WalkOptions) ([]system.WalkEntry, runtimeworkspace.ResolvedPath, bool, error) {
+func (w *MemoryWorkspace) Walk(_ context.Context, raw string, opts WalkOptions) ([]WalkEntry, runtimeworkspace.ResolvedPath, bool, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	root, err := w.clean(raw)
@@ -304,7 +303,7 @@ func (w *MemoryWorkspace) Walk(_ context.Context, raw string, opts system.WalkOp
 		return nil, runtimeworkspace.ResolvedPath{}, false, fs.ErrNotExist
 	}
 	if !rootNode.dir {
-		return []system.WalkEntry{w.walkEntry(root, rootNode, 0)}, w.resolved(raw, root), false, nil
+		return []WalkEntry{w.walkEntry(root, rootNode, 0)}, w.resolved(raw, root), false, nil
 	}
 	depth := opts.Depth
 	if depth <= 0 {
@@ -343,7 +342,7 @@ func (w *MemoryWorkspace) Walk(_ context.Context, raw string, opts system.WalkOp
 		paths = paths[:limit]
 		truncated = true
 	}
-	out := make([]system.WalkEntry, 0, len(paths))
+	out := make([]WalkEntry, 0, len(paths))
 	for _, p := range paths {
 		rest := strings.TrimPrefix(p, prefix)
 		out = append(out, w.walkEntry(p, w.nodes[p], strings.Count(rest, "/")+1))
@@ -363,7 +362,7 @@ func skippedByDir(rel string, skipDirs map[string]bool) bool {
 	return false
 }
 
-func (w *MemoryWorkspace) Glob(ctx context.Context, pattern string, opts system.GlobOptions) ([]runtimeworkspace.ResolvedPath, bool, error) {
+func (w *MemoryWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptions) ([]runtimeworkspace.ResolvedPath, bool, error) {
 	compiled, err := pathpattern.Compile(pattern)
 	if err != nil {
 		return nil, false, err
@@ -376,7 +375,7 @@ func (w *MemoryWorkspace) Glob(ctx context.Context, pattern string, opts system.
 	if scanLimit <= 0 || scanLimit > 100000 {
 		scanLimit = 10000
 	}
-	entries, root, truncated, err := w.Walk(ctx, opts.Base, system.WalkOptions{Depth: 50, ShowHidden: true, MaxEntries: scanLimit})
+	entries, root, truncated, err := w.Walk(ctx, opts.Base, WalkOptions{Depth: 50, ShowHidden: true, MaxEntries: scanLimit})
 	if err != nil {
 		return nil, false, err
 	}
@@ -444,12 +443,12 @@ func (w *MemoryWorkspace) resolved(input, rel string) runtimeworkspace.ResolvedP
 	return runtimeworkspace.ResolvedPath{Input: input, Abs: abs, Rel: rel}
 }
 
-func (w *MemoryWorkspace) walkEntry(rel string, n *node, level int) system.WalkEntry {
+func (w *MemoryWorkspace) walkEntry(rel string, n *node, level int) WalkEntry {
 	kind := "file"
 	if n.dir {
 		kind = "dir"
 	}
-	return system.WalkEntry{Path: w.resolved(rel, rel), Name: base(rel), Kind: kind, Size: int64(len(n.data)), Mode: n.mode.String(), ModTime: n.modTime, Level: level}
+	return WalkEntry{Path: w.resolved(rel, rel), Name: base(rel), Kind: kind, Size: int64(len(n.data)), Mode: n.mode.String(), ModTime: n.modTime, Level: level}
 }
 
 func (w *MemoryWorkspace) tick() time.Time {

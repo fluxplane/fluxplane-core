@@ -9,7 +9,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
-	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -81,7 +80,7 @@ func TestMarkdownOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 func runMarkdownBackends(t *testing.T, fn func(*testing.T, fpsystem.System, runtimeworkspace.Workspace)) {
 	t.Helper()
 	t.Run("memory", func(t *testing.T) {
-		mem := systemtest.NewMemory()
+		mem := system.NewMemory()
 		fn(t, mem, mem.Workspace())
 	})
 	t.Run("host", func(t *testing.T) {

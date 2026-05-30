@@ -19,7 +19,6 @@ import (
 	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
-	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 	"github.com/fluxplane/fluxplane-event"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
@@ -166,7 +165,7 @@ func TestAutoDiscoveryPortForwardsKubernetesServiceCandidate(t *testing.T) {
 	}
 	process := &recordingLokiProcess{}
 	network := &lokiPortForwardNetwork{}
-	plugin := New(lokiFakeSystem{MemorySystem: systemtest.NewMemory(), process: process, network: network})
+	plugin := New(lokiFakeSystem{MemorySystem: system.NewMemory(), process: process, network: network})
 	plugin.discovery = registry
 	plugin.cfg = Config{AutoDiscover: AutoDiscoverConfig{Enabled: true, Kubernetes: true}}
 
@@ -326,7 +325,7 @@ func (p staticDiscoveryProvider) Discover(context.Context, corediscovery.Request
 }
 
 type lokiFakeSystem struct {
-	*systemtest.MemorySystem
+	*system.MemorySystem
 	process fpsystem.ProcessManager
 	network fpsystem.Network
 }

@@ -109,7 +109,6 @@
     {"kind": "architecture_runtime_host_io", "package": "runtime/operation", "reason": "operation runtime validates file-backed operation inputs and schemas"},
     {"kind": "architecture_runtime_host_io", "package": "runtime/secret", "reason": "secret runtime implements file-backed secret storage"},
     {"kind": "architecture_runtime_host_io", "package": "runtime/sqlclient", "reason": "SQL runtime owns database client integration"},
-    {"kind": "architecture_runtime_host_io", "package": "runtime/system", "reason": "system runtime is the central host side-effect boundary"},
-    {"kind": "architecture_runtime_host_io", "package": "runtime/systemtest", "reason": "test fixture package implements in-memory runtime system helpers"}
+    {"kind": "architecture_runtime_host_io", "package": "runtime/system", "reason": "system runtime is the central host side-effect and in-memory fixture boundary"}
   ]
 }

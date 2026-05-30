@@ -9,7 +9,7 @@ import (
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 func TestPluginContributesObserverAndAssertionDeriver(t *testing.T) {
@@ -26,7 +26,7 @@ func TestPluginContributesObserverAndAssertionDeriver(t *testing.T) {
 }
 
 func TestDockerObserverReportsUnavailableWithoutProcessManager(t *testing.T) {
-	observers, err := New(systemtest.NewMemory()).EnvironmentObservers(context.Background(), pluginhost.Context{})
+	observers, err := New(system.NewMemory()).EnvironmentObservers(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("EnvironmentObservers: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestDockerAssertionsFollowBinaryAndDaemonAvailability(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			sys := fakeSystem{MemorySystem: systemtest.NewMemory(), process: tc.process}
+			sys := fakeSystem{MemorySystem: system.NewMemory(), process: tc.process}
 			observers, err := New(sys).EnvironmentObservers(context.Background(), pluginhost.Context{})
 			if err != nil {
 				t.Fatalf("EnvironmentObservers: %v", err)
@@ -116,7 +116,7 @@ func hasAssertion(assertions []coreevidence.Assertion, kind string) bool {
 }
 
 type fakeSystem struct {
-	*systemtest.MemorySystem
+	*system.MemorySystem
 	process fpsystem.ProcessManager
 }
 

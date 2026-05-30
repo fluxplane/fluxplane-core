@@ -16,7 +16,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
-	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -890,7 +889,7 @@ func TestGoPluginContributesPostEditFmtCheck(t *testing.T) {
 }
 
 func TestGoToolchainObserverAndAssertionDeriver(t *testing.T) {
-	plugin := pluginForSystem(systemtest.NewMemory())
+	plugin := pluginForSystem(system.NewMemory())
 	observers, err := plugin.EnvironmentObservers(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("EnvironmentObservers: %v", err)
@@ -1349,7 +1348,7 @@ func ChildUse() {
 func runGoPluginBackends(t *testing.T, fn func(*testing.T, fpsystem.System, runtimeworkspace.Workspace)) {
 	t.Helper()
 	t.Run("memory", func(t *testing.T) {
-		mem := systemtest.NewMemory()
+		mem := system.NewMemory()
 		fn(t, mem, mem.Workspace())
 	})
 	t.Run("host", func(t *testing.T) {
