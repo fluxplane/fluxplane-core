@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/policy"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 )
@@ -315,7 +314,7 @@ func authorize(ctx context.Context, ref coresecret.Ref) error {
 		Action:   policy.ActionSecretUse,
 	}
 	evaluation := policy.EvaluateAuthorization(auth.Policy, req)
-	coreevent.EmitAuthorizationDecision(ctx, auth, req, evaluation)
+	policy.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 	if evaluation.Decision == policy.DecisionAllow {
 		return nil
 	}

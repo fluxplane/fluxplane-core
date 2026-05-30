@@ -14,7 +14,6 @@ import (
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
 	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
@@ -22,6 +21,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 func TestLokiQueryAddsNamespaceAndBoundsLimit(t *testing.T) {

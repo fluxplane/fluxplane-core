@@ -16,7 +16,6 @@ import (
 	coreactivation "github.com/fluxplane/fluxplane-core/core/activation"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
-	coreevent "github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/core/skill"
@@ -201,7 +200,7 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	case system.ProcessEvent:
 		r.flushContent()
 		renderProcessEvent(out, payload)
-	case coreevent.AuthorizationDecision:
+	case policy.AuthorizationDecision:
 		r.flushContent()
 		renderAuthorizationDecision(out, payload)
 	case operationruntime.ApprovalRequested:
@@ -1144,7 +1143,7 @@ func renderProcessEvent(out io.Writer, event system.ProcessEvent) {
 	}
 }
 
-func renderAuthorizationDecision(out io.Writer, decision coreevent.AuthorizationDecision) {
+func renderAuthorizationDecision(out io.Writer, decision policy.AuthorizationDecision) {
 	color := ansiYellow
 	switch decision.Decision {
 	case policy.DecisionDeny:

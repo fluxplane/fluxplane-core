@@ -22,7 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-core/core/pathpattern"
 	"github.com/fluxplane/fluxplane-core/runtime/httptransport"
 )

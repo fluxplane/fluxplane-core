@@ -6,10 +6,10 @@ import (
 
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
-	"github.com/fluxplane/fluxplane-core/core/event"
 	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
 	corememory "github.com/fluxplane/fluxplane-core/core/memory"
 	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/skill"
@@ -22,6 +22,7 @@ import (
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 // Config describes event payload types visible to an app.
@@ -80,7 +81,7 @@ func defaultEventTypes() []event.Event {
 		operation.OperationFailed{},
 		operation.OperationRejected{},
 		operation.OperationCanceled{},
-		event.AuthorizationDecision{},
+		policy.AuthorizationDecision{},
 		operationruntime.ApprovalRequested{},
 		operationruntime.ApprovalGranted{},
 		operationruntime.ApprovalDenied{},

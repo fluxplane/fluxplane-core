@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/event"
 	"github.com/fluxplane/fluxplane-core/core/policy"
 )
 
@@ -525,7 +524,7 @@ func authorizeSystem(ctx context.Context, cfg AuthorizationConfig, resource poli
 		Action:   action,
 	}
 	evaluation := policy.EvaluateAuthorization(auth.Policy, req)
-	event.EmitAuthorizationDecision(ctx, auth, req, evaluation)
+	policy.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 	if evaluation.Decision == policy.DecisionAllow {
 		return nil
 	}
