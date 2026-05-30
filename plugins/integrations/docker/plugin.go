@@ -61,7 +61,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 
 // EnvironmentObservers returns executable Docker observers.
 func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
-	return []runtimeevidence.Observer{dockerObserver{process: p.process}}, nil
+	return []runtimeevidence.Observer{dockerObserver(p)}, nil
 }
 
 // AssertionDerivers returns executable Docker assertion derivation.

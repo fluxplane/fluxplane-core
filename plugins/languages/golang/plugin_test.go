@@ -16,7 +16,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
-	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
@@ -495,7 +494,7 @@ func (Service) Stop() error {
 }
 
 func TestGoToolchainInfoEnvVersionWithHostWorkspace(t *testing.T) {
-	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: t.TempDir()})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
@@ -554,7 +553,7 @@ func TestGoProxyParsing(t *testing.T) {
 }
 
 func TestGoToolchainDocListWithHostWorkspace(t *testing.T) {
-	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: t.TempDir()})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
@@ -647,7 +646,7 @@ func TestService(t *testing.T) {}
 }
 
 func TestGoToolchainCheckFmtInstallWithHostWorkspace(t *testing.T) {
-	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: t.TempDir()})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
@@ -837,7 +836,7 @@ func main() {}
 	buildBinary, err := sys.Process().Run(context.Background(), fpsystem.ProcessRequest{
 		Command: "go",
 		Args:    []string{"build", "-buildvcs=false", "-o", "toolbin", "./cmd/tool"},
-		Env:     system.DefaultProcessEnv(),
+		Env:     runtimeworkspace.DefaultProcessEnv(),
 	})
 	if err != nil {
 		t.Fatalf("build test binary: %v output=%#v", err, buildBinary)
@@ -889,7 +888,7 @@ func TestGoPluginContributesPostEditFmtCheck(t *testing.T) {
 }
 
 func TestGoToolchainObserverAndAssertionDeriver(t *testing.T) {
-	plugin := pluginForSystem(system.NewMemory())
+	plugin := pluginForSystem(runtimeworkspace.NewMemory())
 	observers, err := plugin.EnvironmentObservers(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("EnvironmentObservers: %v", err)
@@ -926,7 +925,7 @@ func TestGoToolchainObserverAndAssertionDeriver(t *testing.T) {
 }
 
 func TestGoImplementationsUsesTypeCheckedHostBackend(t *testing.T) {
-	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: t.TempDir()})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
@@ -982,7 +981,7 @@ var _ api.Accessor = (*Provider)(nil)
 }
 
 func TestGoImplementationsTypeCheckedZeroMatchesDoNotFallbackToAST(t *testing.T) {
-	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: t.TempDir()})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
@@ -1348,11 +1347,11 @@ func ChildUse() {
 func runGoPluginBackends(t *testing.T, fn func(*testing.T, fpsystem.System, runtimeworkspace.Workspace)) {
 	t.Helper()
 	t.Run("memory", func(t *testing.T) {
-		mem := system.NewMemory()
+		mem := runtimeworkspace.NewMemory()
 		fn(t, mem, mem.Workspace())
 	})
 	t.Run("host", func(t *testing.T) {
-		sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+		sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: t.TempDir()})
 		if err != nil {
 			t.Fatalf("NewHost: %v", err)
 		}

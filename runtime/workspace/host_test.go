@@ -774,18 +774,6 @@ func TestHostSettersEnvironmentResolverAndNetworkGuards(t *testing.T) {
 	}
 }
 
-type testSystemBoundary struct {
-	workspace Workspace
-	network   fpsystem.Network
-	process   fpsystem.ProcessManager
-	env       fpsystem.Environment
-}
-
-func (s testSystemBoundary) Workspace() Workspace              { return s.workspace }
-func (s testSystemBoundary) Network() fpsystem.Network         { return s.network }
-func (s testSystemBoundary) Process() fpsystem.ProcessManager  { return s.process }
-func (s testSystemBoundary) Environment() fpsystem.Environment { return s.env }
-
 func resolvedContains(paths []ResolvedPath, rel string) bool {
 	for _, path := range paths {
 		if path.Rel == rel {

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-policy"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
@@ -237,7 +236,7 @@ func decodeJSONBody(t *testing.T, raw []byte) map[string]any {
 
 func newProviderTestSystem(t *testing.T, env map[string]string, response systemkit.HTTPResponse) providerTestSystem {
 	t.Helper()
-	host, err := system.NewHost(system.Config{Root: t.TempDir()})
+	host, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: t.TempDir()})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}

@@ -99,7 +99,7 @@ type Config struct {
 
 // NewWithConfig returns the task plugin with explicit runtime boundaries.
 func NewWithConfig(cfg Config) Plugin {
-	return Plugin{Runner: cfg.Runner, Workspace: cfg.Workspace}
+	return Plugin(cfg)
 }
 
 // Manifest returns plugin metadata.

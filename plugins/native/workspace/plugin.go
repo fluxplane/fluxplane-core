@@ -46,7 +46,7 @@ func (p Plugin) ContextProviders(context.Context, pluginhost.Context) ([]corecon
 	if p.workspace == nil {
 		return nil, nil
 	}
-	return []corecontext.Provider{summaryProvider{workspace: p.workspace}}, nil
+	return []corecontext.Provider{summaryProvider(p)}, nil
 }
 
 func summaryContextSpec() corecontext.ProviderSpec {

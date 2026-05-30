@@ -10,12 +10,11 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/languages/golang"
 	"github.com/fluxplane/fluxplane-core/plugins/native/project"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
-	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 func TestContextProvidersAggregateCodingSummaries(t *testing.T) {
-	sys := system.NewMemory()
+	sys := runtimeworkspace.NewMemory()
 	writeCodingFile(t, sys.Workspace(), "AGENTS.md", "# Agent Notes\n")
 	writeCodingFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
 	writeCodingFile(t, sys.Workspace(), "main.go", "package main\n\nfunc main() {}\n")

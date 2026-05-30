@@ -165,9 +165,8 @@ func cloneEnvMap(input map[string]string) map[string]string {
 	return out
 }
 
-func trimStrings(input []string) []string                      { return fpsystem.TrimStrings(input) }
-func cloneStringMap(input map[string]string) map[string]string { return fpsystem.CloneStringMap(input) }
-func parseEnvFile(path string) (map[string]string, error)      { return fpsystem.ParseEnvFile(path) }
+func trimStrings(input []string) []string                 { return fpsystem.TrimStrings(input) }
+func parseEnvFile(path string) (map[string]string, error) { return fpsystem.ParseEnvFile(path) }
 func resolveExecutableInPath(name, pathValue string) (string, bool, error) {
 	return fpsystem.ResolveExecutableInPath(name, pathValue)
 }

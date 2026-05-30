@@ -20,7 +20,6 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimeproject "github.com/fluxplane/fluxplane-core/runtime/project"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
-	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
@@ -596,7 +595,7 @@ func (p Plugin) taskRun(manager *runtimeproject.Manager) operationruntime.TypedR
 			Command:   selection.Executable,
 			Args:      selection.Args,
 			Workdir:   selection.Workdir,
-			Env:       system.DefaultProcessEnv(),
+			Env:       runtimeworkspace.DefaultProcessEnv(),
 			Timeout:   taskTimeout(req.TimeoutMS),
 			MaxStdout: int64(taskOutputBytes(req.MaxOutputBytes)),
 			MaxStderr: int64(taskOutputBytes(req.MaxOutputBytes)),

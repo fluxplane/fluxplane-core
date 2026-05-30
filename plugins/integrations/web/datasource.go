@@ -38,7 +38,7 @@ type datasourceConfig struct {
 
 // DatasourceProviders returns web-backed datasource providers.
 func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]coredatasource.Provider, error) {
-	return []coredatasource.Provider{webSearchProvider{network: p.network, environment: p.environment}}, nil
+	return []coredatasource.Provider{webSearchProvider(p)}, nil
 }
 
 type webSearchProvider struct {

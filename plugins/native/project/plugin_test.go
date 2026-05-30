@@ -13,7 +13,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
-	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	coreevent "github.com/fluxplane/fluxplane-event"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -95,7 +94,7 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 }
 
 func TestProjectObserverAndAssertionDeriver(t *testing.T) {
-	sys := system.NewMemory()
+	sys := runtimeworkspace.NewMemory()
 	workspace := sys.Workspace()
 	writeProjectFile(t, workspace, "go.mod", "module example.com/app\n\ngo 1.26\n")
 	writeProjectFile(t, workspace, "README.md", "# App\n")
@@ -139,7 +138,7 @@ func TestProjectObserverAndAssertionDeriver(t *testing.T) {
 }
 
 func TestProjectPluginResolvesWorkspaceDeclarationsLazily(t *testing.T) {
-	sys := system.NewMemory()
+	sys := runtimeworkspace.NewMemory()
 	workspace := sys.Workspace()
 	plugin := New(projectConfig(sys, workspace))
 	writeProjectFile(t, workspace, "go.mod", "module example.com/app\n\ngo 1.26\n")
@@ -187,7 +186,7 @@ func hasEnvironmentHint(hints []coreevidence.Assertion, kind, target string) boo
 }
 
 func TestProjectTaskRunDryRunAndExecution(t *testing.T) {
-	base := system.NewMemory()
+	base := runtimeworkspace.NewMemory()
 	workspace := base.Workspace()
 	proc := &fakeTaskProcess{result: fpsystem.ProcessResult{
 		Command:  "task",
@@ -231,11 +230,11 @@ func TestProjectTaskRunDryRunAndExecution(t *testing.T) {
 func runProjectPluginBackends(t *testing.T, fn func(*testing.T, fpsystem.System, runtimeworkspace.Workspace)) {
 	t.Helper()
 	t.Run("memory", func(t *testing.T) {
-		mem := system.NewMemory()
+		mem := runtimeworkspace.NewMemory()
 		fn(t, mem, mem.Workspace())
 	})
 	t.Run("host", func(t *testing.T) {
-		sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+		sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: t.TempDir()})
 		if err != nil {
 			t.Fatalf("NewHost: %v", err)
 		}
@@ -305,7 +304,7 @@ func findProjectOp(t *testing.T, sys fpsystem.System, workspace runtimeworkspace
 }
 
 type taskRunSystem struct {
-	*system.MemorySystem
+	*runtimeworkspace.MemorySystem
 	process *fakeTaskProcess
 }
 

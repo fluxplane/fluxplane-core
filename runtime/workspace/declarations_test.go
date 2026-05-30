@@ -7,12 +7,11 @@ import (
 	"testing"
 
 	coreworkspace "github.com/fluxplane/fluxplane-core/core/workspace"
-	. "github.com/fluxplane/fluxplane-core/runtime/workspace"
-	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 )
 
 func TestParseDeclarationsObject(t *testing.T) {
-	decls, err := ParseDeclarations([]byte(`{
+	decls, err := runtimeworkspace.ParseDeclarations([]byte(`{
 		"workspaces": [{
 			"id": "workspace:configured:parent",
 			"members": ["workspace:configured:child"]
@@ -27,7 +26,7 @@ func TestParseDeclarationsObject(t *testing.T) {
 }
 
 func TestParseDeclarationsArray(t *testing.T) {
-	decls, err := ParseDeclarations([]byte(`[{"id":"workspace:configured:child","roots":[{"path":"/workspace"}]}]`))
+	decls, err := runtimeworkspace.ParseDeclarations([]byte(`[{"id":"workspace:configured:child","roots":[{"path":"/workspace"}]}]`))
 	if err != nil {
 		t.Fatalf("ParseDeclarations: %v", err)
 	}
@@ -37,7 +36,7 @@ func TestParseDeclarationsArray(t *testing.T) {
 }
 
 func TestParseDeclarationsEmpty(t *testing.T) {
-	decls, err := ParseDeclarations([]byte(`  `))
+	decls, err := runtimeworkspace.ParseDeclarations([]byte(`  `))
 	if err != nil {
 		t.Fatalf("ParseDeclarations: %v", err)
 	}
@@ -47,7 +46,7 @@ func TestParseDeclarationsEmpty(t *testing.T) {
 }
 
 func TestDeclarationsUseWorkspaceShape(t *testing.T) {
-	decls, err := ParseDeclarations([]byte(`[{"id":"workspace:configured:child","roots":[{"path":"/workspace","project_ids":["project:."]}]}]`))
+	decls, err := runtimeworkspace.ParseDeclarations([]byte(`[{"id":"workspace:configured:child","roots":[{"path":"/workspace","project_ids":["project:."]}]}]`))
 	if err != nil {
 		t.Fatalf("ParseDeclarations: %v", err)
 	}
@@ -62,7 +61,7 @@ func TestDeclarationsUseWorkspaceShape(t *testing.T) {
 func TestDeclarationLoaderDefaultsDeclarationsDurable(t *testing.T) {
 	sys := newTestSystem(t)
 	writeWorkspaceDeclaration(t, sys, `[{"id":"workspace:configured:child","roots":[{"path":"`+sys.Workspace().Root()+`"}]}]`)
-	decls, warnings, err := NewDeclarationLoader().Load(context.Background(), sys.Workspace(), 0)
+	decls, warnings, err := runtimeworkspace.NewDeclarationLoader().Load(context.Background(), sys.Workspace(), 0)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -77,28 +76,28 @@ func TestDeclarationLoaderDefaultsDeclarationsDurable(t *testing.T) {
 func TestDeclarationLoaderWarnsOnInvalidDeclaration(t *testing.T) {
 	sys := newTestSystem(t)
 	writeWorkspaceDeclaration(t, sys, `[{"id":"workspace:bad","roots":[{}]}]`)
-	decls, warnings, err := NewDeclarationLoader().Load(context.Background(), sys.Workspace(), 0)
+	decls, warnings, err := runtimeworkspace.NewDeclarationLoader().Load(context.Background(), sys.Workspace(), 0)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if len(decls) != 0 {
 		t.Fatalf("decls = %#v, want none", decls)
 	}
-	if len(warnings) != 1 || warnings[0].Code != WarningInvalidDeclaration {
+	if len(warnings) != 1 || warnings[0].Code != runtimeworkspace.WarningInvalidDeclaration {
 		t.Fatalf("warnings = %#v, want invalid declaration", warnings)
 	}
 }
 
-func newTestSystem(t *testing.T) *system.Host {
+func newTestSystem(t *testing.T) *runtimeworkspace.Host {
 	t.Helper()
-	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: t.TempDir()})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
 	return sys
 }
 
-func writeWorkspaceDeclaration(t *testing.T, sys *system.Host, data string) {
+func writeWorkspaceDeclaration(t *testing.T, sys *runtimeworkspace.Host, data string) {
 	t.Helper()
 	dir := filepath.Join(sys.Workspace().Root(), ".agents")
 	if err := os.MkdirAll(dir, 0755); err != nil {

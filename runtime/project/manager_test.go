@@ -8,7 +8,6 @@ import (
 
 	coreproject "github.com/fluxplane/fluxplane-core/core/project"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
-	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
@@ -249,7 +248,7 @@ Setext
 func runManagerBackends(t *testing.T, fn func(*testing.T, runtimeworkspace.Workspace)) {
 	t.Helper()
 	t.Run("host", func(t *testing.T) {
-		sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+		sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: t.TempDir()})
 		if err != nil {
 			t.Fatalf("NewHost: %v", err)
 		}
@@ -360,7 +359,7 @@ func TestManagerHostWorkspaceDoesNotDependOnCWD(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/host\n"), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	sys, err := system.NewHost(system.Config{Root: root})
+	sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: root})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
@@ -383,9 +382,9 @@ func TestManagerDetectsProjectsInNamedHostRoots(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(api, "go.mod"), []byte("module example.com/api\n\ngo 1.26\n"), 0644); err != nil {
 		t.Fatalf("write api go.mod: %v", err)
 	}
-	sys, err := system.NewHost(system.Config{
+	sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{
 		Root: primary,
-		Workspace: system.WorkspaceConfig{Roots: []system.WorkspaceRootConfig{{
+		Workspace: runtimeworkspace.WorkspaceConfig{Roots: []runtimeworkspace.WorkspaceRootConfig{{
 			Name: "api",
 			Path: api,
 		}}},
@@ -413,9 +412,9 @@ func TestManagerSkipsDuplicatePhysicalHostRoots(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(primary, "go.mod"), []byte("module example.com/root\n\ngo 1.26\n"), 0644); err != nil {
 		t.Fatalf("write primary go.mod: %v", err)
 	}
-	sys, err := system.NewHost(system.Config{
+	sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{
 		Root: primary,
-		Workspace: system.WorkspaceConfig{Roots: []system.WorkspaceRootConfig{{
+		Workspace: runtimeworkspace.WorkspaceConfig{Roots: []runtimeworkspace.WorkspaceRootConfig{{
 			Name: "same",
 			Path: primary,
 		}}},
@@ -452,10 +451,10 @@ func TestManagerSkipsScratchHostRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(scratch, "generated", "go.mod"), []byte("module example.com/generated\n\ngo 1.26\n"), 0644); err != nil {
 		t.Fatalf("write scratch go.mod: %v", err)
 	}
-	sys, err := system.NewHost(system.Config{
+	sys, err := runtimeworkspace.NewHost(runtimeworkspace.Config{
 		Root: primary,
-		Workspace: system.WorkspaceConfig{
-			Roots: []system.WorkspaceRootConfig{{
+		Workspace: runtimeworkspace.WorkspaceConfig{
+			Roots: []runtimeworkspace.WorkspaceRootConfig{{
 				Name: "tmp",
 				Path: scratch,
 			}},

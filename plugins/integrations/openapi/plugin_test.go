@@ -13,7 +13,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
@@ -346,7 +345,7 @@ type testSystem struct {
 
 func newTestSystem(t *testing.T, dir string, network fpsystem.Network, env map[string]string) fpsystem.System {
 	t.Helper()
-	host, err := system.NewHost(system.Config{Root: dir, AllowPrivateNetwork: true})
+	host, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: dir, AllowPrivateNetwork: true})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
