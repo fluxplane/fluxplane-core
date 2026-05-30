@@ -2,24 +2,25 @@ package web
 
 import (
 	"context"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"sync"
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
 
 type testSystem struct {
-	workspace system.Workspace
+	workspace runtimeworkspace.Workspace
 	network   *testNetwork
-	env       system.Environment
+	env       fpsystem.Environment
 }
 
-func (s testSystem) Workspace() system.Workspace     { return s.workspace }
-func (s testSystem) Network() system.Network         { return s.network }
-func (s testSystem) Process() system.ProcessManager  { return nil }
-func (s testSystem) Environment() system.Environment { return s.env }
+func (s testSystem) Workspace() runtimeworkspace.Workspace { return s.workspace }
+func (s testSystem) Network() fpsystem.Network             { return s.network }
+func (s testSystem) Process() fpsystem.ProcessManager      { return nil }
+func (s testSystem) Environment() fpsystem.Environment     { return s.env }
 
 type testNetwork struct {
 	fpsystemtest.UnsupportedNetwork

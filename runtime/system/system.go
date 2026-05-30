@@ -25,10 +25,10 @@ import (
 
 // System groups the runtime boundaries that can touch the outside world.
 type System interface {
-	Workspace() Workspace
-	Network() Network
-	Process() ProcessManager
-	Environment() Environment
+	Workspace() runtimeworkspace.Workspace
+	Network() fpsystem.Network
+	Process() fpsystem.ProcessManager
+	Environment() fpsystem.Environment
 }
 
 // Config configures the host-backed system implementation.
@@ -105,23 +105,16 @@ func NewHost(cfg Config) (*Host, error) {
 }
 
 // Workspace returns the workspace boundary.
-func (h *Host) Workspace() Workspace { return h.workspace }
+func (h *Host) Workspace() runtimeworkspace.Workspace { return h.workspace }
 
 // Network returns the network boundary.
-func (h *Host) Network() Network { return h.network }
+func (h *Host) Network() fpsystem.Network { return h.network }
 
 // Process returns the process boundary.
-func (h *Host) Process() ProcessManager { return h.process }
+func (h *Host) Process() fpsystem.ProcessManager { return h.process }
 
 // Environment returns the host environment boundary.
-func (h *Host) Environment() Environment { return h.env }
-
-// Environment is a read-only boundary for host environment variables.
-type Environment = fpsystem.Environment
-
-// ExecutableResolver optionally resolves executables using an environment's
-// process PATH without exposing the PATH value itself.
-type ExecutableResolver = fpsystem.ExecutableResolver
+func (h *Host) Environment() fpsystem.Environment { return h.env }
 
 // HostEnvironment implements Environment using an explicitly allowed env set.
 type HostEnvironment struct {
@@ -143,15 +136,6 @@ func (e HostEnvironment) ResolveExecutable(ctx context.Context, name string) (st
 	return resolveExecutableInPath(name, pathValue)
 }
 
-// Workspace is a root-confined filesystem boundary.
-type Workspace = runtimeworkspace.Workspace
-
-// ResolvedPath is a canonical workspace path.
-type ResolvedPath = runtimeworkspace.ResolvedPath
-
-// WorkspaceRoot describes one runtime filesystem root exposed by a Workspace.
-type WorkspaceRoot = runtimeworkspace.Root
-
 // WalkOptions bounds workspace tree traversal.
 type WalkOptions struct {
 	Depth         int
@@ -164,13 +148,13 @@ type WalkOptions struct {
 
 // WalkEntry describes one workspace path discovered by Walk.
 type WalkEntry struct {
-	Path    ResolvedPath `json:"path"`
-	Name    string       `json:"name"`
-	Kind    string       `json:"kind"`
-	Size    int64        `json:"size,omitempty"`
-	Mode    string       `json:"mode,omitempty"`
-	ModTime time.Time    `json:"mod_time,omitempty"`
-	Level   int          `json:"level,omitempty"`
+	Path    runtimeworkspace.ResolvedPath `json:"path"`
+	Name    string                        `json:"name"`
+	Kind    string                        `json:"kind"`
+	Size    int64                         `json:"size,omitempty"`
+	Mode    string                        `json:"mode,omitempty"`
+	ModTime time.Time                     `json:"mod_time,omitempty"`
+	Level   int                           `json:"level,omitempty"`
 }
 
 // GlobOptions bounds workspace glob matching.
@@ -180,9 +164,6 @@ type GlobOptions struct {
 	MaxScanned int
 	SkipDirs   []string
 }
-
-// ScratchDir is an isolated temporary directory owned by the runtime system.
-type ScratchDir = runtimeworkspace.ScratchDir
 
 // HostWorkspace implements Workspace using the local filesystem.
 type HostWorkspace struct {
@@ -218,18 +199,18 @@ func (w *HostWorkspace) System() fpsystem.System {
 // Roots returns the runtime filesystem roots exposed by the workspace. The
 // first root is the primary root; additional roots are addressable by their Rel
 // prefixes such as "@docs".
-func (w *HostWorkspace) Roots() []WorkspaceRoot {
+func (w *HostWorkspace) Roots() []runtimeworkspace.Root {
 	if w == nil {
 		return nil
 	}
-	out := make([]WorkspaceRoot, 0, len(w.roots))
+	out := make([]runtimeworkspace.Root, 0, len(w.roots))
 	for i, root := range w.roots {
 		name := root.name
 		rel := root.rel
 		if i == 0 && rel == "" {
 			rel = "."
 		}
-		out = append(out, WorkspaceRoot{
+		out = append(out, runtimeworkspace.Root{
 			Name:    name,
 			Path:    root.root,
 			Rel:     rel,
@@ -418,17 +399,17 @@ func pathEscapes(rel string) bool {
 }
 
 // ResolveExisting resolves an existing path and rejects symlink escapes.
-func (w *HostWorkspace) ResolveExisting(_ context.Context, raw string) (ResolvedPath, error) {
+func (w *HostWorkspace) ResolveExisting(_ context.Context, raw string) (runtimeworkspace.ResolvedPath, error) {
 	root, candidate, err := w.candidate(raw)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	if !root.read {
-		return ResolvedPath{}, fmt.Errorf("workspace root is not readable")
+		return runtimeworkspace.ResolvedPath{}, fmt.Errorf("workspace root is not readable")
 	}
 	real, err := filepath.EvalSymlinks(candidate)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	return w.resolved(raw, root, real)
 }
@@ -436,38 +417,38 @@ func (w *HostWorkspace) ResolveExisting(_ context.Context, raw string) (Resolved
 // ResolveProcessWorkdir resolves a process working directory. Host processes
 // can write through normal OS permissions, so read-only workspace roots are not
 // valid process workdirs.
-func (w *HostWorkspace) ResolveProcessWorkdir(raw string) (ResolvedPath, error) {
+func (w *HostWorkspace) ResolveProcessWorkdir(raw string) (runtimeworkspace.ResolvedPath, error) {
 	root, candidate, err := w.candidate(raw)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	if !root.write {
-		return ResolvedPath{}, fmt.Errorf("workspace root is not writable")
+		return runtimeworkspace.ResolvedPath{}, fmt.Errorf("workspace root is not writable")
 	}
 	real, err := filepath.EvalSymlinks(candidate)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	return w.resolved(raw, root, real)
 }
 
 // ResolveCreate resolves a path whose final component may not exist.
-func (w *HostWorkspace) ResolveCreate(_ context.Context, raw string) (ResolvedPath, error) {
+func (w *HostWorkspace) ResolveCreate(_ context.Context, raw string) (runtimeworkspace.ResolvedPath, error) {
 	root, candidate, err := w.candidate(raw)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	if !root.write {
-		return ResolvedPath{}, fmt.Errorf("workspace root is not writable")
+		return runtimeworkspace.ResolvedPath{}, fmt.Errorf("workspace root is not writable")
 	}
 	if _, err := os.Lstat(candidate); err == nil {
 		real, err := filepath.EvalSymlinks(candidate)
 		if err != nil {
-			return ResolvedPath{}, err
+			return runtimeworkspace.ResolvedPath{}, err
 		}
 		return w.resolved(raw, root, real)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 
 	missing := []string{filepath.Base(candidate)}
@@ -476,18 +457,18 @@ func (w *HostWorkspace) ResolveCreate(_ context.Context, raw string) (ResolvedPa
 		if _, err := os.Lstat(parent); err == nil {
 			realParent, err := filepath.EvalSymlinks(parent)
 			if err != nil {
-				return ResolvedPath{}, err
+				return runtimeworkspace.ResolvedPath{}, err
 			}
 			for i := len(missing) - 1; i >= 0; i-- {
 				realParent = filepath.Join(realParent, missing[i])
 			}
 			return w.resolved(raw, root, realParent)
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return ResolvedPath{}, err
+			return runtimeworkspace.ResolvedPath{}, err
 		}
 		next := filepath.Dir(parent)
 		if next == parent {
-			return ResolvedPath{}, fmt.Errorf("path escapes workspace root")
+			return runtimeworkspace.ResolvedPath{}, fmt.Errorf("path escapes workspace root")
 		}
 		missing = append(missing, filepath.Base(parent))
 		parent = next
@@ -495,84 +476,84 @@ func (w *HostWorkspace) ResolveCreate(_ context.Context, raw string) (ResolvedPa
 }
 
 // ReadFile reads a bounded file from the workspace.
-func (w *HostWorkspace) ReadFile(ctx context.Context, raw string, maxBytes int64) ([]byte, bool, ResolvedPath, error) {
+func (w *HostWorkspace) ReadFile(ctx context.Context, raw string, maxBytes int64) ([]byte, bool, runtimeworkspace.ResolvedPath, error) {
 	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
-		return nil, false, ResolvedPath{}, err
+		return nil, false, runtimeworkspace.ResolvedPath{}, err
 	}
 	fsys, name := w.filesystemName(resolved)
 	info, err := fsys.Stat(name)
 	if err != nil {
-		return nil, false, ResolvedPath{}, err
+		return nil, false, runtimeworkspace.ResolvedPath{}, err
 	}
 	if info.IsDir() {
-		return nil, false, ResolvedPath{}, fmt.Errorf("path is a directory")
+		return nil, false, runtimeworkspace.ResolvedPath{}, fmt.Errorf("path is a directory")
 	}
 	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, name, maxBytes)
 	if err != nil {
-		return nil, false, ResolvedPath{}, err
+		return nil, false, runtimeworkspace.ResolvedPath{}, err
 	}
 	return data, truncated, resolved, nil
 }
 
 // ReadFileLines reads a bounded 1-indexed line window from a workspace file.
-func (w *HostWorkspace) ReadFileLines(ctx context.Context, raw string, start, end int, maxBytes int64) ([]byte, int, bool, ResolvedPath, error) {
+func (w *HostWorkspace) ReadFileLines(ctx context.Context, raw string, start, end int, maxBytes int64) ([]byte, int, bool, runtimeworkspace.ResolvedPath, error) {
 	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
-		return nil, 0, false, ResolvedPath{}, err
+		return nil, 0, false, runtimeworkspace.ResolvedPath{}, err
 	}
 	fsys, name := w.filesystemName(resolved)
 	info, err := fsys.Stat(name)
 	if err != nil {
-		return nil, 0, false, ResolvedPath{}, err
+		return nil, 0, false, runtimeworkspace.ResolvedPath{}, err
 	}
 	if info.IsDir() {
-		return nil, 0, false, ResolvedPath{}, fmt.Errorf("path is a directory")
+		return nil, 0, false, runtimeworkspace.ResolvedPath{}, fmt.Errorf("path is a directory")
 	}
 	data, firstLine, truncated, err := fpsystem.ReadFileLines(ctx, fsys, name, start, end, maxBytes)
 	return data, firstLine, truncated, resolved, err
 }
 
 // WriteFile writes a file, optionally refusing to overwrite existing paths.
-func (w *HostWorkspace) WriteFile(ctx context.Context, raw string, data []byte, mode os.FileMode, overwrite bool) (ResolvedPath, error) {
+func (w *HostWorkspace) WriteFile(ctx context.Context, raw string, data []byte, mode os.FileMode, overwrite bool) (runtimeworkspace.ResolvedPath, error) {
 	resolved, err := w.ResolveCreate(ctx, raw)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	return resolved, w.files.WriteFile(ctx, workspaceName(resolved), data, fpsystem.WriteFileOptions{Perm: mode, Overwrite: overwrite})
 }
 
 // CopyFile copies one complete file within the workspace.
-func (w *HostWorkspace) CopyFile(ctx context.Context, rawSrc, rawDst string, overwrite bool) (ResolvedPath, ResolvedPath, int64, error) {
+func (w *HostWorkspace) CopyFile(ctx context.Context, rawSrc, rawDst string, overwrite bool) (runtimeworkspace.ResolvedPath, runtimeworkspace.ResolvedPath, int64, error) {
 	src, err := w.ResolveExisting(ctx, rawSrc)
 	if err != nil {
-		return ResolvedPath{}, ResolvedPath{}, 0, err
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
 	}
 	info, err := w.files.Stat(workspaceName(src))
 	if err != nil {
-		return ResolvedPath{}, ResolvedPath{}, 0, err
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
 	}
 	if info.IsDir() {
-		return ResolvedPath{}, ResolvedPath{}, 0, fmt.Errorf("source path is a directory")
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, fmt.Errorf("source path is a directory")
 	}
 	dst, err := w.ResolveCreate(ctx, rawDst)
 	if err != nil {
-		return ResolvedPath{}, ResolvedPath{}, 0, err
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
 	}
 	if src.Abs == dst.Abs {
 		return src, dst, info.Size(), nil
 	}
 	if !overwrite {
 		if _, err := os.Lstat(dst.Abs); err == nil {
-			return ResolvedPath{}, ResolvedPath{}, 0, fmt.Errorf("path already exists")
+			return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, fmt.Errorf("path already exists")
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(dst.Abs), 0755); err != nil {
-		return ResolvedPath{}, ResolvedPath{}, 0, err
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
 	}
 	in, err := os.Open(src.Abs)
 	if err != nil {
-		return ResolvedPath{}, ResolvedPath{}, 0, err
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
 	}
 	defer func() { _ = in.Close() }()
 	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
@@ -581,75 +562,75 @@ func (w *HostWorkspace) CopyFile(ctx context.Context, rawSrc, rawDst string, ove
 	}
 	out, err := os.OpenFile(dst.Abs, flags, info.Mode().Perm())
 	if err != nil {
-		return ResolvedPath{}, ResolvedPath{}, 0, err
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
 	}
 	written, copyErr := io.Copy(out, in)
 	closeErr := out.Close()
 	if copyErr != nil {
-		return ResolvedPath{}, ResolvedPath{}, written, copyErr
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, written, copyErr
 	}
 	if closeErr != nil {
-		return ResolvedPath{}, ResolvedPath{}, written, closeErr
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, written, closeErr
 	}
 	return src, dst, written, nil
 }
 
 // MoveFile moves one complete file within the workspace.
-func (w *HostWorkspace) MoveFile(ctx context.Context, rawSrc, rawDst string, overwrite bool) (ResolvedPath, ResolvedPath, int64, error) {
+func (w *HostWorkspace) MoveFile(ctx context.Context, rawSrc, rawDst string, overwrite bool) (runtimeworkspace.ResolvedPath, runtimeworkspace.ResolvedPath, int64, error) {
 	srcRoot, _, err := w.candidate(rawSrc)
 	if err != nil {
-		return ResolvedPath{}, ResolvedPath{}, 0, err
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
 	}
 	if !srcRoot.write {
-		return ResolvedPath{}, ResolvedPath{}, 0, fmt.Errorf("workspace root is not writable")
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, fmt.Errorf("workspace root is not writable")
 	}
 	src, dst, written, err := w.CopyFile(ctx, rawSrc, rawDst, overwrite)
 	if err != nil {
-		return ResolvedPath{}, ResolvedPath{}, 0, err
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
 	}
 	if src.Abs == dst.Abs {
 		return src, dst, written, nil
 	}
 	if err := os.Remove(src.Abs); err != nil {
-		return ResolvedPath{}, ResolvedPath{}, written, err
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, written, err
 	}
 	return src, dst, written, nil
 }
 
 // MkdirAll creates a directory and parents.
-func (w *HostWorkspace) MkdirAll(ctx context.Context, raw string, mode os.FileMode) (ResolvedPath, error) {
+func (w *HostWorkspace) MkdirAll(ctx context.Context, raw string, mode os.FileMode) (runtimeworkspace.ResolvedPath, error) {
 	resolved, err := w.ResolveCreate(ctx, raw)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	return resolved, w.files.MkdirAll(ctx, workspaceName(resolved), fpsystem.MkdirOptions{Perm: mode})
 }
 
 // Remove removes a file or empty directory.
-func (w *HostWorkspace) Remove(ctx context.Context, raw string) (ResolvedPath, error) {
+func (w *HostWorkspace) Remove(ctx context.Context, raw string) (runtimeworkspace.ResolvedPath, error) {
 	root, candidate, err := w.candidate(raw)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	if !root.write {
-		return ResolvedPath{}, fmt.Errorf("workspace root is not writable")
+		return runtimeworkspace.ResolvedPath{}, fmt.Errorf("workspace root is not writable")
 	}
 	real, err := filepath.EvalSymlinks(candidate)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	resolved, err := w.resolved(raw, root, real)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	return resolved, w.files.Remove(ctx, workspaceName(resolved))
 }
 
 // Stat stats a workspace path.
-func (w *HostWorkspace) Stat(ctx context.Context, raw string) (fs.FileInfo, ResolvedPath, error) {
+func (w *HostWorkspace) Stat(ctx context.Context, raw string) (fs.FileInfo, runtimeworkspace.ResolvedPath, error) {
 	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
-		return nil, ResolvedPath{}, err
+		return nil, runtimeworkspace.ResolvedPath{}, err
 	}
 	fsys, name := w.filesystemName(resolved)
 	info, err := fsys.Stat(name)
@@ -657,10 +638,10 @@ func (w *HostWorkspace) Stat(ctx context.Context, raw string) (fs.FileInfo, Reso
 }
 
 // ReadDir lists a workspace directory.
-func (w *HostWorkspace) ReadDir(ctx context.Context, raw string) ([]fs.DirEntry, ResolvedPath, error) {
+func (w *HostWorkspace) ReadDir(ctx context.Context, raw string) ([]fs.DirEntry, runtimeworkspace.ResolvedPath, error) {
 	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
-		return nil, ResolvedPath{}, err
+		return nil, runtimeworkspace.ResolvedPath{}, err
 	}
 	fsys, name := w.filesystemName(resolved)
 	entries, err := fsys.ReadDir(name)
@@ -668,10 +649,10 @@ func (w *HostWorkspace) ReadDir(ctx context.Context, raw string) ([]fs.DirEntry,
 }
 
 // Walk returns a bounded tree traversal rooted at raw.
-func (w *HostWorkspace) Walk(ctx context.Context, raw string, opts WalkOptions) ([]WalkEntry, ResolvedPath, bool, error) {
+func (w *HostWorkspace) Walk(ctx context.Context, raw string, opts WalkOptions) ([]WalkEntry, runtimeworkspace.ResolvedPath, bool, error) {
 	root, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
-		return nil, ResolvedPath{}, false, err
+		return nil, runtimeworkspace.ResolvedPath{}, false, err
 	}
 	fsys, rootName := w.filesystemName(root)
 	systemEntries, truncated, err := fpsystem.Walk(ctx, fsys, rootName, fpsystem.WalkOptions{
@@ -683,7 +664,7 @@ func (w *HostWorkspace) Walk(ctx context.Context, raw string, opts WalkOptions) 
 		FilterPattern: opts.FilterPattern,
 	})
 	if err != nil {
-		return nil, ResolvedPath{}, false, err
+		return nil, runtimeworkspace.ResolvedPath{}, false, err
 	}
 	entries := make([]WalkEntry, 0, len(systemEntries))
 	for _, entry := range systemEntries {
@@ -711,7 +692,7 @@ func (w *HostWorkspace) Walk(ctx context.Context, raw string, opts WalkOptions) 
 }
 
 // Glob returns workspace paths matching a slash-style glob under opts.Base.
-func (w *HostWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptions) ([]ResolvedPath, bool, error) {
+func (w *HostWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptions) ([]runtimeworkspace.ResolvedPath, bool, error) {
 	base := opts.Base
 	if strings.TrimSpace(base) == "" {
 		base = "."
@@ -730,7 +711,7 @@ func (w *HostWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptio
 	if err != nil {
 		return nil, false, err
 	}
-	matches := make([]ResolvedPath, 0, len(names))
+	matches := make([]runtimeworkspace.ResolvedPath, 0, len(names))
 	for _, name := range names {
 		if fsys == w.base {
 			if rel, err := filepath.Rel(baseName, name); err == nil {
@@ -747,7 +728,7 @@ func (w *HostWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptio
 }
 
 // CreateScratch creates an isolated temporary directory for runtime-owned work.
-func (w *HostWorkspace) CreateScratch(_ context.Context, prefix string) (ScratchDir, error) {
+func (w *HostWorkspace) CreateScratch(_ context.Context, prefix string) (runtimeworkspace.ScratchDir, error) {
 	if strings.TrimSpace(prefix) == "" {
 		prefix = "fluxplane-*"
 	}
@@ -792,13 +773,13 @@ type hostScratchDir struct {
 
 func (s *hostScratchDir) Root() string { return s.root }
 
-func (s *hostScratchDir) WriteFile(_ context.Context, raw string, data []byte, mode os.FileMode) (ResolvedPath, error) {
+func (s *hostScratchDir) WriteFile(_ context.Context, raw string, data []byte, mode os.FileMode) (runtimeworkspace.ResolvedPath, error) {
 	resolved, err := s.resolveCreate(raw)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(resolved.Abs), 0755); err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	return resolved, os.WriteFile(resolved.Abs, data, mode)
 }
@@ -807,33 +788,33 @@ func (s *hostScratchDir) RemoveAll(context.Context) error {
 	return os.RemoveAll(s.root)
 }
 
-func (s *hostScratchDir) resolveCreate(raw string) (ResolvedPath, error) {
+func (s *hostScratchDir) resolveCreate(raw string) (runtimeworkspace.ResolvedPath, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return ResolvedPath{}, fmt.Errorf("scratch path is empty")
+		return runtimeworkspace.ResolvedPath{}, fmt.Errorf("scratch path is empty")
 	}
 	clean := filepath.Clean(raw)
 	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
-		return ResolvedPath{}, fmt.Errorf("scratch path escapes root")
+		return runtimeworkspace.ResolvedPath{}, fmt.Errorf("scratch path escapes root")
 	}
 	abs := filepath.Join(s.root, clean)
 	parent, err := filepath.EvalSymlinks(filepath.Dir(abs))
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	real := filepath.Join(parent, filepath.Base(abs))
 	if err := pathWithin(s.root, real); err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	rel, err := filepath.Rel(s.root, real)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	rel = filepath.ToSlash(rel)
 	if s.rel != "" {
 		rel = filepath.ToSlash(filepath.Join(s.rel, rel))
 	}
-	return ResolvedPath{Input: raw, Abs: real, Rel: rel}, nil
+	return runtimeworkspace.ResolvedPath{Input: raw, Abs: real, Rel: rel}, nil
 }
 
 func (w *HostWorkspace) candidate(raw string) (workspaceRoot, string, error) {
@@ -928,17 +909,17 @@ func (w *HostWorkspace) rootForAbs(abs string) (workspaceRoot, bool) {
 	return best, true
 }
 
-func (w *HostWorkspace) resolved(input string, root workspaceRoot, abs string) (ResolvedPath, error) {
+func (w *HostWorkspace) resolved(input string, root workspaceRoot, abs string) (runtimeworkspace.ResolvedPath, error) {
 	abs, err := filepath.Abs(abs)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	if err := pathWithin(root.root, abs); err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	rel, err := filepath.Rel(root.root, abs)
 	if err != nil {
-		return ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	if rel == "." {
 		rel = ""
@@ -951,14 +932,14 @@ func (w *HostWorkspace) resolved(input string, root workspaceRoot, abs string) (
 			rel = filepath.ToSlash(filepath.Join(root.rel, rel))
 		}
 	}
-	return ResolvedPath{Input: input, Abs: abs, Rel: rel}, nil
+	return runtimeworkspace.ResolvedPath{Input: input, Abs: abs, Rel: rel}, nil
 }
 
-func workspaceName(resolved ResolvedPath) string {
+func workspaceName(resolved runtimeworkspace.ResolvedPath) string {
 	return runtimeworkspace.PathName(resolved)
 }
 
-func (w *HostWorkspace) filesystemName(resolved ResolvedPath) (fpsystem.FileSystem, string) {
+func (w *HostWorkspace) filesystemName(resolved runtimeworkspace.ResolvedPath) (fpsystem.FileSystem, string) {
 	if w != nil && w.base != nil && len(w.roots) > 0 &&
 		strings.TrimSpace(resolved.Rel) == "" &&
 		filepath.Clean(resolved.Abs) == filepath.Clean(w.roots[0].root) {
@@ -980,9 +961,6 @@ func pathWithin(root, candidate string) error {
 	}
 	return nil
 }
-
-// Network provides primitive network access.
-type Network = fpsystem.Network
 
 // HostNetwork implements primitive network access with target guards.
 type HostNetwork struct {
@@ -1115,41 +1093,6 @@ func blockedIP(ip net.IP) bool {
 		ip.Equal(net.ParseIP("169.254.169.254"))
 }
 
-// ProcessRunner runs a process through a system boundary.
-type ProcessRunner = fpsystem.ProcessRunner
-
-// ProcessManager is the long-running process boundary for shells, dev servers,
-// tests, and other streaming/background workloads.
-type ProcessManager = fpsystem.ProcessManager
-
-// ProcessGroup controls the managed processes assigned to one group.
-type ProcessGroup = fpsystem.ProcessGroup
-
-// ProcessHandle identifies a running or completed managed process.
-type ProcessHandle = fpsystem.ProcessHandle
-
-// ProcessInfo describes a managed process.
-type ProcessInfo = fpsystem.ProcessInfo
-
-// ProcessEvent is emitted for streaming process output and lifecycle changes.
-type ProcessEvent = fpsystem.ProcessEvent
-
-const (
-	ProcessEventStarted = fpsystem.ProcessEventStarted
-	ProcessEventOutput  = fpsystem.ProcessEventOutput
-	ProcessEventExited  = fpsystem.ProcessEventExited
-
-	EventProcessStarted = fpsystem.EventProcessStarted
-	EventProcessOutput  = fpsystem.EventProcessOutput
-	EventProcessExited  = fpsystem.EventProcessExited
-)
-
-// ProcessRequest describes one bounded process execution.
-type ProcessRequest = fpsystem.ProcessRequest
-
-// ProcessResult is the captured process outcome.
-type ProcessResult = fpsystem.ProcessResult
-
 // HostProcess executes direct host processes without a shell interpreter.
 type HostProcess struct {
 	workspace *HostWorkspace
@@ -1176,7 +1119,7 @@ func NewHostProcessWithEnvironment(workspace *HostWorkspace, env *WorkspaceEnvir
 }
 
 // Run executes one direct process and waits for completion.
-func (p *HostProcess) Run(ctx context.Context, req ProcessRequest) (ProcessResult, error) {
+func (p *HostProcess) Run(ctx context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessResult, error) {
 	maxBytes := req.MaxStdout
 	if req.MaxStderr > maxBytes {
 		maxBytes = req.MaxStderr
@@ -1186,7 +1129,7 @@ func (p *HostProcess) Run(ctx context.Context, req ProcessRequest) (ProcessResul
 }
 
 // Start launches one direct process under management.
-func (p *HostProcess) Start(ctx context.Context, req ProcessRequest) (ProcessHandle, error) {
+func (p *HostProcess) Start(ctx context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessHandle, error) {
 	preparedCtx, prepared, err := p.prepare(ctx, req)
 	if err != nil {
 		return nil, err
@@ -1195,7 +1138,7 @@ func (p *HostProcess) Start(ctx context.Context, req ProcessRequest) (ProcessHan
 }
 
 // Ensure returns a running process for req.Label or starts a new one.
-func (p *HostProcess) Ensure(ctx context.Context, req ProcessRequest) (ProcessHandle, bool, error) {
+func (p *HostProcess) Ensure(ctx context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessHandle, bool, error) {
 	preparedCtx, prepared, err := p.prepare(ctx, req)
 	if err != nil {
 		return nil, false, err
@@ -1204,16 +1147,16 @@ func (p *HostProcess) Ensure(ctx context.Context, req ProcessRequest) (ProcessHa
 }
 
 // Group returns controls for a managed process group.
-func (p *HostProcess) Group(name string) ProcessGroup {
+func (p *HostProcess) Group(name string) fpsystem.ProcessGroup {
 	return p.process.Group(name)
 }
 
 // List returns known managed processes.
-func (p *HostProcess) List(context.Context) ([]ProcessInfo, error) {
+func (p *HostProcess) List(context.Context) ([]fpsystem.ProcessInfo, error) {
 	return p.process.List(context.Background())
 }
 
-func (p *HostProcess) prepare(ctx context.Context, req ProcessRequest) (context.Context, ProcessRequest, error) {
+func (p *HostProcess) prepare(ctx context.Context, req fpsystem.ProcessRequest) (context.Context, fpsystem.ProcessRequest, error) {
 	if p == nil || p.workspace == nil {
 		return ctx, req, fmt.Errorf("host process workspace is nil")
 	}

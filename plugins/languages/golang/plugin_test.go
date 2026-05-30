@@ -832,7 +832,7 @@ func main() {}
 		t.Fatalf("goModTidyArgs = %#v dryRun=%v, want real tidy args", modTidyArgs, modTidyDryRunFlag)
 	}
 
-	buildBinary, err := sys.Process().Run(context.Background(), system.ProcessRequest{
+	buildBinary, err := sys.Process().Run(context.Background(), fpsystem.ProcessRequest{
 		Command: "go",
 		Args:    []string{"build", "-buildvcs=false", "-o", "toolbin", "./cmd/tool"},
 		Env:     system.DefaultProcessEnv(),

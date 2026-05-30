@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"time"
 
@@ -299,7 +300,7 @@ func operationRefs(specs []operation.Spec) []operation.Ref {
 
 func (p Plugin) status() operationruntime.TypedResultHandler[statusInput, map[string]any] {
 	return func(ctx operation.Context, _ statusInput) operation.Result {
-		result, err := p.system.Process().Run(ctx, system.ProcessRequest{
+		result, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{
 			Command: "git",
 			Args:    []string{"status", "--short", "--branch"},
 			Timeout: 30 * time.Second,
@@ -332,7 +333,7 @@ func (p Plugin) diff() operationruntime.TypedResultHandler[diffInput, map[string
 			return operation.Failed("invalid_git_diff_input", err.Error(), nil)
 		}
 		maxBytes := gitDiffMaxBytes(req)
-		result, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 256 * 1024})
+		result, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 256 * 1024})
 		text, truncated := capGitDiffText(strings.TrimSpace(result.Stdout), maxBytes)
 		mode := gitDiffMode(req)
 		data := map[string]any{"stdout": text, "stderr": compactGitErrorText(result.Stderr), "exit_code": result.ExitCode, "mode": mode, "truncated": truncated, "max_bytes": maxBytes}
@@ -460,7 +461,7 @@ func (p Plugin) add() operationruntime.TypedResultHandler[addInput, map[string]a
 		if result.IsError() {
 			return result
 		}
-		run, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second})
+		run, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second})
 		data := processData(run)
 		if err != nil {
 			return operation.Failed("git_add_failed", err.Error(), data)
@@ -482,7 +483,7 @@ func (p Plugin) commit() operationruntime.TypedResultHandler[commitInput, map[st
 			if result.IsError() {
 				return result
 			}
-			addResult, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second})
+			addResult, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second})
 			if err != nil {
 				return operation.Failed("git_commit_stage_failed", err.Error(), processData(addResult))
 			}
@@ -492,12 +493,12 @@ func (p Plugin) commit() operationruntime.TypedResultHandler[commitInput, map[st
 			args = append(args, "--allow-empty")
 		}
 		args = append(args, "-m", message)
-		commitResult, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
+		commitResult, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
 		data := processData(commitResult)
 		if err != nil {
 			return operation.Failed("git_commit_failed", err.Error(), data)
 		}
-		headResult, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: []string{"rev-parse", "HEAD"}, Timeout: 30 * time.Second, MaxStdout: 1024, MaxStderr: 1024})
+		headResult, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: []string{"rev-parse", "HEAD"}, Timeout: 30 * time.Second, MaxStdout: 1024, MaxStderr: 1024})
 		if err != nil {
 			data["rev_parse_stdout"] = headResult.Stdout
 			data["rev_parse_stderr"] = headResult.Stderr
@@ -525,7 +526,7 @@ func (p Plugin) tag() operationruntime.TypedResultHandler[tagInput, map[string]a
 		if result.IsError() {
 			return result
 		}
-		run, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
+		run, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
 		data := processData(run)
 		data["tag"] = strings.TrimSpace(req.Name)
 		if err != nil {
@@ -541,7 +542,7 @@ func (p Plugin) push() operationruntime.TypedResultHandler[pushInput, map[string
 		if result.IsError() {
 			return result
 		}
-		run, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: args, Timeout: 2 * time.Minute, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
+		run, err := p.system.Process().Run(ctx, fpsystem.ProcessRequest{Command: "git", Args: args, Timeout: 2 * time.Minute, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
 		data := processData(run)
 		data["remote"] = gitPushRemote(req)
 		data["refspecs"] = append([]string(nil), req.Refspecs...)
@@ -666,11 +667,11 @@ func looksLikeURL(value string) bool {
 	return strings.Contains(value, "://")
 }
 
-func processData(result system.ProcessResult) map[string]any {
+func processData(result fpsystem.ProcessResult) map[string]any {
 	return map[string]any{"stdout": result.Stdout, "stderr": result.Stderr, "exit_code": result.ExitCode}
 }
 
-func processText(result system.ProcessResult, fallback string) string {
+func processText(result fpsystem.ProcessResult, fallback string) string {
 	var parts []string
 	if stdout := strings.TrimSpace(result.Stdout); stdout != "" {
 		parts = append(parts, stdout)
@@ -684,7 +685,7 @@ func processText(result system.ProcessResult, fallback string) string {
 	return strings.Join(parts, "\n")
 }
 
-func commitText(commit string, result system.ProcessResult) string {
+func commitText(commit string, result fpsystem.ProcessResult) string {
 	text := "Committed " + commit
 	if output := processText(result, ""); output != "" {
 		text += "\n" + output
@@ -696,7 +697,7 @@ func commitText(commit string, result system.ProcessResult) string {
 // after a partial commit. It runs git status --porcelain and collects XY codes
 // where the worktree column (Y) is non-space, or the file is untracked (??).
 func remainingDirtyFiles(ctx operation.Context, sys system.System) []string {
-	result, err := sys.Process().Run(ctx, system.ProcessRequest{
+	result, err := sys.Process().Run(ctx, fpsystem.ProcessRequest{
 		Command: "git",
 		Args:    []string{"status", "--porcelain"},
 		Timeout: 30 * time.Second,

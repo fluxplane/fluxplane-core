@@ -2,13 +2,14 @@ package aws
 
 import (
 	"context"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"testing"
 
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 func TestAWSPluginContributesObserverAndDeriver(t *testing.T) {
@@ -106,13 +107,13 @@ func (e fakeEnvironment) Lookup(_ context.Context, key string) (string, bool, er
 }
 
 type fakeSystem struct {
-	env system.Environment
+	env fpsystem.Environment
 }
 
-func (s fakeSystem) Workspace() system.Workspace     { return nil }
-func (s fakeSystem) Network() system.Network         { return nil }
-func (s fakeSystem) Process() system.ProcessManager  { return nil }
-func (s fakeSystem) Environment() system.Environment { return s.env }
+func (s fakeSystem) Workspace() runtimeworkspace.Workspace { return nil }
+func (s fakeSystem) Network() fpsystem.Network             { return nil }
+func (s fakeSystem) Process() fpsystem.ProcessManager      { return nil }
+func (s fakeSystem) Environment() fpsystem.Environment     { return s.env }
 
 func hasAssertion(assertions []coreevidence.Assertion, kind, target string) bool {
 	for _, assertion := range assertions {

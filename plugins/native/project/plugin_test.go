@@ -187,7 +187,7 @@ func hasEnvironmentHint(hints []coreevidence.Assertion, kind, target string) boo
 
 func TestProjectTaskRunDryRunAndExecution(t *testing.T) {
 	base := systemtest.NewMemory()
-	proc := &fakeTaskProcess{result: system.ProcessResult{
+	proc := &fakeTaskProcess{result: fpsystem.ProcessResult{
 		Command:  "task",
 		Args:     []string{"--taskfile", "Taskfile.yaml", "lint"},
 		Stdout:   "ok\n",
@@ -306,24 +306,24 @@ type taskRunSystem struct {
 	process *fakeTaskProcess
 }
 
-func (s taskRunSystem) Process() system.ProcessManager { return s.process }
+func (s taskRunSystem) Process() fpsystem.ProcessManager { return s.process }
 
 type fakeTaskProcess struct {
-	request    system.ProcessRequest
-	result     system.ProcessResult
+	request    fpsystem.ProcessRequest
+	result     fpsystem.ProcessResult
 	startCount int
 }
 
-func (p *fakeTaskProcess) Run(_ context.Context, req system.ProcessRequest) (system.ProcessResult, error) {
+func (p *fakeTaskProcess) Run(_ context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessResult, error) {
 	p.request = req
 	return p.result, nil
 }
 
-func (p *fakeTaskProcess) Start(_ context.Context, req system.ProcessRequest) (system.ProcessHandle, error) {
+func (p *fakeTaskProcess) Start(_ context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessHandle, error) {
 	p.startCount++
 	p.request = req
-	events := make(chan system.ProcessEvent, 2)
-	events <- system.ProcessEvent{ProcessID: "test-process", Kind: "output", Stream: "stdout", Data: p.result.Stdout, Time: time.Now()}
+	events := make(chan fpsystem.ProcessEvent, 2)
+	events <- fpsystem.ProcessEvent{ProcessID: "test-process", Kind: "output", Stream: "stdout", Data: p.result.Stdout, Time: time.Now()}
 	close(events)
 	result := p.result
 	result.Command = req.Command
@@ -332,44 +332,44 @@ func (p *fakeTaskProcess) Start(_ context.Context, req system.ProcessRequest) (s
 	return fakeTaskHandle{request: req, result: result, events: events}, nil
 }
 
-func (p *fakeTaskProcess) Ensure(ctx context.Context, req system.ProcessRequest) (system.ProcessHandle, bool, error) {
+func (p *fakeTaskProcess) Ensure(ctx context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessHandle, bool, error) {
 	handle, err := p.Start(ctx, req)
 	return handle, true, err
 }
 
-func (p *fakeTaskProcess) Group(string) system.ProcessGroup { return nil }
+func (p *fakeTaskProcess) Group(string) fpsystem.ProcessGroup { return nil }
 
-func (p *fakeTaskProcess) List(context.Context) ([]system.ProcessInfo, error) { return nil, nil }
+func (p *fakeTaskProcess) List(context.Context) ([]fpsystem.ProcessInfo, error) { return nil, nil }
 
 type fakeTaskHandle struct {
-	request system.ProcessRequest
-	result  system.ProcessResult
-	events  <-chan system.ProcessEvent
+	request fpsystem.ProcessRequest
+	result  fpsystem.ProcessResult
+	events  <-chan fpsystem.ProcessEvent
 }
 
 func (h fakeTaskHandle) ID() string { return "test-process" }
 
-func (h fakeTaskHandle) Info() system.ProcessInfo {
-	return system.ProcessInfo{ID: h.ID(), Command: h.request.Command, Args: h.request.Args, Workdir: h.request.Workdir, Running: true}
+func (h fakeTaskHandle) Info() fpsystem.ProcessInfo {
+	return fpsystem.ProcessInfo{ID: h.ID(), Command: h.request.Command, Args: h.request.Args, Workdir: h.request.Workdir, Running: true}
 }
 
-func (h fakeTaskHandle) Events() <-chan system.ProcessEvent { return h.events }
+func (h fakeTaskHandle) Events() <-chan fpsystem.ProcessEvent { return h.events }
 
-func (h fakeTaskHandle) Subscribe(context.Context) <-chan system.ProcessEvent { return h.Events() }
+func (h fakeTaskHandle) Subscribe(context.Context) <-chan fpsystem.ProcessEvent { return h.Events() }
 
-func (h fakeTaskHandle) Wait(context.Context) (system.ProcessResult, error) { return h.result, nil }
+func (h fakeTaskHandle) Wait(context.Context) (fpsystem.ProcessResult, error) { return h.result, nil }
 
-func (h fakeTaskHandle) Stop(context.Context) error                            { return nil }
-func (h fakeTaskHandle) Kill(context.Context) error                            { return nil }
-func (h fakeTaskHandle) Signal(context.Context, fpsystem.ProcessSignal) error  { return nil }
-func (h fakeTaskHandle) Interrupt(context.Context) error                       { return nil }
-func (h fakeTaskHandle) Reload(context.Context) error                          { return nil }
-func (h fakeTaskHandle) Pause(context.Context) error                           { return nil }
-func (h fakeTaskHandle) Resume(context.Context) error                          { return nil }
-func (h fakeTaskHandle) Write(context.Context, []byte) (int, error)            { return 0, nil }
-func (h fakeTaskHandle) CloseInput(context.Context) error                      { return nil }
-func (h fakeTaskHandle) Restart(context.Context) (system.ProcessHandle, error) { return h, nil }
-func (h fakeTaskHandle) Detach(context.Context) error                          { return nil }
+func (h fakeTaskHandle) Stop(context.Context) error                              { return nil }
+func (h fakeTaskHandle) Kill(context.Context) error                              { return nil }
+func (h fakeTaskHandle) Signal(context.Context, fpsystem.ProcessSignal) error    { return nil }
+func (h fakeTaskHandle) Interrupt(context.Context) error                         { return nil }
+func (h fakeTaskHandle) Reload(context.Context) error                            { return nil }
+func (h fakeTaskHandle) Pause(context.Context) error                             { return nil }
+func (h fakeTaskHandle) Resume(context.Context) error                            { return nil }
+func (h fakeTaskHandle) Write(context.Context, []byte) (int, error)              { return 0, nil }
+func (h fakeTaskHandle) CloseInput(context.Context) error                        { return nil }
+func (h fakeTaskHandle) Restart(context.Context) (fpsystem.ProcessHandle, error) { return h, nil }
+func (h fakeTaskHandle) Detach(context.Context) error                            { return nil }
 
 func sameStrings(got, want []string) bool {
 	if len(got) != len(want) {

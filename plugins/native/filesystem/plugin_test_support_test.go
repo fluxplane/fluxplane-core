@@ -117,9 +117,9 @@ func newMemorySystem() *memorySystem {
 }
 
 func (s *memorySystem) Workspace() runtimeworkspace.Workspace { return s.workspace }
-func (s *memorySystem) Network() system.Network               { return memoryNetwork{} }
-func (s *memorySystem) Process() system.ProcessManager        { return nil }
-func (s *memorySystem) Environment() system.Environment       { return memoryEnvironment{} }
+func (s *memorySystem) Network() fpsystem.Network             { return memoryNetwork{} }
+func (s *memorySystem) Process() fpsystem.ProcessManager      { return nil }
+func (s *memorySystem) Environment() fpsystem.Environment     { return memoryEnvironment{} }
 func (memoryEnvironment) Lookup(context.Context, string) (string, bool, error) {
 	return "", false, nil
 }
@@ -522,7 +522,7 @@ func (w *memoryWorkspace) Glob(ctx context.Context, pattern string, opts system.
 	return matches, truncated || resultsTruncated, nil
 }
 
-func (w *memoryWorkspace) CreateScratch(context.Context, string) (system.ScratchDir, error) {
+func (w *memoryWorkspace) CreateScratch(context.Context, string) (runtimeworkspace.ScratchDir, error) {
 	return nil, errors.ErrUnsupported
 }
 
@@ -650,7 +650,7 @@ func containsHiddenPath(rel string) bool {
 
 var _ system.System = (*memorySystem)(nil)
 var _ runtimeworkspace.Workspace = (*memoryWorkspace)(nil)
-var _ system.Network = memoryNetwork{}
-var _ system.Environment = memoryEnvironment{}
+var _ fpsystem.Network = memoryNetwork{}
+var _ fpsystem.Environment = memoryEnvironment{}
 var _ fs.FileInfo = memoryFileInfo{}
 var _ fs.DirEntry = memoryDirEntry{}

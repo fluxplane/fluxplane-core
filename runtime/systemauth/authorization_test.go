@@ -229,7 +229,7 @@ func TestSystemEnforcesProcessExec(t *testing.T) {
 		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
 		Actions:   []policy.Action{policy.ActionWorkspaceRead},
 	}})
-	_, err = sys.Process().Run(ctx, system.ProcessRequest{Command: "go", Args: []string{"version"}, Timeout: time.Second})
+	_, err = sys.Process().Run(ctx, fpsystem.ProcessRequest{Command: "go", Args: []string{"version"}, Timeout: time.Second})
 	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
 		t.Fatalf("Run error = %v, want authorization deny", err)
 	}
@@ -247,7 +247,7 @@ func TestProcessManagerAllowsManagedLifecycle(t *testing.T) {
 		Actions:   []policy.Action{policy.ActionProcessExec, policy.ActionProcessAdmin},
 	}})
 	manager := sys.Process()
-	handle, created, err := manager.Ensure(ctx, system.ProcessRequest{
+	handle, created, err := manager.Ensure(ctx, fpsystem.ProcessRequest{
 		Command: "sh",
 		Args:    []string{"-c", "printf hello"},
 		Label:   "short",
@@ -268,7 +268,7 @@ func TestProcessManagerAllowsManagedLifecycle(t *testing.T) {
 	if _, err := handle.Wait(ctx); err != nil {
 		t.Fatalf("Wait: %v", err)
 	}
-	capture, err := fpsystem.RunProcessCapture(ctx, manager, system.ProcessRequest{
+	capture, err := fpsystem.RunProcessCapture(ctx, manager, fpsystem.ProcessRequest{
 		Command: "sh",
 		Args:    []string{"-c", "printf hello"},
 		Timeout: time.Second,
@@ -279,7 +279,7 @@ func TestProcessManagerAllowsManagedLifecycle(t *testing.T) {
 	if capture.Stdout != "hello" {
 		t.Fatalf("stdout = %q, want hello", capture.Stdout)
 	}
-	stopHandle, err := manager.Start(ctx, system.ProcessRequest{Command: "sh", Args: []string{"-c", "sleep 10"}, Group: "admin-stop", Timeout: 10 * time.Second})
+	stopHandle, err := manager.Start(ctx, fpsystem.ProcessRequest{Command: "sh", Args: []string{"-c", "sleep 10"}, Group: "admin-stop", Timeout: 10 * time.Second})
 	if err != nil {
 		t.Fatalf("Start stop process: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestProcessManagerAllowsManagedLifecycle(t *testing.T) {
 		t.Fatalf("Group Stop: %v", err)
 	}
 	_, _ = stopHandle.Wait(ctx)
-	killHandle, err := manager.Start(ctx, system.ProcessRequest{Command: "sh", Args: []string{"-c", "sleep 10"}, Group: "admin-kill", Timeout: 10 * time.Second})
+	killHandle, err := manager.Start(ctx, fpsystem.ProcessRequest{Command: "sh", Args: []string{"-c", "sleep 10"}, Group: "admin-kill", Timeout: 10 * time.Second})
 	if err != nil {
 		t.Fatalf("Start kill process: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestProcessHandleRequiresAdminForControl(t *testing.T) {
 		Resources: []policy.ResourceRef{{Kind: policy.ResourceProcess, Name: "*"}},
 		Actions:   []policy.Action{policy.ActionProcessExec},
 	}})
-	handle, err := manager.Start(execOnly, system.ProcessRequest{Command: "sh", Args: []string{"-c", "sleep 10"}, Label: "deny-stop", Timeout: 10 * time.Second})
+	handle, err := manager.Start(execOnly, fpsystem.ProcessRequest{Command: "sh", Args: []string{"-c", "sleep 10"}, Label: "deny-stop", Timeout: 10 * time.Second})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

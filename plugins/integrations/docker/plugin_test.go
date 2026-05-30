@@ -3,12 +3,12 @@ package docker
 import (
 	"context"
 	"errors"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"testing"
 
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 )
 
@@ -59,9 +59,9 @@ func TestDockerAssertionsFollowBinaryAndDaemonAvailability(t *testing.T) {
 		{
 			name: "daemon unavailable",
 			process: &fakeProcess{runs: []fakeRun{{
-				result: system.ProcessResult{Stdout: "Docker version 27.5.1, build test"},
+				result: fpsystem.ProcessResult{Stdout: "Docker version 27.5.1, build test"},
 			}, {
-				result: system.ProcessResult{Stderr: "Cannot connect to the Docker daemon", ExitCode: 1},
+				result: fpsystem.ProcessResult{Stderr: "Cannot connect to the Docker daemon", ExitCode: 1},
 				err:    errors.New("exit status 1"),
 			}}},
 			configured: true,
@@ -69,9 +69,9 @@ func TestDockerAssertionsFollowBinaryAndDaemonAvailability(t *testing.T) {
 		{
 			name: "daemon available",
 			process: &fakeProcess{runs: []fakeRun{{
-				result: system.ProcessResult{Stdout: "Docker version 27.5.1, build test"},
+				result: fpsystem.ProcessResult{Stdout: "Docker version 27.5.1, build test"},
 			}, {
-				result: system.ProcessResult{Stdout: `{"Client":{"Version":"27.5.1"},"Server":{"Version":"27.5.0"}}`},
+				result: fpsystem.ProcessResult{Stdout: `{"Client":{"Version":"27.5.1"},"Server":{"Version":"27.5.0"}}`},
 			}}},
 			configured: true,
 			available:  true,
@@ -117,13 +117,13 @@ func hasAssertion(assertions []coreevidence.Assertion, kind string) bool {
 
 type fakeSystem struct {
 	*systemtest.MemorySystem
-	process system.ProcessManager
+	process fpsystem.ProcessManager
 }
 
-func (s fakeSystem) Process() system.ProcessManager { return s.process }
+func (s fakeSystem) Process() fpsystem.ProcessManager { return s.process }
 
 type fakeRun struct {
-	result system.ProcessResult
+	result fpsystem.ProcessResult
 	err    error
 }
 
@@ -131,25 +131,25 @@ type fakeProcess struct {
 	runs []fakeRun
 }
 
-func (p *fakeProcess) Run(context.Context, system.ProcessRequest) (system.ProcessResult, error) {
+func (p *fakeProcess) Run(context.Context, fpsystem.ProcessRequest) (fpsystem.ProcessResult, error) {
 	if len(p.runs) == 0 {
-		return system.ProcessResult{}, errors.New("unexpected process run")
+		return fpsystem.ProcessResult{}, errors.New("unexpected process run")
 	}
 	run := p.runs[0]
 	p.runs = p.runs[1:]
 	return run.result, run.err
 }
 
-func (p *fakeProcess) Start(context.Context, system.ProcessRequest) (system.ProcessHandle, error) {
+func (p *fakeProcess) Start(context.Context, fpsystem.ProcessRequest) (fpsystem.ProcessHandle, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (p *fakeProcess) Ensure(context.Context, system.ProcessRequest) (system.ProcessHandle, bool, error) {
+func (p *fakeProcess) Ensure(context.Context, fpsystem.ProcessRequest) (fpsystem.ProcessHandle, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
 
-func (p *fakeProcess) Group(string) system.ProcessGroup { return nil }
+func (p *fakeProcess) Group(string) fpsystem.ProcessGroup { return nil }
 
-func (p *fakeProcess) List(context.Context) ([]system.ProcessInfo, error) {
+func (p *fakeProcess) List(context.Context) ([]fpsystem.ProcessInfo, error) {
 	return nil, errors.New("not implemented")
 }

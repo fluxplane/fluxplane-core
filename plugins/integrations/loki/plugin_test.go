@@ -327,13 +327,13 @@ func (p staticDiscoveryProvider) Discover(context.Context, corediscovery.Request
 
 type lokiFakeSystem struct {
 	*systemtest.MemorySystem
-	process system.ProcessManager
-	network system.Network
+	process fpsystem.ProcessManager
+	network fpsystem.Network
 }
 
-func (s lokiFakeSystem) Process() system.ProcessManager { return s.process }
+func (s lokiFakeSystem) Process() fpsystem.ProcessManager { return s.process }
 
-func (s lokiFakeSystem) Network() system.Network {
+func (s lokiFakeSystem) Network() fpsystem.Network {
 	if s.network != nil {
 		return s.network
 	}
@@ -362,56 +362,56 @@ func (n *lokiPortForwardNetwork) DoHTTP(_ context.Context, req systemkit.HTTPReq
 }
 
 type recordingLokiProcess struct {
-	ensureRequests []system.ProcessRequest
+	ensureRequests []fpsystem.ProcessRequest
 }
 
-func (p *recordingLokiProcess) Run(context.Context, system.ProcessRequest) (system.ProcessResult, error) {
-	return system.ProcessResult{}, errors.New("not implemented")
+func (p *recordingLokiProcess) Run(context.Context, fpsystem.ProcessRequest) (fpsystem.ProcessResult, error) {
+	return fpsystem.ProcessResult{}, errors.New("not implemented")
 }
 
-func (p *recordingLokiProcess) Start(context.Context, system.ProcessRequest) (system.ProcessHandle, error) {
+func (p *recordingLokiProcess) Start(context.Context, fpsystem.ProcessRequest) (fpsystem.ProcessHandle, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (p *recordingLokiProcess) Ensure(_ context.Context, req system.ProcessRequest) (system.ProcessHandle, bool, error) {
+func (p *recordingLokiProcess) Ensure(_ context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessHandle, bool, error) {
 	p.ensureRequests = append(p.ensureRequests, req)
-	return lokiProcessHandle{info: system.ProcessInfo{ID: "proc-1", Label: req.Label, Command: req.Command, Args: req.Args, Running: true}}, true, nil
+	return lokiProcessHandle{info: fpsystem.ProcessInfo{ID: "proc-1", Label: req.Label, Command: req.Command, Args: req.Args, Running: true}}, true, nil
 }
 
-func (p *recordingLokiProcess) Group(string) system.ProcessGroup { return nil }
+func (p *recordingLokiProcess) Group(string) fpsystem.ProcessGroup { return nil }
 
-func (p *recordingLokiProcess) List(context.Context) ([]system.ProcessInfo, error) {
+func (p *recordingLokiProcess) List(context.Context) ([]fpsystem.ProcessInfo, error) {
 	return nil, errors.New("not implemented")
 }
 
 type lokiProcessHandle struct {
-	info system.ProcessInfo
+	info fpsystem.ProcessInfo
 }
 
 func (h lokiProcessHandle) ID() string { return h.info.ID }
 
-func (h lokiProcessHandle) Info() system.ProcessInfo { return h.info }
+func (h lokiProcessHandle) Info() fpsystem.ProcessInfo { return h.info }
 
-func (h lokiProcessHandle) Events() <-chan system.ProcessEvent {
-	ch := make(chan system.ProcessEvent)
+func (h lokiProcessHandle) Events() <-chan fpsystem.ProcessEvent {
+	ch := make(chan fpsystem.ProcessEvent)
 	close(ch)
 	return ch
 }
 
-func (h lokiProcessHandle) Subscribe(context.Context) <-chan system.ProcessEvent { return h.Events() }
+func (h lokiProcessHandle) Subscribe(context.Context) <-chan fpsystem.ProcessEvent { return h.Events() }
 
-func (h lokiProcessHandle) Wait(context.Context) (system.ProcessResult, error) {
-	return system.ProcessResult{Command: h.info.Command, Args: h.info.Args}, nil
+func (h lokiProcessHandle) Wait(context.Context) (fpsystem.ProcessResult, error) {
+	return fpsystem.ProcessResult{Command: h.info.Command, Args: h.info.Args}, nil
 }
 
-func (h lokiProcessHandle) Stop(context.Context) error                            { return nil }
-func (h lokiProcessHandle) Kill(context.Context) error                            { return nil }
-func (h lokiProcessHandle) Signal(context.Context, fpsystem.ProcessSignal) error  { return nil }
-func (h lokiProcessHandle) Interrupt(context.Context) error                       { return nil }
-func (h lokiProcessHandle) Reload(context.Context) error                          { return nil }
-func (h lokiProcessHandle) Pause(context.Context) error                           { return nil }
-func (h lokiProcessHandle) Resume(context.Context) error                          { return nil }
-func (h lokiProcessHandle) Write(context.Context, []byte) (int, error)            { return 0, nil }
-func (h lokiProcessHandle) CloseInput(context.Context) error                      { return nil }
-func (h lokiProcessHandle) Restart(context.Context) (system.ProcessHandle, error) { return h, nil }
-func (h lokiProcessHandle) Detach(context.Context) error                          { return nil }
+func (h lokiProcessHandle) Stop(context.Context) error                              { return nil }
+func (h lokiProcessHandle) Kill(context.Context) error                              { return nil }
+func (h lokiProcessHandle) Signal(context.Context, fpsystem.ProcessSignal) error    { return nil }
+func (h lokiProcessHandle) Interrupt(context.Context) error                         { return nil }
+func (h lokiProcessHandle) Reload(context.Context) error                            { return nil }
+func (h lokiProcessHandle) Pause(context.Context) error                             { return nil }
+func (h lokiProcessHandle) Resume(context.Context) error                            { return nil }
+func (h lokiProcessHandle) Write(context.Context, []byte) (int, error)              { return 0, nil }
+func (h lokiProcessHandle) CloseInput(context.Context) error                        { return nil }
+func (h lokiProcessHandle) Restart(context.Context) (fpsystem.ProcessHandle, error) { return h, nil }
+func (h lokiProcessHandle) Detach(context.Context) error                            { return nil }

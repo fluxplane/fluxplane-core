@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	corelanguage "github.com/fluxplane/fluxplane-core/core/language"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 func TestResolveToolchainStatusUnavailableWithoutProcessManager(t *testing.T) {
@@ -30,7 +30,7 @@ func TestResolveToolchainStatusAvailableWithoutBinariesOrProcessManager(t *testi
 }
 
 func TestResolveToolchainStatusUsesSystemProcess(t *testing.T) {
-	proc := &fakeProcess{result: system.ProcessResult{ExitCode: 0, Stdout: "go version go1.26 linux/amd64\n"}}
+	proc := &fakeProcess{result: fpsystem.ProcessResult{ExitCode: 0, Stdout: "go version go1.26 linux/amd64\n"}}
 	status := ResolveToolchainStatus(context.Background(), proc, corelanguage.ToolchainSpec{
 		ID: "go",
 		RequiredBinaries: []corelanguage.ToolchainBinarySpec{{
@@ -47,24 +47,24 @@ func TestResolveToolchainStatusUsesSystemProcess(t *testing.T) {
 }
 
 type fakeProcess struct {
-	request system.ProcessRequest
-	result  system.ProcessResult
+	request fpsystem.ProcessRequest
+	result  fpsystem.ProcessResult
 }
 
-func (p *fakeProcess) Run(_ context.Context, req system.ProcessRequest) (system.ProcessResult, error) {
+func (p *fakeProcess) Run(_ context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessResult, error) {
 	p.request = req
 	return p.result, nil
 }
 
-func (p *fakeProcess) Start(context.Context, system.ProcessRequest) (system.ProcessHandle, error) {
+func (p *fakeProcess) Start(context.Context, fpsystem.ProcessRequest) (fpsystem.ProcessHandle, error) {
 	return nil, nil
 }
 
-func (p *fakeProcess) Ensure(ctx context.Context, req system.ProcessRequest) (system.ProcessHandle, bool, error) {
+func (p *fakeProcess) Ensure(ctx context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessHandle, bool, error) {
 	handle, err := p.Start(ctx, req)
 	return handle, true, err
 }
 
-func (p *fakeProcess) Group(string) system.ProcessGroup { return nil }
+func (p *fakeProcess) Group(string) fpsystem.ProcessGroup { return nil }
 
-func (p *fakeProcess) List(context.Context) ([]system.ProcessInfo, error) { return nil, nil }
+func (p *fakeProcess) List(context.Context) ([]fpsystem.ProcessInfo, error) { return nil, nil }

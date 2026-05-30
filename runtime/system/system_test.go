@@ -14,7 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/fluxplane-system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
@@ -389,7 +390,7 @@ func TestHostProcessRejectsReadOnlyNamedRootWorkdir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	_, err = sys.Process().Run(context.Background(), ProcessRequest{
+	_, err = sys.Process().Run(context.Background(), fpsystem.ProcessRequest{
 		Command: "go",
 		Args:    []string{"version"},
 		Workdir: "@docs",
@@ -408,7 +409,7 @@ func TestHostProcessDetachedStartSurvivesCallerCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	eventCtx, eventCancel := context.WithCancel(context.Background())
 	events := sys.Process().Group("detached-output").Subscribe(eventCtx)
-	handle, err := sys.Process().Start(ctx, ProcessRequest{
+	handle, err := sys.Process().Start(ctx, fpsystem.ProcessRequest{
 		Command:  "sh",
 		Args:     []string{"-c", "printf start; sleep 0.2; printf done"},
 		Detached: true,
@@ -428,7 +429,7 @@ func TestHostProcessDetachedStartSurvivesCallerCancel(t *testing.T) {
 	eventCancel()
 	var stdout strings.Builder
 	for event := range events {
-		if event.ProcessID == handle.ID() && event.Kind == ProcessEventOutput && event.Stream == "stdout" {
+		if event.ProcessID == handle.ID() && event.Kind == fpsystem.ProcessEventOutput && event.Stream == "stdout" {
 			stdout.WriteString(event.Data)
 		}
 	}
@@ -447,7 +448,7 @@ func TestHostProcessCapturesShortLivedOutputBeforeExit(t *testing.T) {
 		group := fmt.Sprintf("short-lived-%03d", i)
 		eventCtx, eventCancel := context.WithCancel(context.Background())
 		eventStream := sys.Process().Group(group).Subscribe(eventCtx)
-		handle, err := sys.Process().Start(context.Background(), ProcessRequest{
+		handle, err := sys.Process().Start(context.Background(), fpsystem.ProcessRequest{
 			Command: "printf",
 			Args:    []string{want},
 			Timeout: 2 * time.Second,
@@ -457,7 +458,7 @@ func TestHostProcessCapturesShortLivedOutputBeforeExit(t *testing.T) {
 			t.Fatalf("Start iteration %d: %v", i, err)
 		}
 		eventsDone := make(chan struct{})
-		events := make([]ProcessEvent, 0, 3)
+		events := make([]fpsystem.ProcessEvent, 0, 3)
 		go func() {
 			defer close(eventsDone)
 			for event := range eventStream {
@@ -558,7 +559,7 @@ func TestHostProcessUsesWorkspaceScopedEnvFiles(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 
-	rootRun, err := system.RunProcessCapture(context.Background(), sys.Process(), ProcessRequest{Command: "env", Timeout: time.Second}, 1<<20)
+	rootRun, err := fpsystem.RunProcessCapture(context.Background(), sys.Process(), fpsystem.ProcessRequest{Command: "env", Timeout: time.Second}, 1<<20)
 	if err != nil {
 		t.Fatalf("Run root env: %v", err)
 	}
@@ -566,7 +567,7 @@ func TestHostProcessUsesWorkspaceScopedEnvFiles(t *testing.T) {
 		t.Fatalf("root env stdout = %q, want only root env", rootRun.Stdout)
 	}
 
-	namedRun, err := system.RunProcessCapture(context.Background(), sys.Process(), ProcessRequest{Command: "env", Workdir: "@named", Timeout: time.Second}, 1<<20)
+	namedRun, err := fpsystem.RunProcessCapture(context.Background(), sys.Process(), fpsystem.ProcessRequest{Command: "env", Workdir: "@named", Timeout: time.Second}, 1<<20)
 	if err != nil {
 		t.Fatalf("Run named env: %v", err)
 	}
@@ -580,7 +581,7 @@ func TestHostProcessRejectsUnknownEnvOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	_, err = sys.Process().Run(context.Background(), ProcessRequest{
+	_, err = sys.Process().Run(context.Background(), fpsystem.ProcessRequest{
 		Command: "env",
 		Env:     []string{"UNCONFIGURED_SECRET=value"},
 		Timeout: time.Second,
@@ -599,7 +600,7 @@ func TestHostProcessAllowsConfiguredAndToolchainEnvOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	run, err := system.RunProcessCapture(context.Background(), sys.Process(), ProcessRequest{
+	run, err := fpsystem.RunProcessCapture(context.Background(), sys.Process(), fpsystem.ProcessRequest{
 		Command: "env",
 		Env:     []string{"CONFIGURED=override", "GOOS=testos"},
 		Timeout: time.Second,
@@ -622,7 +623,7 @@ func TestHostProcessPreservesForwardedHostEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	run, err := system.RunProcessCapture(context.Background(), sys.Process(), ProcessRequest{Command: "env", Timeout: time.Second}, 1<<20)
+	run, err := fpsystem.RunProcessCapture(context.Background(), sys.Process(), fpsystem.ProcessRequest{Command: "env", Timeout: time.Second}, 1<<20)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -787,7 +788,7 @@ func TestHostSettersEnvironmentResolverAndNetworkGuards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	resolver, ok := host.Environment().(ExecutableResolver)
+	resolver, ok := host.Environment().(fpsystem.ExecutableResolver)
 	if !ok {
 		t.Fatalf("environment = %T, want ExecutableResolver", host.Environment())
 	}
@@ -820,18 +821,18 @@ func TestHostSettersEnvironmentResolverAndNetworkGuards(t *testing.T) {
 }
 
 type testSystemBoundary struct {
-	workspace Workspace
-	network   Network
-	process   ProcessManager
-	env       Environment
+	workspace runtimeworkspace.Workspace
+	network   fpsystem.Network
+	process   fpsystem.ProcessManager
+	env       fpsystem.Environment
 }
 
-func (s testSystemBoundary) Workspace() Workspace     { return s.workspace }
-func (s testSystemBoundary) Network() Network         { return s.network }
-func (s testSystemBoundary) Process() ProcessManager  { return s.process }
-func (s testSystemBoundary) Environment() Environment { return s.env }
+func (s testSystemBoundary) Workspace() runtimeworkspace.Workspace { return s.workspace }
+func (s testSystemBoundary) Network() fpsystem.Network             { return s.network }
+func (s testSystemBoundary) Process() fpsystem.ProcessManager      { return s.process }
+func (s testSystemBoundary) Environment() fpsystem.Environment     { return s.env }
 
-func resolvedContains(paths []ResolvedPath, rel string) bool {
+func resolvedContains(paths []runtimeworkspace.ResolvedPath, rel string) bool {
 	for _, path := range paths {
 		if path.Rel == rel {
 			return true

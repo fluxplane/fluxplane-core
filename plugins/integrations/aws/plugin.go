@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"time"
 
@@ -108,7 +109,7 @@ func (o observer) Observe(ctx context.Context, _ runtimeevidence.ObservationRequ
 		content["source"] = "config"
 	}
 
-	var env system.Environment
+	var env fpsystem.Environment
 	if o.plugin.system != nil {
 		env = o.plugin.system.Environment()
 	}
@@ -259,7 +260,7 @@ func regionKeys(cfg Config) []string {
 	return []string{"AWS_REGION", "AWS_DEFAULT_REGION"}
 }
 
-func lookupFirst(ctx context.Context, env system.Environment, keys ...string) (string, bool, error) {
+func lookupFirst(ctx context.Context, env fpsystem.Environment, keys ...string) (string, bool, error) {
 	for _, key := range keys {
 		value, ok, err := env.Lookup(ctx, key)
 		if err != nil {
@@ -273,7 +274,7 @@ func lookupFirst(ctx context.Context, env system.Environment, keys ...string) (s
 	return "", false, nil
 }
 
-func lookupPresent(ctx context.Context, env system.Environment, key string) (bool, error) {
+func lookupPresent(ctx context.Context, env fpsystem.Environment, key string) (bool, error) {
 	value, ok, err := env.Lookup(ctx, key)
 	if err != nil {
 		return false, err

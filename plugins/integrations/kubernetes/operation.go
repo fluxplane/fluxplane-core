@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,7 +14,6 @@ import (
 
 	coreoperation "github.com/fluxplane/fluxplane-core/core/operation"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 const defaultPortForwardAddress = "127.0.0.1"
@@ -71,7 +71,7 @@ func (p Plugin) portForward() operationruntime.TypedResultHandler[portForwardInp
 		if err != nil {
 			return coreoperation.Failed("invalid_k8s_port_forward_input", err.Error(), nil)
 		}
-		handle, started, err := p.system.Process().Ensure(ctx, system.ProcessRequest{
+		handle, started, err := p.system.Process().Ensure(ctx, fpsystem.ProcessRequest{
 			Command:   "kubectl",
 			Args:      resolved.args,
 			Label:     resolved.label,

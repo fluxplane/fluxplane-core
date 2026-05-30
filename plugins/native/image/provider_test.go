@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-policy/policyauth"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"testing"
 
@@ -247,15 +249,15 @@ func newProviderTestSystem(t *testing.T, env map[string]string, response systemk
 }
 
 type providerTestSystem struct {
-	workspace system.Workspace
+	workspace runtimeworkspace.Workspace
 	network   *recordingNetwork
-	env       system.Environment
+	env       fpsystem.Environment
 }
 
-func (s providerTestSystem) Workspace() system.Workspace     { return s.workspace }
-func (s providerTestSystem) Network() system.Network         { return s.network }
-func (s providerTestSystem) Process() system.ProcessManager  { return nil }
-func (s providerTestSystem) Environment() system.Environment { return s.env }
+func (s providerTestSystem) Workspace() runtimeworkspace.Workspace { return s.workspace }
+func (s providerTestSystem) Network() fpsystem.Network             { return s.network }
+func (s providerTestSystem) Process() fpsystem.ProcessManager      { return nil }
+func (s providerTestSystem) Environment() fpsystem.Environment     { return s.env }
 
 type recordingNetwork struct {
 	fpsystemtest.UnsupportedNetwork

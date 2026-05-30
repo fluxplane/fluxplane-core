@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Browser automation now uses `github.com/fluxplane/fluxplane-browser`,
   with core injecting URL authorization and artifact persistence callbacks.
 - Runtime workspace file IO now flows through `github.com/fluxplane/fluxplane-system`
-  instead of broad file helper methods on `runtime/system.Workspace`.
+  instead of broad file helper methods on `runtime/workspace.Workspace`.
 - `runtime/workspace` now owns the workspace semantic interface and no longer
   imports `runtime/system`.
 - Native workspace and shell-adjacent plugins now depend on explicit workspace,
@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native human/code plugins and the Go language plugin now receive explicit
   process/workspace capabilities through config structs instead of storing the
   aggregate `runtime/system.System`.
+- Removed `runtime/system` compatibility aliases for workspace, network, process,
+  environment, and path types; callers now use the owning packages directly.
 
 ## [0.22.0] - 2026-05-29
 

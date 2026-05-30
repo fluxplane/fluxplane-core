@@ -588,7 +588,7 @@ func (p Plugin) taskRun(manager *runtimeproject.Manager) operationruntime.TypedR
 			result.Diagnostics = append(result.Diagnostics, coreproject.Warning{Code: "process_unavailable", Message: "project task execution requires a process manager"})
 			return taskRunFailed("process manager is unavailable", result)
 		}
-		processReq := system.ProcessRequest{
+		processReq := fpsystem.ProcessRequest{
 			Command:   selection.Executable,
 			Args:      selection.Args,
 			Workdir:   selection.Workdir,
@@ -693,7 +693,7 @@ func processIntent(command string, args []string, workdir string) operation.Inte
 	}
 }
 
-func emitTaskProcessUsage(ctx operation.Context, result system.ProcessResult) {
+func emitTaskProcessUsage(ctx operation.Context, result fpsystem.ProcessResult) {
 	ctx.Events().Emit(usage.Recorded{
 		Source: TaskRunOp,
 		Subject: usage.Subject{

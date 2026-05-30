@@ -7,14 +7,14 @@ import (
 	"time"
 
 	corelanguage "github.com/fluxplane/fluxplane-core/core/language"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 const defaultProbeTimeout = 10 * time.Second
 
 // ResolveToolchainStatus probes a toolchain through a process boundary. Core
 // toolchain specs remain inert; this package owns process IO.
-func ResolveToolchainStatus(ctx context.Context, process system.ProcessManager, spec corelanguage.ToolchainSpec) corelanguage.ToolchainStatus {
+func ResolveToolchainStatus(ctx context.Context, process fpsystem.ProcessManager, spec corelanguage.ToolchainSpec) corelanguage.ToolchainStatus {
 	status := corelanguage.ToolchainStatus{ID: spec.ID, Available: true, Versions: map[string]string{}}
 	if len(spec.RequiredBinaries) == 0 {
 		status.Available = true
@@ -59,13 +59,13 @@ func unavailable(status corelanguage.ToolchainStatus, msg string) corelanguage.T
 	return status
 }
 
-func probeBinary(ctx context.Context, process system.ProcessManager, binary corelanguage.ToolchainBinarySpec) corelanguage.ToolchainBinaryStatus {
+func probeBinary(ctx context.Context, process fpsystem.ProcessManager, binary corelanguage.ToolchainBinarySpec) corelanguage.ToolchainBinaryStatus {
 	out := corelanguage.ToolchainBinaryStatus{Name: binary.Name}
 	args := binary.VersionArgs
 	if len(args) == 0 {
 		args = []string{"version"}
 	}
-	result, err := process.Run(ctx, system.ProcessRequest{
+	result, err := process.Run(ctx, fpsystem.ProcessRequest{
 		Command:   binary.Name,
 		Args:      args,
 		Timeout:   defaultProbeTimeout,

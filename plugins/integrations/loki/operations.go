@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"net/url"
 	"regexp"
 	"sort"
@@ -16,7 +17,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-policy"
 )
 
@@ -332,7 +332,7 @@ func (p Plugin) portForwardCandidate(ctx operation.Context, candidate corediscov
 	resource := kind + "/" + name
 	args = append(args, "-n", namespace, "port-forward", "--address", "127.0.0.1", resource, fmt.Sprintf("%d:%d", localPort, remotePort))
 	label := fmt.Sprintf("loki-%s-%s-%d", namespace, name, remotePort)
-	_, _, err := p.system.Process().Ensure(ctx, system.ProcessRequest{
+	_, _, err := p.system.Process().Ensure(ctx, fpsystem.ProcessRequest{
 		Command:   "kubectl",
 		Args:      args,
 		Label:     label,

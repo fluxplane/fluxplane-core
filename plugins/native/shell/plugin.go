@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -37,8 +38,8 @@ var supportedShells = []string{"sh", "bash", "zsh", "fish", "pwsh", "powershell"
 
 // Plugin contributes shell and process execution operations.
 type Plugin struct {
-	process     system.ProcessManager
-	environment system.Environment
+	process     fpsystem.ProcessManager
+	environment fpsystem.Environment
 	handles     *sync.Map
 	captures    *sync.Map
 }
@@ -48,8 +49,8 @@ var _ pluginhost.OperationContributor = Plugin{}
 
 // Config configures shell and process execution boundaries.
 type Config struct {
-	Process     system.ProcessManager
-	Environment system.Environment
+	Process     fpsystem.ProcessManager
+	Environment fpsystem.Environment
 }
 
 // New returns a shell plugin.
@@ -224,7 +225,7 @@ func (p Plugin) run() operationruntime.TypedResultHandler[execInput, map[string]
 	}
 }
 
-func (p Plugin) runProcess(ctx operation.Context, request system.ProcessRequest) operation.Result {
+func (p Plugin) runProcess(ctx operation.Context, request fpsystem.ProcessRequest) operation.Result {
 	if strings.TrimSpace(request.Group) == "" {
 		request.Group = fmt.Sprintf("shell-run-%d", time.Now().UnixNano())
 	}
@@ -280,11 +281,11 @@ func (p Plugin) ensure() operationruntime.TypedResultHandler[execInput, map[stri
 	}
 }
 
-func (p Plugin) startProcess(ctx operation.Context, request system.ProcessRequest, ensure bool) operation.Result {
+func (p Plugin) startProcess(ctx operation.Context, request fpsystem.ProcessRequest, ensure bool) operation.Result {
 	request.Timeout = 0
 	request.Detached = true
 	var (
-		handle  system.ProcessHandle
+		handle  fpsystem.ProcessHandle
 		started bool
 		err     error
 	)
@@ -298,7 +299,7 @@ func (p Plugin) startProcess(ctx operation.Context, request system.ProcessReques
 		return operation.Failed("process_start_failed", err.Error(), nil)
 	}
 	p.storeHandle(handle)
-	p.captureHandle(context.Background(), handle, func(event system.ProcessEvent) { ctx.Events().Emit(event) })
+	p.captureHandle(context.Background(), handle, func(event fpsystem.ProcessEvent) { ctx.Events().Emit(event) })
 	info := handle.Info()
 	data := processInfoData(info)
 	data["started"] = started
@@ -449,8 +450,8 @@ type processCapture struct {
 	stderr strings.Builder
 }
 
-func (c *processCapture) append(event system.ProcessEvent) {
-	if c == nil || event.Kind != system.ProcessEventOutput {
+func (c *processCapture) append(event fpsystem.ProcessEvent) {
+	if c == nil || event.Kind != fpsystem.ProcessEventOutput {
 		return
 	}
 	c.mu.Lock()
@@ -472,14 +473,14 @@ func (c *processCapture) output() (string, string) {
 	return c.stdout.String(), c.stderr.String()
 }
 
-func (c *processCapture) apply(result *system.ProcessResult) {
+func (c *processCapture) apply(result *fpsystem.ProcessResult) {
 	if c == nil || result == nil {
 		return
 	}
 	result.Stdout, result.Stderr = c.output()
 }
 
-func (p Plugin) captureHandle(ctx context.Context, handle system.ProcessHandle, emit func(system.ProcessEvent)) *processCapture {
+func (p Plugin) captureHandle(ctx context.Context, handle fpsystem.ProcessHandle, emit func(fpsystem.ProcessEvent)) *processCapture {
 	capture := &processCapture{}
 	if p.captures != nil && handle != nil {
 		p.captures.Store(handle.ID(), capture)
@@ -516,7 +517,7 @@ func (p Plugin) lookupCapture(id string) *processCapture {
 	return nil
 }
 
-func (p Plugin) storeHandle(handle system.ProcessHandle) {
+func (p Plugin) storeHandle(handle fpsystem.ProcessHandle) {
 	if handle == nil || p.handles == nil {
 		return
 	}
@@ -526,14 +527,14 @@ func (p Plugin) storeHandle(handle system.ProcessHandle) {
 	}
 }
 
-func (p Plugin) lookupHandle(id string) (system.ProcessHandle, error) {
+func (p Plugin) lookupHandle(id string) (fpsystem.ProcessHandle, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, fmt.Errorf("process id is empty")
 	}
 	if p.handles != nil {
 		if value, ok := p.handles.Load(id); ok {
-			if handle, ok := value.(system.ProcessHandle); ok && handle != nil {
+			if handle, ok := value.(fpsystem.ProcessHandle); ok && handle != nil {
 				return handle, nil
 			}
 		}
@@ -553,32 +554,32 @@ func processSelector(req processIDInput) (string, *operation.Result) {
 	return id, nil
 }
 
-func (p Plugin) shellProcessRequest(ctx context.Context, req shellInput) (system.ProcessRequest, operation.Result, bool) {
+func (p Plugin) shellProcessRequest(ctx context.Context, req shellInput) (fpsystem.ProcessRequest, operation.Result, bool) {
 	if len(req.Commands) == 0 {
-		return system.ProcessRequest{}, operation.Failed("invalid_shell_input", "commands is required", nil), false
+		return fpsystem.ProcessRequest{}, operation.Failed("invalid_shell_input", "commands is required", nil), false
 	}
 	script := strings.Join(req.Commands, "\n")
 	shell, err := p.resolveShell(ctx, req.Shell)
 	if err != nil {
-		return system.ProcessRequest{}, operation.Failed("shell_unavailable", err.Error(), nil), false
+		return fpsystem.ProcessRequest{}, operation.Failed("shell_unavailable", err.Error(), nil), false
 	}
 	timeout := boundedTimeout(req.TimeoutMS, 30*time.Second)
-	return system.ProcessRequest{
+	return fpsystem.ProcessRequest{
 		Command: shell.Name, Args: shellScriptArgs(shell.Name, script), Workdir: req.Workdir, Env: system.DefaultProcessEnv(), Timeout: timeout,
 		MaxStdout: 64 * 1024, MaxStderr: 64 * 1024, Label: req.Label, Tags: req.Tags, Metadata: req.Metadata,
 	}, operation.Result{}, true
 }
 
-func (p Plugin) processRequest(req execInput, fallbackTimeout time.Duration) (system.ProcessRequest, operation.Result, bool) {
+func (p Plugin) processRequest(req execInput, fallbackTimeout time.Duration) (fpsystem.ProcessRequest, operation.Result, bool) {
 	if strings.TrimSpace(req.Command) == "" {
-		return system.ProcessRequest{}, operation.Failed("invalid_process_input", "command is required", nil), false
+		return fpsystem.ProcessRequest{}, operation.Failed("invalid_process_input", "command is required", nil), false
 	}
 	command, args, err := commandAndArgs(req)
 	if err != nil {
-		return system.ProcessRequest{}, operation.Rejected("process_command_invalid", err.Error(), map[string]any{"command": req.Command}), false
+		return fpsystem.ProcessRequest{}, operation.Rejected("process_command_invalid", err.Error(), map[string]any{"command": req.Command}), false
 	}
 	timeout := boundedTimeout(req.TimeoutMS, fallbackTimeout)
-	return system.ProcessRequest{
+	return fpsystem.ProcessRequest{
 		Command: command, Args: args, Workdir: req.Workdir, Env: system.DefaultProcessEnv(), Timeout: timeout,
 		MaxStdout: 64 * 1024, MaxStderr: 64 * 1024, Label: req.Label, Tags: req.Tags, Metadata: req.Metadata,
 	}, operation.Result{}, true
@@ -642,9 +643,9 @@ func (p Plugin) resolveShell(ctx context.Context, requested string) (shellInfo, 
 func (p Plugin) availableShells(ctx context.Context) []map[string]any {
 	out := make([]map[string]any, 0, len(supportedShells))
 	seen := map[string]bool{}
-	var resolver system.ExecutableResolver
+	var resolver fpsystem.ExecutableResolver
 	if p.environment != nil {
-		resolver, _ = p.environment.(system.ExecutableResolver)
+		resolver, _ = p.environment.(fpsystem.ExecutableResolver)
 	}
 	for _, name := range supportedShells {
 		if seen[name] {
@@ -671,7 +672,7 @@ func (p Plugin) shellVersion(ctx context.Context, path, name string) string {
 	if name == "cmd" {
 		args = []string{"/C", "ver"}
 	}
-	result, err := p.process.Run(ctx, system.ProcessRequest{Command: path, Args: args, Timeout: 2 * time.Second, MaxStdout: 4096, MaxStderr: 4096})
+	result, err := p.process.Run(ctx, fpsystem.ProcessRequest{Command: path, Args: args, Timeout: 2 * time.Second, MaxStdout: 4096, MaxStderr: 4096})
 	if err != nil && result.Stdout == "" && result.Stderr == "" {
 		return ""
 	}
@@ -771,7 +772,7 @@ func processIntent(command string, args []string, workdir string) operation.Inte
 	}
 }
 
-func processResultData(result system.ProcessResult) map[string]any {
+func processResultData(result fpsystem.ProcessResult) map[string]any {
 	return map[string]any{
 		"command": result.Command, "args": result.Args, "workdir": result.Workdir,
 		"stdout": result.Stdout, "stderr": result.Stderr, "exit_code": result.ExitCode,
@@ -779,7 +780,7 @@ func processResultData(result system.ProcessResult) map[string]any {
 	}
 }
 
-func renderResult(result system.ProcessResult) string {
+func renderResult(result fpsystem.ProcessResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[exit: %d] [duration: %.1fs]", result.ExitCode, result.Duration.Seconds())
 	if result.TimedOut {
@@ -815,7 +816,7 @@ func renderOutput(stdout, stderr string) string {
 	return strings.TrimSpace(b.String())
 }
 
-func processInfoData(info system.ProcessInfo) map[string]any {
+func processInfoData(info fpsystem.ProcessInfo) map[string]any {
 	return map[string]any{
 		"id": info.ID, "label": info.Label, "tags": info.Tags, "metadata": info.Metadata,
 		"command": info.Command, "args": info.Args, "workdir": info.Workdir,
@@ -824,7 +825,7 @@ func processInfoData(info system.ProcessInfo) map[string]any {
 	}
 }
 
-func emitProcessUsage(ctx operation.Context, result system.ProcessResult) {
+func emitProcessUsage(ctx operation.Context, result fpsystem.ProcessResult) {
 	ctx.Events().Emit(usage.Recorded{
 		Source: ExecOp,
 		Subject: usage.Subject{

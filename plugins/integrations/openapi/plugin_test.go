@@ -2,6 +2,7 @@ package openapi
 
 import (
 	"context"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
@@ -337,12 +339,12 @@ components:
 }
 
 type testSystem struct {
-	workspace system.Workspace
-	network   system.Network
-	env       system.Environment
+	workspace runtimeworkspace.Workspace
+	network   fpsystem.Network
+	env       fpsystem.Environment
 }
 
-func newTestSystem(t *testing.T, dir string, network system.Network, env map[string]string) system.System {
+func newTestSystem(t *testing.T, dir string, network fpsystem.Network, env map[string]string) system.System {
 	t.Helper()
 	host, err := system.NewHost(system.Config{Root: dir, AllowPrivateNetwork: true})
 	if err != nil {
@@ -354,10 +356,10 @@ func newTestSystem(t *testing.T, dir string, network system.Network, env map[str
 	return testSystem{workspace: host.Workspace(), network: network, env: testEnv{values: env}}
 }
 
-func (s testSystem) Workspace() system.Workspace     { return s.workspace }
-func (s testSystem) Network() system.Network         { return s.network }
-func (s testSystem) Process() system.ProcessManager  { return nil }
-func (s testSystem) Environment() system.Environment { return s.env }
+func (s testSystem) Workspace() runtimeworkspace.Workspace { return s.workspace }
+func (s testSystem) Network() fpsystem.Network             { return s.network }
+func (s testSystem) Process() fpsystem.ProcessManager      { return nil }
+func (s testSystem) Environment() fpsystem.Environment     { return s.env }
 
 type testEnv struct {
 	values map[string]string

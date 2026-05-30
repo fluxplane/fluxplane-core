@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"io"
 	"path"
 	"regexp"
@@ -509,20 +510,20 @@ func (p Plugin) goModTidy() operationruntime.TypedResultHandler[golang.GoModTidy
 	}
 }
 
-func (p Plugin) runGoTool(ctx operation.Context, workdir string, args []string, maxBytesValue int, timeout time.Duration) (system.ProcessResult, error) {
+func (p Plugin) runGoTool(ctx operation.Context, workdir string, args []string, maxBytesValue int, timeout time.Duration) (fpsystem.ProcessResult, error) {
 	return p.runGoToolEnv(ctx, workdir, args, nil, maxBytesValue, timeout)
 }
 
-func (p Plugin) runGoToolEnv(ctx operation.Context, workdir string, args []string, env []string, maxBytesValue int, timeout time.Duration) (system.ProcessResult, error) {
+func (p Plugin) runGoToolEnv(ctx operation.Context, workdir string, args []string, env []string, maxBytesValue int, timeout time.Duration) (fpsystem.ProcessResult, error) {
 	if p.process == nil {
-		return system.ProcessResult{}, fmt.Errorf("golang: process manager is nil")
+		return fpsystem.ProcessResult{}, fmt.Errorf("golang: process manager is nil")
 	}
 	rel, err := cleanOptionalWorkspacePath(workdir)
 	if err != nil {
-		return system.ProcessResult{}, err
+		return fpsystem.ProcessResult{}, err
 	}
 	limit := maxBytes(maxBytesValue)
-	return p.process.Run(ctx, system.ProcessRequest{
+	return p.process.Run(ctx, fpsystem.ProcessRequest{
 		Command:   "go",
 		Args:      append([]string(nil), args...),
 		Workdir:   rel,
@@ -1407,7 +1408,7 @@ func goTestDiagnosticArgs(args []string) []string {
 	return out
 }
 
-func mergeGoTestBuildDiagnostics(result *golang.GoTestResult, rawRun system.ProcessResult) {
+func mergeGoTestBuildDiagnostics(result *golang.GoTestResult, rawRun fpsystem.ProcessResult) {
 	if result == nil || strings.TrimSpace(rawRun.Stderr) == "" {
 		return
 	}
@@ -1424,7 +1425,7 @@ func mergeGoTestBuildDiagnostics(result *golang.GoTestResult, rawRun system.Proc
 	}
 }
 
-func populateGoTestRunEvent(result *golang.GoTestResult, run system.ProcessResult, patterns []string) {
+func populateGoTestRunEvent(result *golang.GoTestResult, run fpsystem.ProcessResult, patterns []string) {
 	if result == nil {
 		return
 	}
@@ -1491,7 +1492,7 @@ func goTestEventTimeRange(events []map[string]any) (time.Time, time.Time) {
 	return startedAt, finishedAt
 }
 
-func goTestFailures(result golang.GoTestResult, run system.ProcessResult) []testrun.Failure {
+func goTestFailures(result golang.GoTestResult, run fpsystem.ProcessResult) []testrun.Failure {
 	var failures []testrun.Failure
 	seen := map[string]bool{}
 	for _, pkg := range result.Packages {
@@ -1950,13 +1951,13 @@ func emptyDefault(value, fallback string) string {
 	return value
 }
 
-func processCommand(result system.ProcessResult) string {
+func processCommand(result fpsystem.ProcessResult) string {
 	if result.Command == "" {
 		return ""
 	}
 	return strings.TrimSpace(strings.Join(append([]string{result.Command}, result.Args...), " "))
 }
-func processData(result system.ProcessResult) map[string]any {
+func processData(result fpsystem.ProcessResult) map[string]any {
 	return map[string]any{
 		"command":          result.Command,
 		"args":             result.Args,

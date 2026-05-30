@@ -22,7 +22,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
@@ -31,7 +30,7 @@ import (
 
 func TestPortForwardUsesManagedKubectlProcess(t *testing.T) {
 	process := &recordingProcess{
-		handle:  fakeProcessHandle{info: system.ProcessInfo{ID: "proc-1", Label: "custom-label", Command: "kubectl", Running: true}},
+		handle:  fakeProcessHandle{info: fpsystem.ProcessInfo{ID: "proc-1", Label: "custom-label", Command: "kubectl", Running: true}},
 		started: true,
 	}
 	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), process: process})
@@ -704,13 +703,13 @@ func hasAssertion(assertions []coreevidence.Assertion, kind, target string) bool
 
 type fakeSystem struct {
 	*systemtest.MemorySystem
-	process system.ProcessManager
-	network system.Network
+	process fpsystem.ProcessManager
+	network fpsystem.Network
 }
 
-func (s fakeSystem) Process() system.ProcessManager { return s.process }
+func (s fakeSystem) Process() fpsystem.ProcessManager { return s.process }
 
-func (s fakeSystem) Network() system.Network {
+func (s fakeSystem) Network() fpsystem.Network {
 	if s.network != nil {
 		return s.network
 	}
@@ -718,8 +717,8 @@ func (s fakeSystem) Network() system.Network {
 }
 
 type recordingProcess struct {
-	ensureRequests []system.ProcessRequest
-	handle         system.ProcessHandle
+	ensureRequests []fpsystem.ProcessRequest
+	handle         fpsystem.ProcessHandle
 	started        bool
 	err            error
 }
@@ -739,62 +738,62 @@ func (n *recordingNetwork) DoHTTP(_ context.Context, req systemkit.HTTPRequest) 
 	return n.response, nil
 }
 
-func (p *recordingProcess) Run(context.Context, system.ProcessRequest) (system.ProcessResult, error) {
-	return system.ProcessResult{}, errors.New("not implemented")
+func (p *recordingProcess) Run(context.Context, fpsystem.ProcessRequest) (fpsystem.ProcessResult, error) {
+	return fpsystem.ProcessResult{}, errors.New("not implemented")
 }
 
-func (p *recordingProcess) Start(context.Context, system.ProcessRequest) (system.ProcessHandle, error) {
+func (p *recordingProcess) Start(context.Context, fpsystem.ProcessRequest) (fpsystem.ProcessHandle, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (p *recordingProcess) Ensure(_ context.Context, req system.ProcessRequest) (system.ProcessHandle, bool, error) {
+func (p *recordingProcess) Ensure(_ context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessHandle, bool, error) {
 	p.ensureRequests = append(p.ensureRequests, req)
 	if p.err != nil {
 		return nil, false, p.err
 	}
 	handle := p.handle
 	if handle == nil {
-		handle = fakeProcessHandle{info: system.ProcessInfo{ID: "proc-1", Label: req.Label, Command: req.Command, Args: req.Args, Running: true}}
+		handle = fakeProcessHandle{info: fpsystem.ProcessInfo{ID: "proc-1", Label: req.Label, Command: req.Command, Args: req.Args, Running: true}}
 	}
 	return handle, p.started, nil
 }
 
-func (p *recordingProcess) Group(string) system.ProcessGroup { return nil }
+func (p *recordingProcess) Group(string) fpsystem.ProcessGroup { return nil }
 
-func (p *recordingProcess) List(context.Context) ([]system.ProcessInfo, error) {
+func (p *recordingProcess) List(context.Context) ([]fpsystem.ProcessInfo, error) {
 	return nil, errors.New("not implemented")
 }
 
 type fakeProcessHandle struct {
-	info system.ProcessInfo
+	info fpsystem.ProcessInfo
 }
 
 func (h fakeProcessHandle) ID() string { return h.info.ID }
 
-func (h fakeProcessHandle) Info() system.ProcessInfo { return h.info }
+func (h fakeProcessHandle) Info() fpsystem.ProcessInfo { return h.info }
 
-func (h fakeProcessHandle) Events() <-chan system.ProcessEvent {
-	ch := make(chan system.ProcessEvent)
+func (h fakeProcessHandle) Events() <-chan fpsystem.ProcessEvent {
+	ch := make(chan fpsystem.ProcessEvent)
 	close(ch)
 	return ch
 }
 
-func (h fakeProcessHandle) Subscribe(context.Context) <-chan system.ProcessEvent { return h.Events() }
+func (h fakeProcessHandle) Subscribe(context.Context) <-chan fpsystem.ProcessEvent { return h.Events() }
 
-func (h fakeProcessHandle) Wait(context.Context) (system.ProcessResult, error) {
-	return system.ProcessResult{Command: h.info.Command, Args: h.info.Args}, nil
+func (h fakeProcessHandle) Wait(context.Context) (fpsystem.ProcessResult, error) {
+	return fpsystem.ProcessResult{Command: h.info.Command, Args: h.info.Args}, nil
 }
 
-func (h fakeProcessHandle) Stop(context.Context) error                            { return nil }
-func (h fakeProcessHandle) Kill(context.Context) error                            { return nil }
-func (h fakeProcessHandle) Signal(context.Context, fpsystem.ProcessSignal) error  { return nil }
-func (h fakeProcessHandle) Interrupt(context.Context) error                       { return nil }
-func (h fakeProcessHandle) Reload(context.Context) error                          { return nil }
-func (h fakeProcessHandle) Pause(context.Context) error                           { return nil }
-func (h fakeProcessHandle) Resume(context.Context) error                          { return nil }
-func (h fakeProcessHandle) Write(context.Context, []byte) (int, error)            { return 0, nil }
-func (h fakeProcessHandle) CloseInput(context.Context) error                      { return nil }
-func (h fakeProcessHandle) Restart(context.Context) (system.ProcessHandle, error) { return h, nil }
-func (h fakeProcessHandle) Detach(context.Context) error                          { return nil }
+func (h fakeProcessHandle) Stop(context.Context) error                              { return nil }
+func (h fakeProcessHandle) Kill(context.Context) error                              { return nil }
+func (h fakeProcessHandle) Signal(context.Context, fpsystem.ProcessSignal) error    { return nil }
+func (h fakeProcessHandle) Interrupt(context.Context) error                         { return nil }
+func (h fakeProcessHandle) Reload(context.Context) error                            { return nil }
+func (h fakeProcessHandle) Pause(context.Context) error                             { return nil }
+func (h fakeProcessHandle) Resume(context.Context) error                            { return nil }
+func (h fakeProcessHandle) Write(context.Context, []byte) (int, error)              { return 0, nil }
+func (h fakeProcessHandle) CloseInput(context.Context) error                        { return nil }
+func (h fakeProcessHandle) Restart(context.Context) (fpsystem.ProcessHandle, error) { return h, nil }
+func (h fakeProcessHandle) Detach(context.Context) error                            { return nil }
 
 var _ = metav1.NamespaceDefault

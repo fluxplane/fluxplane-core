@@ -3,6 +3,7 @@ package code
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"path"
 	"strings"
 	"time"
@@ -12,7 +13,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 )
 
@@ -24,12 +24,12 @@ const (
 // Plugin contributes scratch code execution operations.
 type Plugin struct {
 	workspace runtimeworkspace.Workspace
-	process   system.ProcessManager
+	process   fpsystem.ProcessManager
 }
 
 type Config struct {
 	Workspace runtimeworkspace.Workspace
-	Process   system.ProcessManager
+	Process   fpsystem.ProcessManager
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -220,7 +220,7 @@ func (p Plugin) execute() operationruntime.TypedResultHandler[executeInput, Exec
 		}
 		args := []string{"run", "--rm", "--network", "none", "-v", scratch.Root() + ":/workspace", "-w", "/workspace", preset.Image}
 		args = append(args, command...)
-		result, err := p.process.Run(ctx, system.ProcessRequest{
+		result, err := p.process.Run(ctx, fpsystem.ProcessRequest{
 			Command:   "docker",
 			Args:      args,
 			Timeout:   timeout,
@@ -270,7 +270,7 @@ func codeExecuteModelText(result ExecuteResult) string {
 	return strings.Join(parts, "\n")
 }
 
-func emitUsage(ctx operation.Context, preset string, writtenBytes int, result system.ProcessResult) {
+func emitUsage(ctx operation.Context, preset string, writtenBytes int, result fpsystem.ProcessResult) {
 	ctx.Events().Emit(usage.Recorded{
 
 		Source: ExecuteOp,

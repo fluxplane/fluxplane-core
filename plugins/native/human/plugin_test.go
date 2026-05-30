@@ -8,7 +8,6 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-event"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -105,12 +104,12 @@ func TestSpeechTextTruncatesLongMarkdown(t *testing.T) {
 	}
 }
 
-func operationForTest(t *testing.T, name string, process system.ProcessManager) operation.Operation {
+func operationForTest(t *testing.T, name string, process fpsystem.ProcessManager) operation.Operation {
 	t.Helper()
 	return operationForTestWithSpeech(t, name, process, nil)
 }
 
-func operationForTestWithSpeech(t *testing.T, name string, process system.ProcessManager, speak func(string) error) operation.Operation {
+func operationForTestWithSpeech(t *testing.T, name string, process fpsystem.ProcessManager, speak func(string) error) operation.Operation {
 	t.Helper()
 	plugin := NewWithConfig(Config{Process: process, Speak: speak})
 	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
@@ -127,27 +126,27 @@ func operationForTestWithSpeech(t *testing.T, name string, process system.Proces
 }
 
 type recordingProcess struct {
-	runs   []system.ProcessRequest
-	starts []system.ProcessRequest
+	runs   []fpsystem.ProcessRequest
+	starts []fpsystem.ProcessRequest
 }
 
-func (p *recordingProcess) Run(_ context.Context, req system.ProcessRequest) (system.ProcessResult, error) {
+func (p *recordingProcess) Run(_ context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessResult, error) {
 	p.runs = append(p.runs, req)
-	return system.ProcessResult{Command: req.Command, Args: req.Args}, nil
+	return fpsystem.ProcessResult{Command: req.Command, Args: req.Args}, nil
 }
 
-func (p *recordingProcess) Start(_ context.Context, req system.ProcessRequest) (system.ProcessHandle, error) {
+func (p *recordingProcess) Start(_ context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessHandle, error) {
 	p.starts = append(p.starts, req)
-	return recordingHandle{info: system.ProcessInfo{ID: fmt.Sprintf("proc-%d", len(p.starts)), Command: req.Command, Args: req.Args}}, nil
+	return recordingHandle{info: fpsystem.ProcessInfo{ID: fmt.Sprintf("proc-%d", len(p.starts)), Command: req.Command, Args: req.Args}}, nil
 }
 
-func (p *recordingProcess) Ensure(ctx context.Context, req system.ProcessRequest) (system.ProcessHandle, bool, error) {
+func (p *recordingProcess) Ensure(ctx context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessHandle, bool, error) {
 	handle, err := p.Start(ctx, req)
 	return handle, false, err
 }
 
-func (p *recordingProcess) Group(string) system.ProcessGroup                   { return nil }
-func (p *recordingProcess) List(context.Context) ([]system.ProcessInfo, error) { return nil, nil }
+func (p *recordingProcess) Group(string) fpsystem.ProcessGroup                   { return nil }
+func (p *recordingProcess) List(context.Context) ([]fpsystem.ProcessInfo, error) { return nil, nil }
 func hasProcessIntent(intents operation.IntentSet, command string) bool {
 	for _, intent := range intents.Operations {
 		target, ok := intent.Target.(operation.ProcessTarget)
@@ -159,29 +158,29 @@ func hasProcessIntent(intents operation.IntentSet, command string) bool {
 }
 
 type recordingHandle struct {
-	info system.ProcessInfo
+	info fpsystem.ProcessInfo
 }
 
-func (h recordingHandle) ID() string               { return h.info.ID }
-func (h recordingHandle) Info() system.ProcessInfo { return h.info }
-func (h recordingHandle) Events() <-chan system.ProcessEvent {
-	ch := make(chan system.ProcessEvent)
+func (h recordingHandle) ID() string                 { return h.info.ID }
+func (h recordingHandle) Info() fpsystem.ProcessInfo { return h.info }
+func (h recordingHandle) Events() <-chan fpsystem.ProcessEvent {
+	ch := make(chan fpsystem.ProcessEvent)
 	close(ch)
 	return ch
 }
-func (h recordingHandle) Subscribe(context.Context) <-chan system.ProcessEvent { return h.Events() }
-func (h recordingHandle) Wait(context.Context) (system.ProcessResult, error) {
-	return system.ProcessResult{Command: h.info.Command, Args: h.info.Args}, nil
+func (h recordingHandle) Subscribe(context.Context) <-chan fpsystem.ProcessEvent { return h.Events() }
+func (h recordingHandle) Wait(context.Context) (fpsystem.ProcessResult, error) {
+	return fpsystem.ProcessResult{Command: h.info.Command, Args: h.info.Args}, nil
 }
 
-func (h recordingHandle) Stop(context.Context) error                            { return nil }
-func (h recordingHandle) Kill(context.Context) error                            { return nil }
-func (h recordingHandle) Signal(context.Context, fpsystem.ProcessSignal) error  { return nil }
-func (h recordingHandle) Interrupt(context.Context) error                       { return nil }
-func (h recordingHandle) Reload(context.Context) error                          { return nil }
-func (h recordingHandle) Pause(context.Context) error                           { return nil }
-func (h recordingHandle) Resume(context.Context) error                          { return nil }
-func (h recordingHandle) Write(context.Context, []byte) (int, error)            { return 0, nil }
-func (h recordingHandle) CloseInput(context.Context) error                      { return nil }
-func (h recordingHandle) Restart(context.Context) (system.ProcessHandle, error) { return h, nil }
-func (h recordingHandle) Detach(context.Context) error                          { return nil }
+func (h recordingHandle) Stop(context.Context) error                              { return nil }
+func (h recordingHandle) Kill(context.Context) error                              { return nil }
+func (h recordingHandle) Signal(context.Context, fpsystem.ProcessSignal) error    { return nil }
+func (h recordingHandle) Interrupt(context.Context) error                         { return nil }
+func (h recordingHandle) Reload(context.Context) error                            { return nil }
+func (h recordingHandle) Pause(context.Context) error                             { return nil }
+func (h recordingHandle) Resume(context.Context) error                            { return nil }
+func (h recordingHandle) Write(context.Context, []byte) (int, error)              { return 0, nil }
+func (h recordingHandle) CloseInput(context.Context) error                        { return nil }
+func (h recordingHandle) Restart(context.Context) (fpsystem.ProcessHandle, error) { return h, nil }
+func (h recordingHandle) Detach(context.Context) error                            { return nil }

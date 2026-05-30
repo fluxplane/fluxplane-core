@@ -25,7 +25,6 @@ import (
 	runtimelanguage "github.com/fluxplane/fluxplane-core/runtime/language"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimeproject "github.com/fluxplane/fluxplane-core/runtime/project"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -74,13 +73,13 @@ const (
 // Plugin contributes Go language support operations.
 type Plugin struct {
 	workspace runtimeworkspace.Workspace
-	process   system.ProcessManager
+	process   fpsystem.ProcessManager
 	manager   *runtimeproject.Manager
 }
 
 type Config struct {
 	Workspace runtimeworkspace.Workspace
-	Process   system.ProcessManager
+	Process   fpsystem.ProcessManager
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -390,7 +389,7 @@ func goToolchainSpec(ops []operation.Ref) language.ToolchainSpec {
 }
 
 type goToolchainObserver struct {
-	process   system.ProcessManager
+	process   fpsystem.ProcessManager
 	workspace runtimeworkspace.Workspace
 	spec      language.ToolchainSpec
 }

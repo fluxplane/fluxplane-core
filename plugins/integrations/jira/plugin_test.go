@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"testing"
 
@@ -15,7 +17,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/internal/atlassian"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
@@ -473,16 +474,16 @@ func TestJiraDatasourceJQLBuildsUsefulDefaultQueries(t *testing.T) {
 }
 
 type fakeSystem struct {
-	network system.Network
-	env     system.Environment
+	network fpsystem.Network
+	env     fpsystem.Environment
 }
 
-func (s fakeSystem) Workspace() system.Workspace     { return nil }
-func (s fakeSystem) Network() system.Network         { return s.network }
-func (s fakeSystem) Process() system.ProcessManager  { return nil }
-func (s fakeSystem) Environment() system.Environment { return s.env }
+func (s fakeSystem) Workspace() runtimeworkspace.Workspace { return nil }
+func (s fakeSystem) Network() fpsystem.Network             { return s.network }
+func (s fakeSystem) Process() fpsystem.ProcessManager      { return nil }
+func (s fakeSystem) Environment() fpsystem.Environment     { return s.env }
 
-func newTestPlugin(t *testing.T, network system.Network, env map[string]string) Plugin {
+func newTestPlugin(t *testing.T, network fpsystem.Network, env map[string]string) Plugin {
 	t.Helper()
 	store := runtimesecret.NewFileStore(t.TempDir())
 	resolver := runtimesecret.ChainResolver{

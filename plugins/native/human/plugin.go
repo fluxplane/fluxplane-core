@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"time"
 
@@ -49,13 +50,13 @@ func (NotificationSent) EventName() event.Name { return EventNotificationSent }
 
 // Plugin contributes human-in-the-loop operations.
 type Plugin struct {
-	process   system.ProcessManager
+	process   fpsystem.ProcessManager
 	clarifier runtimehuman.Clarifier
 	speak     func(string) error
 }
 
 type Config struct {
-	Process   system.ProcessManager
+	Process   fpsystem.ProcessManager
 	Clarifier runtimehuman.Clarifier
 	Speak     func(string) error
 }
@@ -333,7 +334,7 @@ func validateNotifyInput(req notifyInput) error {
 }
 
 func (p Plugin) runNotifySend(ctx context.Context, req notifyInput) (string, error) {
-	result, err := p.process.Run(ctx, system.ProcessRequest{
+	result, err := p.process.Run(ctx, fpsystem.ProcessRequest{
 		Command: "notify-send",
 		Args:    buildNotifyArgs(req),
 		Timeout: 15 * time.Second,
@@ -346,7 +347,7 @@ func (p Plugin) runNotifySend(ctx context.Context, req notifyInput) (string, err
 
 func (p Plugin) playTone(ctx context.Context, tone string) error {
 	if file := toneFiles[tone]; file != "" {
-		result, err := p.process.Run(ctx, system.ProcessRequest{
+		result, err := p.process.Run(ctx, fpsystem.ProcessRequest{
 			Command: "paplay",
 			Args:    []string{file},
 			Timeout: 5 * time.Second,
@@ -356,7 +357,7 @@ func (p Plugin) playTone(ctx context.Context, tone string) error {
 		}
 		_ = result
 	}
-	result, err := p.process.Run(ctx, system.ProcessRequest{
+	result, err := p.process.Run(ctx, fpsystem.ProcessRequest{
 		Command: "play",
 		Args:    soxArgs(tone),
 		Timeout: 5 * time.Second,
@@ -476,7 +477,7 @@ func buildNotifyArgs(req notifyInput) []string {
 	return args
 }
 
-func processError(result system.ProcessResult, err error) error {
+func processError(result fpsystem.ProcessResult, err error) error {
 	msg := strings.TrimSpace(result.Stderr)
 	if msg == "" {
 		msg = strings.TrimSpace(result.Stdout)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"time"
 
@@ -167,7 +168,7 @@ func observeDockerStatus(ctx context.Context, sys system.System) Status {
 		return status
 	}
 	process := sys.Process()
-	versionRun, err := process.Run(ctx, system.ProcessRequest{
+	versionRun, err := process.Run(ctx, fpsystem.ProcessRequest{
 		Command:   "docker",
 		Args:      []string{"--version"},
 		Timeout:   2 * time.Second,
@@ -180,7 +181,7 @@ func observeDockerStatus(ctx context.Context, sys system.System) Status {
 	}
 	status.BinaryAvailable = true
 	status.ClientVersion = parseDockerVersionText(versionRun.Stdout)
-	daemonRun, daemonErr := process.Run(ctx, system.ProcessRequest{
+	daemonRun, daemonErr := process.Run(ctx, fpsystem.ProcessRequest{
 		Command:   "docker",
 		Args:      []string{"version", "--format", "{{json .}}"},
 		Timeout:   3 * time.Second,
@@ -266,7 +267,7 @@ func nestedString(data map[string]any, keys ...string) string {
 	return strings.TrimSpace(value)
 }
 
-func boundedDiagnostic(err error, result system.ProcessResult) string {
+func boundedDiagnostic(err error, result fpsystem.ProcessResult) string {
 	var parts []string
 	if err != nil {
 		parts = append(parts, err.Error())

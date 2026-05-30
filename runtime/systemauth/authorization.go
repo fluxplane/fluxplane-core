@@ -3,6 +3,7 @@ package systemauth
 import (
 	"context"
 	"fmt"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"net"
 	"os"
 	"strings"
@@ -34,28 +35,28 @@ type authorizedSystem struct {
 	cfg  Config
 }
 
-func (s authorizedSystem) Workspace() system.Workspace {
+func (s authorizedSystem) Workspace() runtimeworkspace.Workspace {
 	if workspace := s.base.Workspace(); workspace != nil {
 		return authorizedWorkspace{base: workspace, cfg: s.cfg}
 	}
 	return nil
 }
 
-func (s authorizedSystem) Network() system.Network {
+func (s authorizedSystem) Network() fpsystem.Network {
 	if network := s.base.Network(); network != nil {
 		return Network(network, s.cfg)
 	}
 	return nil
 }
 
-func (s authorizedSystem) Process() system.ProcessManager {
+func (s authorizedSystem) Process() fpsystem.ProcessManager {
 	if process := s.base.Process(); process != nil {
 		return Process(process, s.cfg)
 	}
 	return nil
 }
 
-func (s authorizedSystem) Environment() system.Environment {
+func (s authorizedSystem) Environment() fpsystem.Environment {
 	if env := s.base.Environment(); env != nil {
 		return Environment(env, s.cfg)
 	}
@@ -63,44 +64,44 @@ func (s authorizedSystem) Environment() system.Environment {
 }
 
 type authorizedWorkspace struct {
-	base system.Workspace
+	base runtimeworkspace.Workspace
 	cfg  Config
 }
 
-func (w authorizedWorkspace) Root() string                  { return w.base.Root() }
-func (w authorizedWorkspace) Roots() []system.WorkspaceRoot { return w.base.Roots() }
-func (w authorizedWorkspace) System() fpsystem.System       { return w.base.System() }
+func (w authorizedWorkspace) Root() string                   { return w.base.Root() }
+func (w authorizedWorkspace) Roots() []runtimeworkspace.Root { return w.base.Roots() }
+func (w authorizedWorkspace) System() fpsystem.System        { return w.base.System() }
 
-func (w authorizedWorkspace) read(ctx context.Context, resolved system.ResolvedPath) error {
+func (w authorizedWorkspace) read(ctx context.Context, resolved runtimeworkspace.ResolvedPath) error {
 	return Authorize(ctx, w.cfg, policy.ResourceRef{Kind: policy.ResourcePath, Path: workspaceResourcePath(resolved.Rel)}, policy.ActionWorkspaceRead)
 }
-func (w authorizedWorkspace) write(ctx context.Context, resolved system.ResolvedPath) error {
+func (w authorizedWorkspace) write(ctx context.Context, resolved runtimeworkspace.ResolvedPath) error {
 	return Authorize(ctx, w.cfg, policy.ResourceRef{Kind: policy.ResourcePath, Path: workspaceResourcePath(resolved.Rel)}, policy.ActionWorkspaceWrite)
 }
 
-func (w authorizedWorkspace) ResolveExisting(ctx context.Context, raw string) (system.ResolvedPath, error) {
+func (w authorizedWorkspace) ResolveExisting(ctx context.Context, raw string) (runtimeworkspace.ResolvedPath, error) {
 	resolved, err := w.base.ResolveExisting(ctx, raw)
 	if err != nil {
-		return system.ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	if err := w.read(ctx, resolved); err != nil {
-		return system.ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	return resolved, nil
 }
 
-func (w authorizedWorkspace) ResolveCreate(ctx context.Context, raw string) (system.ResolvedPath, error) {
+func (w authorizedWorkspace) ResolveCreate(ctx context.Context, raw string) (runtimeworkspace.ResolvedPath, error) {
 	resolved, err := w.base.ResolveCreate(ctx, raw)
 	if err != nil {
-		return system.ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	if err := w.write(ctx, resolved); err != nil {
-		return system.ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	return resolved, nil
 }
 
-func (w authorizedWorkspace) CreateScratch(ctx context.Context, prefix string) (system.ScratchDir, error) {
+func (w authorizedWorkspace) CreateScratch(ctx context.Context, prefix string) (runtimeworkspace.ScratchDir, error) {
 	if err := Authorize(ctx, w.cfg, policy.ResourceRef{Kind: policy.ResourceWorkspace, Name: "scratch"}, policy.ActionWorkspaceWrite); err != nil {
 		return nil, err
 	}
@@ -112,15 +113,15 @@ func (w authorizedWorkspace) CreateScratch(ctx context.Context, prefix string) (
 }
 
 type authorizedScratchDir struct {
-	base system.ScratchDir
+	base runtimeworkspace.ScratchDir
 	cfg  Config
 }
 
 func (s authorizedScratchDir) Root() string { return s.base.Root() }
 
-func (s authorizedScratchDir) WriteFile(ctx context.Context, raw string, data []byte, mode os.FileMode) (system.ResolvedPath, error) {
+func (s authorizedScratchDir) WriteFile(ctx context.Context, raw string, data []byte, mode os.FileMode) (runtimeworkspace.ResolvedPath, error) {
 	if err := Authorize(ctx, s.cfg, policy.ResourceRef{Kind: policy.ResourcePath, Path: workspaceResourcePath("@scratch/" + strings.TrimLeft(raw, "/"))}, policy.ActionWorkspaceWrite); err != nil {
-		return system.ResolvedPath{}, err
+		return runtimeworkspace.ResolvedPath{}, err
 	}
 	return s.base.WriteFile(ctx, raw, data, mode)
 }
@@ -208,26 +209,26 @@ func (r authorizedResolver) LookupTXT(ctx context.Context, name string) ([]strin
 }
 
 type authorizedProcessManager struct {
-	base system.ProcessManager
+	base fpsystem.ProcessManager
 	cfg  Config
 }
 
 // Process wraps a process manager with policy authorization.
-func Process(base system.ProcessManager, cfg Config) system.ProcessManager {
+func Process(base fpsystem.ProcessManager, cfg Config) fpsystem.ProcessManager {
 	if base == nil {
 		return nil
 	}
 	return authorizedProcessManager{base: base, cfg: cfg}
 }
 
-func (p authorizedProcessManager) Run(ctx context.Context, req system.ProcessRequest) (system.ProcessResult, error) {
+func (p authorizedProcessManager) Run(ctx context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessResult, error) {
 	if err := p.exec(ctx, req.Command); err != nil {
-		return system.ProcessResult{}, err
+		return fpsystem.ProcessResult{}, err
 	}
 	return p.base.Run(ctx, req)
 }
 
-func (p authorizedProcessManager) Start(ctx context.Context, req system.ProcessRequest) (system.ProcessHandle, error) {
+func (p authorizedProcessManager) Start(ctx context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessHandle, error) {
 	if err := p.exec(ctx, req.Command); err != nil {
 		return nil, err
 	}
@@ -238,7 +239,7 @@ func (p authorizedProcessManager) Start(ctx context.Context, req system.ProcessR
 	return authorizedProcessHandle{base: handle, cfg: p.cfg}, nil
 }
 
-func (p authorizedProcessManager) Ensure(ctx context.Context, req system.ProcessRequest) (system.ProcessHandle, bool, error) {
+func (p authorizedProcessManager) Ensure(ctx context.Context, req fpsystem.ProcessRequest) (fpsystem.ProcessHandle, bool, error) {
 	if err := p.exec(ctx, req.Command); err != nil {
 		return nil, false, err
 	}
@@ -249,11 +250,11 @@ func (p authorizedProcessManager) Ensure(ctx context.Context, req system.Process
 	return authorizedProcessHandle{base: handle, cfg: p.cfg}, created, nil
 }
 
-func (p authorizedProcessManager) Group(name string) system.ProcessGroup {
+func (p authorizedProcessManager) Group(name string) fpsystem.ProcessGroup {
 	return authorizedProcessGroup{base: p.base.Group(name), cfg: p.cfg, name: strings.TrimSpace(name)}
 }
 
-func (p authorizedProcessManager) List(ctx context.Context) ([]system.ProcessInfo, error) {
+func (p authorizedProcessManager) List(ctx context.Context) ([]fpsystem.ProcessInfo, error) {
 	if err := Authorize(ctx, p.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: "*"}, policy.ActionProcessExec); err != nil {
 		return nil, err
 	}
@@ -261,27 +262,27 @@ func (p authorizedProcessManager) List(ctx context.Context) ([]system.ProcessInf
 }
 
 type authorizedProcessGroup struct {
-	base system.ProcessGroup
+	base fpsystem.ProcessGroup
 	cfg  Config
 	name string
 }
 
 func (g authorizedProcessGroup) Name() string { return g.base.Name() }
 
-func (g authorizedProcessGroup) List(ctx context.Context) ([]system.ProcessInfo, error) {
+func (g authorizedProcessGroup) List(ctx context.Context) ([]fpsystem.ProcessInfo, error) {
 	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessExec); err != nil {
 		return nil, err
 	}
 	return g.base.List(ctx)
 }
 
-func (g authorizedProcessGroup) Subscribe(ctx context.Context) <-chan system.ProcessEvent {
+func (g authorizedProcessGroup) Subscribe(ctx context.Context) <-chan fpsystem.ProcessEvent {
 	return g.base.Subscribe(ctx)
 }
 
-func (g authorizedProcessGroup) Wait(ctx context.Context) (system.ProcessResult, error) {
+func (g authorizedProcessGroup) Wait(ctx context.Context) (fpsystem.ProcessResult, error) {
 	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessExec); err != nil {
-		return system.ProcessResult{}, err
+		return fpsystem.ProcessResult{}, err
 	}
 	return g.base.Wait(ctx)
 }
@@ -334,7 +335,7 @@ func (g authorizedProcessGroup) CloseInput(ctx context.Context) error {
 	return g.base.CloseInput(ctx)
 }
 
-func (g authorizedProcessGroup) Restart(ctx context.Context) (system.ProcessHandle, error) {
+func (g authorizedProcessGroup) Restart(ctx context.Context) (fpsystem.ProcessHandle, error) {
 	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessAdmin); err != nil {
 		return nil, err
 	}
@@ -346,26 +347,26 @@ func (g authorizedProcessGroup) Restart(ctx context.Context) (system.ProcessHand
 }
 
 type authorizedProcessHandle struct {
-	base system.ProcessHandle
+	base fpsystem.ProcessHandle
 	cfg  Config
 }
 
 func (h authorizedProcessHandle) ID() string { return h.base.ID() }
 
-func (h authorizedProcessHandle) Info() system.ProcessInfo { return h.base.Info() }
+func (h authorizedProcessHandle) Info() fpsystem.ProcessInfo { return h.base.Info() }
 
-func (h authorizedProcessHandle) Subscribe(ctx context.Context) <-chan system.ProcessEvent {
+func (h authorizedProcessHandle) Subscribe(ctx context.Context) <-chan fpsystem.ProcessEvent {
 	if err := h.authorize(ctx, policy.ActionProcessExec); err != nil {
-		ch := make(chan system.ProcessEvent)
+		ch := make(chan fpsystem.ProcessEvent)
 		close(ch)
 		return ch
 	}
 	return h.base.Subscribe(ctx)
 }
 
-func (h authorizedProcessHandle) Wait(ctx context.Context) (system.ProcessResult, error) {
+func (h authorizedProcessHandle) Wait(ctx context.Context) (fpsystem.ProcessResult, error) {
 	if err := h.authorize(ctx, policy.ActionProcessExec); err != nil {
-		return system.ProcessResult{}, err
+		return fpsystem.ProcessResult{}, err
 	}
 	return h.base.Wait(ctx)
 }
@@ -421,7 +422,7 @@ func (h authorizedProcessHandle) CloseInput(ctx context.Context) error {
 	return h.base.CloseInput(ctx)
 }
 
-func (h authorizedProcessHandle) Restart(ctx context.Context) (system.ProcessHandle, error) {
+func (h authorizedProcessHandle) Restart(ctx context.Context) (fpsystem.ProcessHandle, error) {
 	if err := h.authorize(ctx, policy.ActionProcessAdmin); err != nil {
 		return nil, err
 	}
@@ -443,7 +444,7 @@ func (h authorizedProcessHandle) authorize(ctx context.Context, action policy.Ac
 	return Authorize(ctx, h.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: processHandleResourceName(h.base)}, action)
 }
 
-func processHandleResourceName(handle system.ProcessHandle) string {
+func processHandleResourceName(handle fpsystem.ProcessHandle) string {
 	if handle == nil {
 		return "*"
 	}
@@ -484,12 +485,12 @@ func authorizeNetworkURL(ctx context.Context, cfg Config, target string) error {
 }
 
 type authorizedEnvironment struct {
-	base system.Environment
+	base fpsystem.Environment
 	cfg  Config
 }
 
 // Environment wraps an environment boundary with policy authorization.
-func Environment(base system.Environment, cfg Config) system.Environment {
+func Environment(base fpsystem.Environment, cfg Config) fpsystem.Environment {
 	if base == nil {
 		return nil
 	}
@@ -508,7 +509,7 @@ func (e authorizedEnvironment) Lookup(ctx context.Context, key string) (string, 
 }
 
 func (e authorizedEnvironment) ResolveExecutable(ctx context.Context, name string) (string, bool, error) {
-	resolver, ok := e.base.(system.ExecutableResolver)
+	resolver, ok := e.base.(fpsystem.ExecutableResolver)
 	if !ok {
 		return "", false, nil
 	}
