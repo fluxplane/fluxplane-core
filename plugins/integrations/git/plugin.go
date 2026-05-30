@@ -11,7 +11,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 const (
@@ -26,14 +25,14 @@ const (
 
 // Plugin contributes basic git operations.
 type Plugin struct {
-	system system.System
+	system fpsystem.System
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
 // New returns a git plugin.
-func New(sys system.System) Plugin { return Plugin{system: sys} }
+func New(sys fpsystem.System) Plugin { return Plugin{system: sys} }
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -696,7 +695,7 @@ func commitText(commit string, result fpsystem.ProcessResult) string {
 // remainingDirtyFiles returns paths that have unstaged changes or are untracked
 // after a partial commit. It runs git status --porcelain and collects XY codes
 // where the worktree column (Y) is non-space, or the file is untracked (??).
-func remainingDirtyFiles(ctx operation.Context, sys system.System) []string {
+func remainingDirtyFiles(ctx operation.Context, sys fpsystem.System) []string {
 	result, err := sys.Process().Run(ctx, fpsystem.ProcessRequest{
 		Command: "git",
 		Args:    []string{"status", "--porcelain"},

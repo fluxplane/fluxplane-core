@@ -164,7 +164,7 @@ func TestShellInfoWorksWithAuthorizedSystem(t *testing.T) {
 	}
 }
 
-func shellPlugin(sys system.System) Plugin {
+func shellPlugin(sys fpsystem.System) Plugin {
 	if sys == nil {
 		return New(Config{})
 	}

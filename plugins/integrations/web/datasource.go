@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
@@ -11,7 +12,6 @@ import (
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 const SearchResultEntity coredatasource.EntityType = "web.search_result"
@@ -42,7 +42,7 @@ func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]core
 }
 
 type webSearchProvider struct {
-	system system.System
+	system fpsystem.System
 }
 
 func (p webSearchProvider) Entities() []coredatasource.EntitySpec {
@@ -65,7 +65,7 @@ func (p webSearchProvider) Open(_ context.Context, spec coredatasource.Spec) (co
 }
 
 type webSearchAccessor struct {
-	system system.System
+	system fpsystem.System
 	spec   coredatasource.Spec
 	entity coredatasource.EntitySpec
 }

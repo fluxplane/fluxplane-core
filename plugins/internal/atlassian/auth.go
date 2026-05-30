@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"io"
 	"net/http"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/oauth2client"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
@@ -112,18 +112,18 @@ func AuthMethods(pluginName string, ref resource.PluginRef, product Product, cfg
 	return out
 }
 
-func Resolve(ctx context.Context, sys system.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func Resolve(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	return resolve(ctx, sys, store, store, pluginName, ref, product, cfg)
 }
 
-func ResolveWithResolver(ctx context.Context, sys system.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func ResolveWithResolver(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	if resolver == nil {
 		resolver = store
 	}
 	return resolve(ctx, sys, store, resolver, pluginName, ref, product, cfg)
 }
 
-func resolve(ctx context.Context, sys system.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func resolve(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	cfg = NormalizeConfig(cfg)
 	if sys == nil {
 		return Session{}, fmt.Errorf("atlassianplugin: system is nil")
@@ -156,7 +156,7 @@ func resolve(ctx context.Context, sys system.System, store runtimesecret.FileSto
 	}
 }
 
-func DoJSON(ctx context.Context, sys system.System, session Session, method, path string, body any, out any) (int, error) {
+func DoJSON(ctx context.Context, sys fpsystem.System, session Session, method, path string, body any, out any) (int, error) {
 	if sys == nil || sys.Network() == nil {
 		return 0, fmt.Errorf("atlassianplugin: network is nil")
 	}
@@ -306,7 +306,7 @@ func SiteBaseURL(product Product, siteURL string) string {
 	return siteURL + "/" + strings.Trim(restPath, "/")
 }
 
-func resolveOAuth(ctx context.Context, sys system.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, bool, error) {
+func resolveOAuth(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, bool, error) {
 	stored, ok, err := store.LoadSecret(ctx, oauthSecretRef(pluginName, ref))
 	if err != nil || !ok {
 		return Session{}, false, err
@@ -338,12 +338,12 @@ func resolveOAuth(ctx context.Context, sys system.System, store runtimesecret.Fi
 	return session, true, nil
 }
 
-func resolveTokenWithResolver(ctx context.Context, sys system.System, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func resolveTokenWithResolver(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	session, _, err := resolveBearerToken(ctx, sys, resolver, pluginName, ref, product, cfg, true)
 	return session, err
 }
 
-func resolveBearerToken(ctx context.Context, sys system.System, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
+func resolveBearerToken(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
 	if resolver == nil {
 		return Session{}, false, fmt.Errorf("atlassianplugin: secret resolver is nil")
 	}
@@ -731,7 +731,7 @@ func BaseURLEnvAliases(product Product) []string {
 	return []string{prefix + "_BASE_URL", "ATLASSIAN_BASE_URL"}
 }
 
-func discoverTokenSiteURL(ctx context.Context, sys system.System, product Product, session Session) Session {
+func discoverTokenSiteURL(ctx context.Context, sys fpsystem.System, product Product, session Session) Session {
 	if strings.TrimSpace(session.SiteURL) != "" || strings.TrimSpace(session.CloudID) == "" || strings.TrimSpace(session.Token) == "" {
 		return session
 	}
@@ -781,7 +781,7 @@ func needsRefresh(stored runtimesecret.StoredSecret) bool {
 	return time.Now().UTC().Add(2 * time.Minute).After(stored.ExpiresAt)
 }
 
-func refreshStored(ctx context.Context, sys system.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, stored runtimesecret.StoredSecret) (OAuthToken, runtimesecret.StoredSecret, error) {
+func refreshStored(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, stored runtimesecret.StoredSecret) (OAuthToken, runtimesecret.StoredSecret, error) {
 	refreshStored, ok, err := store.LoadSecret(ctx, oauthRelatedSecretRef(pluginName, ref, "refresh_token"))
 	if err != nil {
 		return OAuthToken{}, stored, err
@@ -827,7 +827,7 @@ func refreshStored(ctx context.Context, sys system.System, store runtimesecret.F
 	return token, next, nil
 }
 
-func discoverAndStoreSite(ctx context.Context, sys system.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config, stored runtimesecret.StoredSecret) (runtimesecret.StoredSecret, Session, error) {
+func discoverAndStoreSite(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config, stored runtimesecret.StoredSecret) (runtimesecret.StoredSecret, Session, error) {
 	sites, err := DiscoverSites(ctx, systemkit.NewHTTPClient(sys.Network()), stored.Value)
 	if err != nil {
 		return stored, Session{}, err

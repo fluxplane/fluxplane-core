@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"log/slog"
 	"os"
 	osuser "os/user"
@@ -70,7 +71,7 @@ type LocalRuntimeConfig struct {
 	Root                  string
 	Spec                  coredistribution.Spec
 	Bundles               []resource.ContributionBundle
-	Plugins               func(system.System) []pluginhost.Plugin
+	Plugins               func(PluginFactoryContext) []pluginhost.Plugin
 	PluginFactory         func(PluginFactoryContext) []pluginhost.Plugin
 	ToolProjection        fluxplane.ToolProjectionConfig
 	SessionToolProjection session.ToolProjectionMode
@@ -106,7 +107,7 @@ type RuntimeOptions struct {
 	Debug              bool
 	Yolo               bool
 	Dev                bool
-	Plugins            func(system.System) []pluginhost.Plugin
+	Plugins            func(PluginFactoryContext) []pluginhost.Plugin
 	PluginFactory      func(PluginFactoryContext) []pluginhost.Plugin
 	ToolProjection     fluxplane.ToolProjectionConfig
 	// SessionToolProjection forwards to fluxplane.Config.SessionToolProjection
@@ -119,7 +120,8 @@ type RuntimeOptions struct {
 }
 
 type PluginFactoryContext struct {
-	System             system.System
+	System             fpsystem.System
+	Workspace          runtimeworkspace.Workspace
 	Dispatcher         *slack.Dispatcher
 	TaskRunner         task.TaskRunner
 	NativeAuthStore    runtimesecret.FileStore
@@ -136,7 +138,8 @@ type nativePluginOptions struct {
 type Runtime struct {
 	Service     fluxplane.ChannelClient
 	Composition app.Composition
-	System      system.System
+	System      fpsystem.System
+	Workspace   runtimeworkspace.Workspace
 	Dispatcher  *slack.Dispatcher
 	Caller      policy.Caller
 	Trust       policy.Trust
@@ -288,10 +291,11 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		return Runtime{}, err
 	}
 	runtimeSystem := systemauth.System(hostSystem, systemauth.Config{TraceAllows: opts.Debug})
+	runtimeWorkspace := systemauth.Workspace(hostSystem.Workspace(), systemauth.Config{TraceAllows: opts.Debug})
 	clarifier := terminal.Prompter{In: os.Stdin, Out: os.Stderr}
 	browserPlugin := browserplugin.New(browserplugin.Config{
 		AuthorizeURL: systemauth.NetworkURLAuthorizer(systemauth.Config{TraceAllows: opts.Debug}),
-		FileSystem:   runtimeSystem.Workspace().System().FileSystem(),
+		FileSystem:   runtimeWorkspace.System().FileSystem(),
 		Headless:     browserHeadless(),
 	})
 	humanPlugin := human.NewWithConfig(human.Config{
@@ -362,20 +366,21 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		AuthPath:           opts.AuthPath,
 		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 	})
-	available := availablePluginsWithOptions(runtimeSystem, dispatcher, taskScheduler, auth.Store, auth.Resolver, nativePlugins)
+	available := availablePluginsWithOptions(runtimeSystem, runtimeWorkspace, dispatcher, taskScheduler, auth.Store, auth.Resolver, nativePlugins)
 	if opts.PluginFactory != nil {
 		available = opts.PluginFactory(PluginFactoryContext{
 			System:             runtimeSystem,
+			Workspace:          runtimeWorkspace,
 			Dispatcher:         dispatcher,
 			TaskRunner:         taskScheduler,
 			NativeAuthStore:    auth.Store,
 			NativeAuthResolver: auth.Resolver,
 		})
 	} else if opts.Plugins != nil {
-		available = opts.Plugins(runtimeSystem)
+		available = opts.Plugins(PluginFactoryContext{System: runtimeSystem, Workspace: runtimeWorkspace, Dispatcher: dispatcher, TaskRunner: taskScheduler, NativeAuthStore: auth.Store, NativeAuthResolver: auth.Resolver})
 	}
 	if taskScheduler != nil {
-		available = replacePlugin(available, task.NewWithRunnerAndSystem(taskScheduler, runtimeSystem))
+		available = replacePlugin(available, task.NewWithRunnerAndSystem(taskScheduler, runtimeSystem, runtimeWorkspace))
 	}
 	if opts.Dev {
 		available = appendPluginIfMissing(available, sessionhistory.New(threadStore))
@@ -520,6 +525,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		Service:     service,
 		Composition: composition,
 		System:      runtimeSystem,
+		Workspace:   runtimeWorkspace,
 		Dispatcher:  dispatcher,
 		Caller:      localCaller,
 		Trust:       localTrust,
@@ -630,41 +636,34 @@ func slackConfigForInstance(bundles []resource.ContributionBundle, instance stri
 	return slack.Config{Auth: slack.AuthConfig{Method: slack.TokenMethod}}
 }
 
-func availablePlugins(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, authPath string, allowPluginAuthEnv bool) []pluginhost.Plugin {
+func availablePlugins(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, authPath string, allowPluginAuthEnv bool) []pluginhost.Plugin {
 	auth := NewPluginAuthContext(PluginAuthOptions{
 		System:             hostSystem,
 		AuthPath:           authPath,
 		AllowPluginAuthEnv: allowPluginAuthEnv,
 	})
-	return availablePluginsWithAuth(hostSystem, dispatcher, taskRunner, auth.Store, auth.Resolver)
+	return availablePluginsWithAuth(hostSystem, ws, dispatcher, taskRunner, auth.Store, auth.Resolver)
 }
 
-func availablePluginsWithAuth(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver) []pluginhost.Plugin {
-	return availablePluginsWithOptions(hostSystem, dispatcher, taskRunner, nativeStore, nativeResolver, nativePluginOptions{})
+func availablePluginsWithAuth(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver) []pluginhost.Plugin {
+	return availablePluginsWithOptions(hostSystem, ws, dispatcher, taskRunner, nativeStore, nativeResolver, nativePluginOptions{})
 }
 
-func availablePluginsWithOptions(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver, opts nativePluginOptions) []pluginhost.Plugin {
+func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver, opts nativePluginOptions) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
-		workspace.New(systemWorkspace(hostSystem)),
+		workspace.New(ws),
 		discovery.New(),
 		identity.New(),
-		coding.NewWithOptions(hostSystem, coding.Options{Browser: opts.Browser, Human: opts.Human}),
+		coding.NewWithOptions(hostSystem, ws, coding.Options{Browser: opts.Browser, Human: opts.Human}),
 		goalplugin.New(),
 		loop.New(),
 		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
-		openapi.New(hostSystem),
+		openapi.New(hostSystem, ws),
 		memory.New(),
-		task.NewWithRunnerAndSystem(taskRunner, hostSystem),
+		task.NewWithRunnerAndSystem(taskRunner, hostSystem, ws),
 		skills.New(),
 		text.New(),
 	}
-}
-
-func systemWorkspace(sys system.System) runtimeworkspace.Workspace {
-	if sys == nil {
-		return nil
-	}
-	return sys.Workspace()
 }
 
 // AuthPluginRegistry returns first-party plugins that expose auth declarations
@@ -693,7 +692,7 @@ func ManifestAuthTargetRegistry(loader Loader) func(context.Context) ([]pluginho
 		if err != nil {
 			return nil, err
 		}
-		return pluginhost.ResolveAuthTargets(ctx, pluginRefs(loaded.Distribution.Bundles), availablePlugins(hostSystem, nil, nil, "", false))
+		return pluginhost.ResolveAuthTargets(ctx, pluginRefs(loaded.Distribution.Bundles), availablePlugins(hostSystem, hostSystem.Workspace(), nil, nil, "", false))
 	}
 }
 
@@ -725,7 +724,7 @@ func replacePlugin(plugins []pluginhost.Plugin, plugin pluginhost.Plugin) []plug
 	return append(plugins, plugin)
 }
 
-func launchIdentityResolver(ctx context.Context, sys system.System, auth PluginAuthContext, channels []distribution.Channel, bundles []resource.ContributionBundle) orchestrationidentity.Resolver {
+func launchIdentityResolver(ctx context.Context, sys fpsystem.System, auth PluginAuthContext, channels []distribution.Channel, bundles []resource.ContributionBundle) orchestrationidentity.Resolver {
 	var resolvers []orchestrationidentity.Resolver
 	for _, doc := range channels {
 		if doc.Type != "slack" {

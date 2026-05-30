@@ -19,7 +19,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-policy"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
@@ -212,7 +211,7 @@ func TestExternalIdentityResolverUsesConfiguredGitLabIdentity(t *testing.T) {
 
 func TestExternalIdentityResolverLooksUpGitLabUserByCanonicalEmail(t *testing.T) {
 	plugin := New(fakeSystem{})
-	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+	plugin.clientFactory = func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 		return fakeGitLabClient{users: []*gitlab.User{{ID: 42, Username: "tfriedl", Name: "Timo Friedl"}}}, nil
 	}
 	resolvers, err := plugin.ExternalIdentityResolvers(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
@@ -238,7 +237,7 @@ func TestExternalIdentityResolverLooksUpGitLabUserByCanonicalEmail(t *testing.T)
 func TestExternalIdentityResolverLooksUpGitLabUserByVerifiedEmailAlias(t *testing.T) {
 	var queries []string
 	plugin := New(fakeSystem{})
-	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+	plugin.clientFactory = func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 		return fakeGitLabClient{
 			usersByPublicEmail: map[string][]*gitlab.User{
 				"timo@company.org": []*gitlab.User{{ID: 42, Username: "tfriedl", Name: "Timo Friedl"}},
@@ -275,7 +274,7 @@ func TestExternalIdentityResolverLooksUpGitLabUserByVerifiedEmailAlias(t *testin
 
 func TestExternalIdentityResolverReturnsNoIdentityWhenGitLabEmailIsPrivate(t *testing.T) {
 	plugin := New(fakeSystem{})
-	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+	plugin.clientFactory = func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 		return fakeGitLabClient{usersByPublicEmail: map[string][]*gitlab.User{}}, nil
 	}
 	resolvers, err := plugin.ExternalIdentityResolvers(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
@@ -351,7 +350,7 @@ func TestConnectionReportsCurrentGitLabUser(t *testing.T) {
 	plugin := New(fakeSystem{
 		env: fakeEnvironment{values: map[string]string{gitlabPersonalAccessTokenEnv: "secret-token", gitlabURLEnv: "https://gitlab.example"}},
 	})
-	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+	plugin.clientFactory = func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 		return fakeGitLabClient{
 			currentUser: &gitlab.User{
 				ID:       42,
@@ -386,7 +385,7 @@ func TestConnectionReportsCurrentGitLabUser(t *testing.T) {
 func TestPluginMROperationUsesInjectedClient(t *testing.T) {
 	plugin := New(fakeSystem{})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
-	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+	plugin.clientFactory = func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 		return &fakeGitLabClient{updatedMR: &gitlab.MergeRequest{BasicMergeRequest: gitlab.BasicMergeRequest{
 			ID:        42,
 			IID:       7,
@@ -535,7 +534,7 @@ func TestDatasourceProviderSearchesProjects(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{projects: []*gitlab.Project{
 				{
 					ID:                12,
@@ -631,7 +630,7 @@ func TestDatasourceProviderIndexedSearchUsesFieldIndex(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
 				calls: &calls,
 				projects: []*gitlab.Project{{
@@ -674,7 +673,7 @@ func TestDatasourceProviderIndexedSearchReportsMissingIndex(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{calls: &calls}, nil
 		},
 	}
@@ -707,7 +706,7 @@ func TestDatasourceProviderIndexedSearchFallsBackForNonIndexedEntity(t *testing.
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
 				calls: &calls,
 				commits: []*gitlab.Commit{{
@@ -750,7 +749,7 @@ func TestDatasourceProviderSearchesUsers(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
 				calls: &calls,
 				users: []*gitlab.User{{
@@ -808,7 +807,7 @@ func TestDatasourceProviderIndexedSearchUsesUserFieldIndex(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{calls: &calls}, nil
 		},
 	}
@@ -839,7 +838,7 @@ func TestDatasourceProviderCorpusIncludesUsers(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{users: []*gitlab.User{{
 				ID:       42,
 				Username: "tfriedl",
@@ -871,7 +870,7 @@ func TestDatasourceProviderGetsUser(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{users: []*gitlab.User{{
 				ID:       42,
 				Username: "tfriedl",
@@ -902,7 +901,7 @@ func TestDatasourceProviderSearchesGroups(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
 				calls: &calls,
 				groups: []*gitlab.Group{{
@@ -962,7 +961,7 @@ func TestDatasourceProviderIndexedSearchUsesGroupFieldIndex(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{calls: &calls}, nil
 		},
 	}
@@ -993,7 +992,7 @@ func TestDatasourceProviderCorpusIncludesGroups(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{groups: []*gitlab.Group{{
 				ID:       7,
 				Name:     "Platform",
@@ -1026,7 +1025,7 @@ func TestDatasourceProviderCorpusIncludesMemberships(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
 				groups: []*gitlab.Group{{
 					ID:       7,
@@ -1094,7 +1093,7 @@ func TestDatasourceProviderCorpusStreamsMemberships(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
 				calls: &calls,
 				groups: []*gitlab.Group{{
@@ -1156,7 +1155,7 @@ func TestDatasourceProviderListHidesArchivedProjectsByDefault(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{projects: []*gitlab.Project{{
 				ID:                12,
 				Name:              "Runtime",
@@ -1199,7 +1198,7 @@ func TestDatasourceProviderListHidesArchivedProjectMembershipsByDefault(t *testi
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
 				projects: []*gitlab.Project{{
 					ID:                12,
@@ -1251,7 +1250,7 @@ func TestDatasourceProviderCorpusCachesMembershipSources(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
 				calls: &calls,
 				groups: []*gitlab.Group{{
@@ -1315,7 +1314,7 @@ func TestDatasourceProviderCorpusUsesLargerDefaultMembershipPages(t *testing.T) 
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
 				groupMemberPerPages: &perPages,
 				groups: []*gitlab.Group{{
@@ -1393,7 +1392,7 @@ func TestDatasourceRelationsUseMembershipFieldIndex(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{calls: &calls}, nil
 		},
 	}
@@ -1440,7 +1439,7 @@ func TestDatasourceRelationsReportMissingMembershipIndex(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{calls: &calls}, nil
 		},
 	}
@@ -1468,7 +1467,7 @@ func TestDatasourceProviderGetsGroup(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{groups: []*gitlab.Group{{
 				ID:       7,
 				Name:     "Platform",
@@ -1678,7 +1677,7 @@ func TestDatasourceRelationsReturnCodeAndCIResources(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
 				calls: &calls,
 				projects: []*gitlab.Project{{
@@ -1825,7 +1824,7 @@ func TestDatasourceListsGitLabResources(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
 				projects: []*gitlab.Project{{
 					ID:                12,
@@ -1905,7 +1904,7 @@ func TestDatasourceRelationsReturnMRReviewRecords(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
 				mrs: []*gitlab.BasicMergeRequest{{
 					ID:          42,
@@ -2056,7 +2055,7 @@ func TestDatasourceSearchMergeRequestByStableRef(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{mrs: []*gitlab.BasicMergeRequest{{
 				ID:          42,
 				IID:         2553,
@@ -2093,7 +2092,7 @@ func TestDatasourceProviderListsMRReviewEntities(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
 				mrs: []*gitlab.BasicMergeRequest{{
 					ID:        42,
@@ -2326,7 +2325,7 @@ func TestDatasourceListsSnippetMetadataAndFetchesSnippetFiles(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
 				snippets: []*gitlab.Snippet{{
 					ID:          77,
@@ -2371,7 +2370,7 @@ func TestDatasourceSearchesProjectAndRepositoryInspectionEntities(t *testing.T) 
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
 				projects:         []*gitlab.Project{{ID: 12, PathWithNamespace: "engineering/runtime", Name: "Runtime"}},
 				projectLanguages: &languages,
@@ -2474,7 +2473,7 @@ func TestDatasourceListsActivityWithBoundedPerProjectCounts(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
 				projects: []*gitlab.Project{{
 					ID:                12,
@@ -2517,7 +2516,7 @@ func TestDatasourceRelationsReturnUserGroups(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
 				groups: []*gitlab.Group{{
 					ID:       7,
@@ -2560,7 +2559,7 @@ func TestDatasourceRelationsReturnUserMembershipsAndProjects(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
 				groups: []*gitlab.Group{{
 					ID:       7,
@@ -2628,7 +2627,7 @@ func TestDatasourceRelationsResolveMembershipsFromVisibleServiceAccountGroups(t 
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
 				calls:                &calls,
 				groupMemberUserIDs:   &groupUserIDs,
@@ -2694,7 +2693,7 @@ func TestDatasourceRelationsReturnNoVisibleMemberships(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
 				groups: []*gitlab.Group{{
 					ID:       7,
@@ -2726,7 +2725,7 @@ func TestDatasourceRelationsReturnProjectUsersAndGroups(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
 				projectUsers: []*gitlab.ProjectUser{{
 					ID:       42,
@@ -2775,7 +2774,7 @@ func TestDatasourceRelationsReturnGroupProjects(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
 				groupProjects: []*gitlab.Project{{
 					ID:                12,
@@ -2821,7 +2820,7 @@ func TestDatasourceRelationsReturnGroupHierarchy(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
 				groups: []*gitlab.Group{{
 					ID:       1,
@@ -2909,7 +2908,7 @@ func TestMROperationDispatchesSupportedActions(t *testing.T) {
 	}
 	plugin := New(fakeSystem{})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
-	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+	plugin.clientFactory = func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 		return client, nil
 	}
 	op := plugin.mrOperation()
@@ -2958,7 +2957,7 @@ func TestMROperationDoesNotCreateInlineDiscussionForInvalidLine(t *testing.T) {
 	}
 	plugin := New(fakeSystem{})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
-	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+	plugin.clientFactory = func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 		return client, nil
 	}
 	result := plugin.mrOperation().Run(coreoperation.NewContext(context.Background(), nil), map[string]any{
@@ -2991,7 +2990,7 @@ func TestPipelineOperationDispatchesSupportedActions(t *testing.T) {
 	}
 	plugin := New(fakeSystem{})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
-	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+	plugin.clientFactory = func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 		return client, nil
 	}
 	op := plugin.pipelineOperation()
@@ -3020,7 +3019,7 @@ func TestSnippetOperationDispatchesSupportedActions(t *testing.T) {
 	}
 	plugin := New(fakeSystem{})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
-	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+	plugin.clientFactory = func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error) {
 		return client, nil
 	}
 	op := plugin.snippetOperation()
@@ -3739,6 +3738,13 @@ func (s fakeSystem) Network() fpsystem.Network { return s.network }
 func (s fakeSystem) Process() fpsystem.ProcessManager { return nil }
 
 func (s fakeSystem) Environment() fpsystem.Environment { return s.env }
+
+func (s fakeSystem) FileSystem() fpsystem.FileSystem { return nil }
+
+func (s fakeSystem) Clock() fpsystem.Clock {
+	sys, _ := systemkit.NewSystem().WithRealClock().Build()
+	return sys.Clock()
+}
 
 type recordingNetwork struct {
 	fpsystemtest.UnsupportedNetwork

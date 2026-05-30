@@ -12,7 +12,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 const (
@@ -27,7 +26,7 @@ const (
 
 // Plugin contributes Docker environment observation and assertions.
 type Plugin struct {
-	system system.System
+	system fpsystem.System
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -35,7 +34,7 @@ var _ pluginhost.ObserverContributor = Plugin{}
 var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
 // New returns a Docker integration plugin.
-func New(sys system.System) Plugin { return Plugin{system: sys} }
+func New(sys fpsystem.System) Plugin { return Plugin{system: sys} }
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -71,7 +70,7 @@ type Status struct {
 }
 
 type dockerObserver struct {
-	system system.System
+	system fpsystem.System
 }
 
 func (dockerObserver) Spec() coreevidence.ObserverSpec {
@@ -161,7 +160,7 @@ func assertionDeriverSpec() coreevidence.AssertionDeriverSpec {
 	}
 }
 
-func observeDockerStatus(ctx context.Context, sys system.System) Status {
+func observeDockerStatus(ctx context.Context, sys fpsystem.System) Status {
 	status := Status{}
 	if sys == nil || sys.Process() == nil {
 		status.Diagnostic = "process manager is unavailable"

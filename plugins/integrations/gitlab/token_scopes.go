@@ -3,18 +3,18 @@ package gitlab
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"golang.org/x/oauth2"
 )
 
 // TokenScopes resolves the current GitLab token and returns the scopes reported by GitLab.
-func TokenScopes(ctx context.Context, sys system.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
+func TokenScopes(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
 	cfg = normalizeConfig(cfg)
 	client, err := tokenScopeClient(ctx, sys, resolver, ref, cfg)
 	if err != nil {
@@ -30,7 +30,7 @@ func TokenScopes(ctx context.Context, sys system.System, resolver runtimesecret.
 	return append([]string(nil), token.Scopes...), true, nil
 }
 
-func tokenScopeClient(ctx context.Context, sys system.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (*gitlab.Client, error) {
+func tokenScopeClient(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (*gitlab.Client, error) {
 	if sys == nil {
 		return nil, fmt.Errorf("gitlabplugin: system is nil")
 	}

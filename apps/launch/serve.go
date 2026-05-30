@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"log/slog"
 	"net/http"
 	"os"
@@ -32,7 +33,6 @@ import (
 	triggerhost "github.com/fluxplane/fluxplane-core/orchestration/trigger"
 
 	"github.com/fluxplane/fluxplane-core/plugins/integrations/slack"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 type Options struct {
@@ -75,7 +75,7 @@ type ServeDistributionOptions struct {
 	Verbose            bool
 	Yolo               bool
 	Dev                bool
-	Plugins            func(system.System) []pluginhost.Plugin
+	Plugins            func(PluginFactoryContext) []pluginhost.Plugin
 	PluginFactory      func(PluginFactoryContext) []pluginhost.Plugin
 	ToolProjection     fluxplane.ToolProjectionConfig
 	// SessionToolProjection forwards to fluxplane.Config.SessionToolProjection.
@@ -400,7 +400,7 @@ func validateServeLaunch(loaded orchestrationdistribution.Loaded, initPath strin
 	return nil
 }
 
-func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel, bundles []resource.ContributionBundle, opts Options, dispatcher *slack.Dispatcher, sys system.System) ([]channelruntime.Channel, error) {
+func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel, bundles []resource.ContributionBundle, opts Options, dispatcher *slack.Dispatcher, sys fpsystem.System) ([]channelruntime.Channel, error) {
 	var out []channelruntime.Channel
 	auth := NewPluginAuthContext(PluginAuthOptions{
 		System:             sys,

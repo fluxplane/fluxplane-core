@@ -15,8 +15,8 @@ import (
 )
 
 func TestMarkdownOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
-	runMarkdownBackends(t, func(t *testing.T, sys system.System) {
-		writeMarkdownFile(t, sys.Workspace(), "README.md", `# Root *Title*
+	runMarkdownBackends(t, func(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace) {
+		writeMarkdownFile(t, workspace, "README.md", `# Root *Title*
 
 [Good](docs/guide.md#install)
 [Missing](docs/missing.md)
@@ -28,33 +28,33 @@ func TestMarkdownOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 `+"```md\n# Not Heading\n```\n"+`
 ## Usage
 `)
-		writeMarkdownFile(t, sys.Workspace(), "docs/guide.md", `Guide
+		writeMarkdownFile(t, workspace, "docs/guide.md", `Guide
 =====
 
 ## Install
 `)
-		writeMarkdownFile(t, sys.Workspace(), "assets/logo.png", "png")
+		writeMarkdownFile(t, workspace, "assets/logo.png", "png")
 
-		outline := runMarkdownOp(t, sys, OutlineOp, map[string]any{"path": "README.md"})
+		outline := runMarkdownOp(t, sys, workspace, OutlineOp, map[string]any{"path": "README.md"})
 		if !strings.Contains(outline.Text, "# Root Title") || !strings.Contains(outline.Text, "## Usage") || strings.Contains(outline.Text, "Not Heading") {
 			t.Fatalf("outline text = %q", outline.Text)
 		}
 
-		links := runMarkdownOp(t, sys, LinksOp, map[string]any{"path": "README.md"})
+		links := runMarkdownOp(t, sys, workspace, LinksOp, map[string]any{"path": "README.md"})
 		if !strings.Contains(links.Text, "docs/guide.md#install") || !strings.Contains(links.Text, "assets/logo.png") {
 			t.Fatalf("links text = %q", links.Text)
 		}
 
-		rootOutline := runMarkdownOp(t, sys, OutlineOp, map[string]any{"path": ".", "max_results": 10})
+		rootOutline := runMarkdownOp(t, sys, workspace, OutlineOp, map[string]any{"path": ".", "max_results": 10})
 		if !strings.Contains(rootOutline.Text, "README.md") || !strings.Contains(rootOutline.Text, "docs/guide.md") {
 			t.Fatalf("root outline text = %q", rootOutline.Text)
 		}
-		rootLinks := runMarkdownOp(t, sys, LinksOp, map[string]any{"path": ".", "max_results": 10})
+		rootLinks := runMarkdownOp(t, sys, workspace, LinksOp, map[string]any{"path": ".", "max_results": 10})
 		if !strings.Contains(rootLinks.Text, "//cdn.example.com/image.png") {
 			t.Fatalf("root links text = %q", rootLinks.Text)
 		}
 
-		diagnostics := runMarkdownOp(t, sys, DiagnosticsOp, map[string]any{"path": "README.md"})
+		diagnostics := runMarkdownOp(t, sys, workspace, DiagnosticsOp, map[string]any{"path": "README.md"})
 		for _, want := range []string{"missing_target", "missing_anchor", "unchecked_link"} {
 			if !strings.Contains(diagnostics.Text, want) {
 				t.Fatalf("diagnostics text = %q, want %q", diagnostics.Text, want)
@@ -78,23 +78,24 @@ func TestMarkdownOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 	})
 }
 
-func runMarkdownBackends(t *testing.T, fn func(*testing.T, system.System)) {
+func runMarkdownBackends(t *testing.T, fn func(*testing.T, fpsystem.System, runtimeworkspace.Workspace)) {
 	t.Helper()
 	t.Run("memory", func(t *testing.T) {
-		fn(t, systemtest.NewMemory())
+		mem := systemtest.NewMemory()
+		fn(t, mem, mem.Workspace())
 	})
 	t.Run("host", func(t *testing.T) {
 		sys, err := system.NewHost(system.Config{Root: t.TempDir()})
 		if err != nil {
 			t.Fatalf("NewHost: %v", err)
 		}
-		fn(t, sys)
+		fn(t, sys, sys.Workspace())
 	})
 }
 
-func runMarkdownOp(t *testing.T, sys system.System, name string, input map[string]any) operation.Rendered {
+func runMarkdownOp(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace, name string, input map[string]any) operation.Rendered {
 	t.Helper()
-	ops, err := New(sys.Workspace()).Operations(context.Background(), pluginhost.Context{})
+	ops, err := New(workspace).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}

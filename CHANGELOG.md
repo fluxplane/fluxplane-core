@@ -15,13 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `runtime/workspace` now owns the workspace semantic interface and no longer
   imports `runtime/system`.
 - Native workspace and shell-adjacent plugins now depend on explicit workspace,
-  process, and environment capabilities instead of the aggregate
-  `runtime/system.System` where only a narrower boundary is needed.
+  process, and environment capabilities instead of a runtime-specific aggregate
+  where only a narrower boundary is needed.
 - Native human/code plugins and the Go language plugin now receive explicit
-  process/workspace capabilities through config structs instead of storing the
-  aggregate `runtime/system.System`.
+  process/workspace capabilities through config structs instead of storing an
+  aggregate system boundary.
 - Removed `runtime/system` compatibility aliases for workspace, network, process,
   environment, and path types; callers now use the owning packages directly.
+- Replaced the former runtime-system aggregate with
+  `github.com/fluxplane/fluxplane-system.System`; runtime workspace is now passed
+  explicitly beside primitive system capabilities where needed.
 
 ## [0.22.0] - 2026-05-29
 

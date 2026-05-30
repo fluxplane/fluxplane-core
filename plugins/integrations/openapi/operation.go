@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"io"
 	"net/http"
 	"net/url"
@@ -15,15 +17,15 @@ import (
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-policy"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
 type openAPIOperation struct {
-	system system.System
-	def    operationDefinition
+	system    fpsystem.System
+	workspace runtimeworkspace.Workspace
+	def       operationDefinition
 }
 
 func (o openAPIOperation) Spec() operation.Spec { return o.def.Spec }

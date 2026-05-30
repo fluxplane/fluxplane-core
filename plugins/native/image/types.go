@@ -2,22 +2,21 @@ package image
 
 import (
 	"context"
-
-	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 const defaultPrompt = "Describe this image in detail. Include any text, diagrams, UI elements, or notable visual features."
 
 // GenerationProvider generates images from text prompts.
 type GenerationProvider interface {
-	Info(context.Context, system.System) ProviderInfo
-	Generate(context.Context, system.System, GenerateRequest) (GenerateResult, error)
+	Info(context.Context, fpsystem.System) ProviderInfo
+	Generate(context.Context, fpsystem.System, GenerateRequest) (GenerateResult, error)
 }
 
 // UnderstandingProvider analyzes image inputs.
 type UnderstandingProvider interface {
-	Info(context.Context, system.System) ProviderInfo
-	Understand(context.Context, system.System, UnderstandRequest) (UnderstandResult, error)
+	Info(context.Context, fpsystem.System) ProviderInfo
+	Understand(context.Context, fpsystem.System, UnderstandRequest) (UnderstandResult, error)
 }
 
 // ProviderInfo describes provider capability and configuration state.

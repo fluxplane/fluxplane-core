@@ -5,20 +5,22 @@ package openapi
 import (
 	"context"
 	"fmt"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 // Plugin contributes OpenAPI-generated resources.
 type Plugin struct {
 	pluginhost.Configurable[Config]
-	system system.System
-	ref    resource.PluginRef
-	cfg    Config
+	system    fpsystem.System
+	workspace runtimeworkspace.Workspace
+	ref       resource.PluginRef
+	cfg       Config
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -28,8 +30,20 @@ var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
 
 // New returns an OpenAPI plugin.
-func New(sys system.System) Plugin {
-	return Plugin{system: sys}
+func New(sys fpsystem.System, workspaces ...runtimeworkspace.Workspace) Plugin {
+	return Plugin{system: sys, workspace: workspaceFromSystem(sys, workspaces...)}
+}
+
+func workspaceFromSystem(sys fpsystem.System, workspaces ...runtimeworkspace.Workspace) runtimeworkspace.Workspace {
+	if len(workspaces) > 0 {
+		return workspaces[0]
+	}
+	if provider, ok := sys.(interface {
+		Workspace() runtimeworkspace.Workspace
+	}); ok {
+		return provider.Workspace()
+	}
+	return nil
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -77,7 +91,7 @@ func (p Plugin) Operations(ctx context.Context, _ pluginhost.Context) ([]operati
 	}
 	out := make([]operation.Operation, 0, len(generated.Executable))
 	for _, def := range generated.Executable {
-		out = append(out, openAPIOperation{system: p.system, def: def})
+		out = append(out, openAPIOperation{system: p.system, workspace: p.workspace, def: def})
 	}
 	return out, nil
 }
@@ -108,7 +122,7 @@ func (p Plugin) generated(ctx context.Context) (generatedSpec, error) {
 	if p.system == nil {
 		return generatedSpec{}, fmt.Errorf("openapiplugin: system is nil")
 	}
-	loaded, errs := loadSpecs(ctx, p.system, p.cfg)
+	loaded, errs := loadSpecs(ctx, p.system, p.workspace, p.cfg)
 	if len(errs) > 0 {
 		return generatedSpec{}, errs[0]
 	}

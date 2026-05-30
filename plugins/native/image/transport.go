@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
-
-	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
+	"time"
 )
 
-func doJSON(ctx context.Context, sys system.System, targetURL, authorization string, body any, maxBytes int) (systemkit.HTTPResponse, error) {
+func doJSON(ctx context.Context, sys fpsystem.System, targetURL, authorization string, body any, maxBytes int) (systemkit.HTTPResponse, error) {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return systemkit.HTTPResponse{}, err

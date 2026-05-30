@@ -23,7 +23,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/native/shell"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	runtimehuman "github.com/fluxplane/fluxplane-core/runtime/human"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -33,8 +32,9 @@ const AgentsContextProvider = "agents.md"
 
 // Plugin aggregates the standard day-to-day coding operation sets.
 type Plugin struct {
-	system  system.System
-	plugins []pluginhost.Plugin
+	system    fpsystem.System
+	workspace runtimeworkspace.Workspace
+	plugins   []pluginhost.Plugin
 }
 
 type Options struct {
@@ -51,12 +51,11 @@ var _ pluginhost.AssertionDeriverContributor = Plugin{}
 var _ pluginhost.ReactionContributor = Plugin{}
 
 // New returns a standard coding plugin bundle.
-func New(sys system.System) Plugin {
-	return NewWithOptions(sys, Options{})
+func New(sys fpsystem.System, workspaces ...runtimeworkspace.Workspace) Plugin {
+	return NewWithOptions(sys, workspaceFromSystem(sys, workspaces...), Options{})
 }
 
-func NewWithOptions(sys system.System, opts Options) Plugin {
-	workspace := systemWorkspace(sys)
+func NewWithOptions(sys fpsystem.System, workspace runtimeworkspace.Workspace, opts Options) Plugin {
 	browserPlugin := browser.New(browser.Config{})
 	if opts.Browser != nil {
 		browserPlugin = *opts.Browser
@@ -65,53 +64,58 @@ func NewWithOptions(sys system.System, opts Options) Plugin {
 	if opts.Human != nil {
 		humanPlugin = *opts.Human
 	}
-	return Plugin{system: sys, plugins: []pluginhost.Plugin{
-		project.New(sys),
+	return Plugin{system: sys, workspace: workspace, plugins: []pluginhost.Plugin{
+		project.New(sys, workspace),
 		filesystem.New(workspace),
-		golang.New(golangConfig(sys)),
+		golang.New(golangConfig(sys, workspace)),
 		markdown.New(workspace),
 		web.New(sys),
 		browserPlugin,
 		git.New(sys),
 		shell.New(shellConfig(sys)),
-		code.New(codeConfig(sys)),
+		code.New(codeConfig(sys, workspace)),
 		humanPlugin,
 	}}
 }
 
-func codeConfig(sys system.System) code.Config {
+func codeConfig(sys fpsystem.System, workspace runtimeworkspace.Workspace) code.Config {
 	if sys == nil {
-		return code.Config{}
+		return code.Config{Workspace: workspace}
 	}
-	return code.Config{Workspace: sys.Workspace(), Process: sys.Process()}
+	return code.Config{Workspace: workspace, Process: sys.Process()}
 }
 
-func golangConfig(sys system.System) golang.Config {
+func golangConfig(sys fpsystem.System, workspace runtimeworkspace.Workspace) golang.Config {
 	if sys == nil {
-		return golang.Config{}
+		return golang.Config{Workspace: workspace}
 	}
-	return golang.Config{Workspace: sys.Workspace(), Process: sys.Process()}
+	return golang.Config{Workspace: workspace, Process: sys.Process()}
 }
 
-func humanConfig(sys system.System, clarifier runtimehuman.Clarifier) human.Config {
+func humanConfig(sys fpsystem.System, clarifier runtimehuman.Clarifier) human.Config {
 	if sys == nil {
 		return human.Config{Clarifier: clarifier}
 	}
 	return human.Config{Process: sys.Process(), Clarifier: clarifier}
 }
 
-func shellConfig(sys system.System) shell.Config {
+func shellConfig(sys fpsystem.System) shell.Config {
 	if sys == nil {
 		return shell.Config{}
 	}
 	return shell.Config{Process: sys.Process(), Environment: sys.Environment()}
 }
 
-func systemWorkspace(sys system.System) runtimeworkspace.Workspace {
-	if sys == nil {
-		return nil
+func workspaceFromSystem(sys fpsystem.System, workspaces ...runtimeworkspace.Workspace) runtimeworkspace.Workspace {
+	if len(workspaces) > 0 {
+		return workspaces[0]
 	}
-	return sys.Workspace()
+	if provider, ok := sys.(interface {
+		Workspace() runtimeworkspace.Workspace
+	}); ok {
+		return provider.Workspace()
+	}
+	return nil
 }
 
 // Manifest returns plugin metadata.
@@ -134,10 +138,10 @@ func (p Plugin) Contributions(ctx context.Context, pluginCtx pluginhost.Context)
 }
 
 func (p Plugin) ContextProviders(ctx context.Context, pluginCtx pluginhost.Context) ([]corecontext.Provider, error) {
-	if p.system == nil || p.system.Workspace() == nil {
+	if p.workspace == nil {
 		return nil, nil
 	}
-	out := []corecontext.Provider{agentsContextProvider{workspace: p.system.Workspace()}}
+	out := []corecontext.Provider{agentsContextProvider{workspace: p.workspace}}
 	seen := map[corecontext.ProviderName]bool{AgentsContextProvider: true}
 	for _, plugin := range p.plugins {
 		contributor, ok := plugin.(pluginhost.ContextProviderContributor)

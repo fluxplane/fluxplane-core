@@ -2,12 +2,11 @@ package loki
 
 import (
 	"context"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
-
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
-func lookupEnv(ctx context.Context, sys system.System, key string) (string, bool, error) {
+func lookupEnv(ctx context.Context, sys fpsystem.System, key string) (string, bool, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return "", false, nil

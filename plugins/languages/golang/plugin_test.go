@@ -22,13 +22,13 @@ import (
 )
 
 func TestGoOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
-	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
-		writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
-		writeGoFile(t, sys.Workspace(), "root.go", `package app
+	runGoPluginBackends(t, func(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace) {
+		writeGoFile(t, workspace, "go.mod", "module example.com/app\n\ngo 1.26\n")
+		writeGoFile(t, workspace, "root.go", `package app
 
 func RootOnly() {}
 `)
-		writeGoFile(t, sys.Workspace(), "pkg/service/service.go", `package service
+		writeGoFile(t, workspace, "pkg/service/service.go", `package service
 
 import (
 	"context"
@@ -61,7 +61,7 @@ func (s *Service) Run(ctx context.Context) error {
 	return nil
 }
 `)
-		writeGoFile(t, sys.Workspace(), "pkg/service/extra.go", `package service
+		writeGoFile(t, workspace, "pkg/service/extra.go", `package service
 
 import "strings"
 
@@ -69,7 +69,7 @@ func Extra() {
 	_ = strings.TrimSpace
 }
 `)
-		writeGoFile(t, sys.Workspace(), "pkg/service/service_test.go", `package service
+		writeGoFile(t, workspace, "pkg/service/service_test.go", `package service
 
 import "testing"
 
@@ -77,7 +77,7 @@ func TestRun() {}
 
 func TestExtra(t *testing.T) {}
 `)
-		writeGoFile(t, sys.Workspace(), "pkg/service/child/child.go", `package service
+		writeGoFile(t, workspace, "pkg/service/child/child.go", `package service
 
 import "bytes"
 
@@ -85,11 +85,11 @@ func ChildOnly() {
 	_ = bytes.Buffer{}
 }
 `)
-		writeGoFile(t, sys.Workspace(), "pkg/model/model.go", `package model
+		writeGoFile(t, workspace, "pkg/model/model.go", `package model
 
 type Model struct{}
 `)
-		writeGoFile(t, sys.Workspace(), "pkg/consumer/consumer.go", `package consumer
+		writeGoFile(t, workspace, "pkg/consumer/consumer.go", `package consumer
 
 import "example.com/app/pkg/service"
 
@@ -97,30 +97,30 @@ func Use() {
 	service.Extra()
 }
 `)
-		writeGoFile(t, sys.Workspace(), "pkg/other/other.go", `package other
+		writeGoFile(t, workspace, "pkg/other/other.go", `package other
 
 import "example.com/ext/lib"
 
 func Other() {}
 `)
-		writeGoFile(t, sys.Workspace(), "tools/go.mod", "module example.com/tools\n\ngo 1.26\n")
-		writeGoFile(t, sys.Workspace(), "tools/tool.go", `package tools
+		writeGoFile(t, workspace, "tools/go.mod", "module example.com/tools\n\ngo 1.26\n")
+		writeGoFile(t, workspace, "tools/tool.go", `package tools
 
 func ToolOnly() {}
 `)
-		writeGoFile(t, sys.Workspace(), "vendor/example.com/lib/lib.go", `package lib
+		writeGoFile(t, workspace, "vendor/example.com/lib/lib.go", `package lib
 
 func VendoredRoot() {}
 `)
-		writeGoFile(t, sys.Workspace(), "tools/vendor/example.com/lib/lib.go", `package lib
+		writeGoFile(t, workspace, "tools/vendor/example.com/lib/lib.go", `package lib
 
 func VendoredNested() {}
 `)
-		writeGoFile(t, sys.Workspace(), "pkg/bad/bad.go", `package bad
+		writeGoFile(t, workspace, "pkg/bad/bad.go", `package bad
 
 func Broken(
 `)
-		writeGoFile(t, sys.Workspace(), "pkg/bad/good.go", `package bad
+		writeGoFile(t, workspace, "pkg/bad/good.go", `package bad
 
 func Good() {}
 `)
@@ -269,9 +269,9 @@ func Good() {}
 }
 
 func TestGoAssessmentOperations(t *testing.T) {
-	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
-		writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
-		writeGoFile(t, sys.Workspace(), "engine-architecture.rules.json", `{
+	runGoPluginBackends(t, func(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace) {
+		writeGoFile(t, workspace, "go.mod", "module example.com/app\n\ngo 1.26\n")
+		writeGoFile(t, workspace, "engine-architecture.rules.json", `{
   "module_path": "example.com/app",
   "layers": [
     {"name": "core", "prefixes": ["core"]},
@@ -283,13 +283,13 @@ func TestGoAssessmentOperations(t *testing.T) {
     {"from_layer": "adapters", "to_layer": "adapters"}
   ]
 }`)
-		writeGoFile(t, sys.Workspace(), "core/core.go", `package core
+		writeGoFile(t, workspace, "core/core.go", `package core
 
 import _ "example.com/app/adapters"
 
 func UseAdapter() {}
 `)
-		writeGoFile(t, sys.Workspace(), "adapters/adapters.go", `package adapters
+		writeGoFile(t, workspace, "adapters/adapters.go", `package adapters
 
 func Adapter() {}
 `)
@@ -318,15 +318,15 @@ func Adapter() {}
 }
 
 func TestGoAssessmentDisablesArchitectureWhenDefaultRulesMissing(t *testing.T) {
-	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
-		writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
-		writeGoFile(t, sys.Workspace(), "core/core.go", `package core
+	runGoPluginBackends(t, func(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace) {
+		writeGoFile(t, workspace, "go.mod", "module example.com/app\n\ngo 1.26\n")
+		writeGoFile(t, workspace, "core/core.go", `package core
 
 import _ "example.com/app/adapters"
 
 func UseAdapter() {}
 `)
-		writeGoFile(t, sys.Workspace(), "adapters/adapters.go", `package adapters
+		writeGoFile(t, workspace, "adapters/adapters.go", `package adapters
 
 func Adapter() {}
 `)
@@ -339,13 +339,13 @@ func Adapter() {}
 }
 
 func TestGoImportsClassifiesDotlessModuleLocalImports(t *testing.T) {
-	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
-		writeGoFile(t, sys.Workspace(), "go.mod", "module app\n\ngo 1.26\n")
-		writeGoFile(t, sys.Workspace(), "pkg/model/model.go", `package model
+	runGoPluginBackends(t, func(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace) {
+		writeGoFile(t, workspace, "go.mod", "module app\n\ngo 1.26\n")
+		writeGoFile(t, workspace, "pkg/model/model.go", `package model
 
 type Model struct{}
 `)
-		writeGoFile(t, sys.Workspace(), "pkg/service/service.go", `package service
+		writeGoFile(t, workspace, "pkg/service/service.go", `package service
 
 import "app/pkg/model"
 
@@ -360,7 +360,7 @@ func Use(model.Model) {}
 }
 
 func TestGoImplementationOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
-	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
+	runGoPluginBackends(t, func(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace) {
 		contract := `package contract
 
 type Runner interface {
@@ -412,11 +412,11 @@ type TestImpl struct{}
 
 func (TestImpl) TestHook() {}
 `
-		writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/impl\n\ngo 1.26\n")
-		writeGoFile(t, sys.Workspace(), "pkg/contract/contract.go", contract)
-		writeGoFile(t, sys.Workspace(), "pkg/service/service.go", service)
-		writeGoFile(t, sys.Workspace(), "pkg/service/service_test.go", testImpl)
-		writeGoFile(t, sys.Workspace(), "pkg/sibling/sibling.go", sibling)
+		writeGoFile(t, workspace, "go.mod", "module example.com/impl\n\ngo 1.26\n")
+		writeGoFile(t, workspace, "pkg/contract/contract.go", contract)
+		writeGoFile(t, workspace, "pkg/service/service.go", service)
+		writeGoFile(t, workspace, "pkg/service/service_test.go", testImpl)
+		writeGoFile(t, workspace, "pkg/sibling/sibling.go", sibling)
 
 		line, column := goPosition(t, contract, "Runner interface")
 		runnerModule := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/contract/contract.go", "line": line, "column": column, "scope": "module"})
@@ -445,7 +445,7 @@ func (TestImpl) TestHook() {}
 			t.Fatalf("runner package implementations text = %q, want AST no-match result", runnerPackage.Text)
 		}
 
-		writeGoFile(t, sys.Workspace(), "pkg/splitrun/service.go", `package splitrun
+		writeGoFile(t, workspace, "pkg/splitrun/service.go", `package splitrun
 
 type Service struct{}
 
@@ -453,7 +453,7 @@ func (Service) Run() error {
 	return nil
 }
 `)
-		writeGoFile(t, sys.Workspace(), "pkg/splitstop/service.go", `package splitstop
+		writeGoFile(t, workspace, "pkg/splitstop/service.go", `package splitstop
 
 type Service struct{}
 
@@ -500,7 +500,8 @@ func TestGoToolchainInfoEnvVersionWithHostWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/toolchain\n\ngo 1.26\n")
+	workspace := sys.Workspace()
+	writeGoFile(t, workspace, "go.mod", "module example.com/toolchain\n\ngo 1.26\n")
 
 	infoRendered := runGoOp(t, sys, InfoOp, map[string]any{"include_raw_env": true})
 	info := goInfoResultFromRendered(t, infoRendered)
@@ -558,7 +559,8 @@ func TestGoToolchainDocListWithHostWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/doclist\n\ngo 1.26\n")
+	workspace := sys.Workspace()
+	writeGoFile(t, workspace, "go.mod", "module example.com/doclist\n\ngo 1.26\n")
 	service := `// Package service documents service behavior.
 package service
 
@@ -574,8 +576,8 @@ func (Service) Run() {}
 // hidden is not exported.
 type hidden struct{}
 `
-	writeGoFile(t, sys.Workspace(), "pkg/service/service.go", service)
-	writeGoFile(t, sys.Workspace(), "pkg/broken/broken.go", `package broken
+	writeGoFile(t, workspace, "pkg/service/service.go", service)
+	writeGoFile(t, workspace, "pkg/broken/broken.go", `package broken
 
 import _ "example.com/missing"
 `)
@@ -617,7 +619,7 @@ import _ "example.com/missing"
 	if len(moduleData.Records) != 1 || goListRecordString(moduleData.Records[0], "Path") != "example.com/doclist" {
 		t.Fatalf("go list modules data = %#v, want root module", moduleData)
 	}
-	writeGoFile(t, sys.Workspace(), "pkg/service/service_test.go", `package service
+	writeGoFile(t, workspace, "pkg/service/service_test.go", `package service
 
 import "testing"
 
@@ -650,12 +652,13 @@ func TestGoToolchainCheckFmtInstallWithHostWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/checks\n\ngo 1.26\n")
-	writeGoFile(t, sys.Workspace(), "pkg/checks/checks.go", `package checks
+	workspace := sys.Workspace()
+	writeGoFile(t, workspace, "go.mod", "module example.com/checks\n\ngo 1.26\n")
+	writeGoFile(t, workspace, "pkg/checks/checks.go", `package checks
 
 func Add(a, b int) int { return a + b }
 `)
-	writeGoFile(t, sys.Workspace(), "pkg/checks/checks_test.go", `package checks
+	writeGoFile(t, workspace, "pkg/checks/checks_test.go", `package checks
 
 import "testing"
 
@@ -669,7 +672,7 @@ func TestFail(t *testing.T) {
 	t.Fatal("intentional failure")
 }
 `)
-	writeGoFile(t, sys.Workspace(), "pkg/vet/vet.go", `package vet
+	writeGoFile(t, workspace, "pkg/vet/vet.go", `package vet
 
 import "fmt"
 
@@ -677,14 +680,14 @@ func Bad() {
 	fmt.Printf("%d", "x")
 }
 `)
-	writeGoFile(t, sys.Workspace(), "pkg/badbuild/bad.go", `package badbuild
+	writeGoFile(t, workspace, "pkg/badbuild/bad.go", `package badbuild
 
 func Broken() {
 	_ = Missing()
 }
 `)
-	writeGoFile(t, sys.Workspace(), "pkg/format/format.go", "package format\n\nfunc Bad( ){ }\n")
-	writeGoFile(t, sys.Workspace(), "cmd/tool/main.go", `package main
+	writeGoFile(t, workspace, "pkg/format/format.go", "package format\n\nfunc Bad( ){ }\n")
+	writeGoFile(t, workspace, "cmd/tool/main.go", `package main
 
 func main() {}
 `)
@@ -768,7 +771,7 @@ func main() {}
 	if !goFmtResultFromRendered(t, fmtReal).Changed {
 		t.Fatalf("go fmt real text = %q, want changed file", fmtReal.Text)
 	}
-	formatted, _, _, err := readWorkspaceFile(context.Background(), sys.Workspace(), "pkg/format/format.go", 1024)
+	formatted, _, _, err := readWorkspaceFile(context.Background(), workspace, "pkg/format/format.go", 1024)
 	if err != nil {
 		t.Fatalf("ReadFile formatted: %v", err)
 	}
@@ -928,6 +931,7 @@ func TestGoImplementationsUsesTypeCheckedHostBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
+	workspace := sys.Workspace()
 	contract := `package api
 
 import "context"
@@ -960,9 +964,9 @@ func (*Provider) Open(ctx.Context) error {
 
 var _ api.Accessor = (*Provider)(nil)
 `
-	writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/typeimpl\n\ngo 1.26\n")
-	writeGoFile(t, sys.Workspace(), "pkg/api/api.go", contract)
-	writeGoFile(t, sys.Workspace(), "pkg/impl/impl.go", impl)
+	writeGoFile(t, workspace, "go.mod", "module example.com/typeimpl\n\ngo 1.26\n")
+	writeGoFile(t, workspace, "pkg/api/api.go", contract)
+	writeGoFile(t, workspace, "pkg/impl/impl.go", impl)
 
 	line, column := goPosition(t, contract, "Accessor interface")
 	rendered := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/api/api.go", "line": line, "column": column, "scope": "module"})
@@ -983,6 +987,7 @@ func TestGoImplementationsTypeCheckedZeroMatchesDoNotFallbackToAST(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
+	workspace := sys.Workspace()
 	contract := `package contract
 
 type Runner interface {
@@ -997,9 +1002,9 @@ func (BadRunner) Run(string) error {
 	return nil
 }
 `
-	writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/mismatch\n\ngo 1.26\n")
-	writeGoFile(t, sys.Workspace(), "pkg/contract/contract.go", contract)
-	writeGoFile(t, sys.Workspace(), "pkg/impl/impl.go", impl)
+	writeGoFile(t, workspace, "go.mod", "module example.com/mismatch\n\ngo 1.26\n")
+	writeGoFile(t, workspace, "pkg/contract/contract.go", contract)
+	writeGoFile(t, workspace, "pkg/impl/impl.go", impl)
 
 	line, column := goPosition(t, contract, "Runner interface")
 	rendered := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/contract/contract.go", "line": line, "column": column, "scope": "module"})
@@ -1016,7 +1021,7 @@ func (BadRunner) Run(string) error {
 }
 
 func TestGoCallOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
-	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
+	runGoPluginBackends(t, func(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace) {
 		service := `package service
 
 type Service struct{}
@@ -1074,13 +1079,13 @@ func Child() {
 	_ = NewService
 }
 `
-		writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/calls\n\ngo 1.26\n")
-		writeGoFile(t, sys.Workspace(), "pkg/service/service.go", service)
-		writeGoFile(t, sys.Workspace(), "pkg/service/use.go", use)
-		writeGoFile(t, sys.Workspace(), "pkg/service/use_test.go", testUse)
-		writeGoFile(t, sys.Workspace(), "pkg/service/zz_external_test.go", externalTestUse)
-		writeGoFile(t, sys.Workspace(), "pkg/consumer/consumer.go", consumer)
-		writeGoFile(t, sys.Workspace(), "pkg/service/child/child.go", child)
+		writeGoFile(t, workspace, "go.mod", "module example.com/calls\n\ngo 1.26\n")
+		writeGoFile(t, workspace, "pkg/service/service.go", service)
+		writeGoFile(t, workspace, "pkg/service/use.go", use)
+		writeGoFile(t, workspace, "pkg/service/use_test.go", testUse)
+		writeGoFile(t, workspace, "pkg/service/zz_external_test.go", externalTestUse)
+		writeGoFile(t, workspace, "pkg/consumer/consumer.go", consumer)
+		writeGoFile(t, workspace, "pkg/service/child/child.go", child)
 
 		line, column := goPosition(t, service, "Run() {")
 		callees := runGoOp(t, sys, CalleesOp, map[string]any{"path": "pkg/service/service.go", "line": line, "column": column})
@@ -1132,7 +1137,7 @@ func Child() {
 }
 
 func TestGoNavigationOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
-	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
+	runGoPluginBackends(t, func(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace) {
 		defs := `package nav
 
 import alias "context"
@@ -1199,16 +1204,16 @@ func UseOther() {
 	_ = svc.Run
 }
 `
-		writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/nav\n\ngo 1.26\n")
-		writeGoFile(t, sys.Workspace(), "pkg/nav/defs.go", defs)
-		writeGoFile(t, sys.Workspace(), "pkg/nav/use.go", use)
-		writeGoFile(t, sys.Workspace(), "pkg/nav/use_test.go", `package nav
+		writeGoFile(t, workspace, "go.mod", "module example.com/nav\n\ngo 1.26\n")
+		writeGoFile(t, workspace, "pkg/nav/defs.go", defs)
+		writeGoFile(t, workspace, "pkg/nav/use.go", use)
+		writeGoFile(t, workspace, "pkg/nav/use_test.go", `package nav
 
 func TestEnabled() {
 	_ = Enabled
 }
 `)
-		writeGoFile(t, sys.Workspace(), "pkg/nav/child/child.go", `package nav
+		writeGoFile(t, workspace, "pkg/nav/child/child.go", `package nav
 
 func ChildUse() {
 	_ = Enabled
@@ -1341,21 +1346,22 @@ func ChildUse() {
 	})
 }
 
-func runGoPluginBackends(t *testing.T, fn func(*testing.T, system.System)) {
+func runGoPluginBackends(t *testing.T, fn func(*testing.T, fpsystem.System, runtimeworkspace.Workspace)) {
 	t.Helper()
 	t.Run("memory", func(t *testing.T) {
-		fn(t, systemtest.NewMemory())
+		mem := systemtest.NewMemory()
+		fn(t, mem, mem.Workspace())
 	})
 	t.Run("host", func(t *testing.T) {
 		sys, err := system.NewHost(system.Config{Root: t.TempDir()})
 		if err != nil {
 			t.Fatalf("NewHost: %v", err)
 		}
-		fn(t, sys)
+		fn(t, sys, sys.Workspace())
 	})
 }
 
-func runGoOp(t *testing.T, sys system.System, name string, input map[string]any) operation.Rendered {
+func runGoOp(t *testing.T, sys fpsystem.System, name string, input map[string]any) operation.Rendered {
 	t.Helper()
 	result := runGoResult(t, sys, name, input)
 	if result.Status != operation.StatusOK {
@@ -1563,7 +1569,7 @@ func goModTidyResultFromRendered(t *testing.T, rendered operation.Rendered) gola
 	return result
 }
 
-func runGoResult(t *testing.T, sys system.System, name string, input map[string]any) operation.Result {
+func runGoResult(t *testing.T, sys fpsystem.System, name string, input map[string]any) operation.Result {
 	t.Helper()
 	ops, err := pluginForSystem(sys).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
@@ -1578,11 +1584,20 @@ func runGoResult(t *testing.T, sys system.System, name string, input map[string]
 	return operation.Result{}
 }
 
-func pluginForSystem(sys system.System) Plugin {
+func workspaceFromSystem(sys fpsystem.System) runtimeworkspace.Workspace {
+	if provider, ok := sys.(interface {
+		Workspace() runtimeworkspace.Workspace
+	}); ok {
+		return provider.Workspace()
+	}
+	return nil
+}
+
+func pluginForSystem(sys fpsystem.System) Plugin {
 	if sys == nil {
 		return New(Config{})
 	}
-	return New(Config{Workspace: sys.Workspace(), Process: sys.Process()})
+	return New(Config{Workspace: workspaceFromSystem(sys), Process: sys.Process()})
 }
 
 func writeGoFile(t *testing.T, ws runtimeworkspace.Workspace, rel, content string) {

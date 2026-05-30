@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"mime"
 	"strings"
 	"time"
@@ -14,7 +15,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-policy"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
@@ -28,14 +28,14 @@ const (
 
 // Plugin contributes outbound web operations.
 type Plugin struct {
-	system system.System
+	system fpsystem.System
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
 // New returns a web plugin.
-func New(sys system.System) Plugin { return Plugin{system: sys} }
+func New(sys fpsystem.System) Plugin { return Plugin{system: sys} }
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {

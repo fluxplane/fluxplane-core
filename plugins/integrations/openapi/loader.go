@@ -3,17 +3,15 @@ package openapi
 import (
 	"context"
 	"fmt"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	fpsystem "github.com/fluxplane/fluxplane-system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
+	"github.com/getkin/kin-openapi/openapi3"
 	"io"
 	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
-
-	"github.com/fluxplane/fluxplane-core/runtime/system"
-	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
-	fpsystem "github.com/fluxplane/fluxplane-system"
-	"github.com/fluxplane/fluxplane-system/systemkit"
-	"github.com/getkin/kin-openapi/openapi3"
 )
 
 const maxSpecBytes = 20 * 1024 * 1024
@@ -24,11 +22,11 @@ type loadedSpec struct {
 	Doc    *openapi3.T
 }
 
-func loadSpecs(ctx context.Context, sys system.System, cfg Config) ([]loadedSpec, []error) {
+func loadSpecs(ctx context.Context, sys fpsystem.System, workspace runtimeworkspace.Workspace, cfg Config) ([]loadedSpec, []error) {
 	var out []loadedSpec
 	var errs []error
 	for i, spec := range cfg.Specs {
-		loaded, err := loadSpec(ctx, sys, spec)
+		loaded, err := loadSpec(ctx, sys, workspace, spec)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("specs[%d]: %w", i, err))
 			continue
@@ -38,14 +36,14 @@ func loadSpecs(ctx context.Context, sys system.System, cfg Config) ([]loadedSpec
 	return out, errs
 }
 
-func loadSpec(ctx context.Context, sys system.System, cfg SpecConfig) (loadedSpec, error) {
+func loadSpec(ctx context.Context, sys fpsystem.System, workspace runtimeworkspace.Workspace, cfg SpecConfig) (loadedSpec, error) {
 	if sys == nil {
 		return loadedSpec{}, fmt.Errorf("system is nil")
 	}
 	loader := openapi3.NewLoader()
 	loader.Context = ctx
 	loader.IsExternalRefsAllowed = true
-	loader.ReadFromURIFunc = readFromURI(ctx, sys)
+	loader.ReadFromURIFunc = readFromURI(ctx, sys, workspace)
 	var (
 		data     []byte
 		location *url.URL
@@ -60,7 +58,7 @@ func loadSpec(ctx context.Context, sys system.System, cfg SpecConfig) (loadedSpe
 		data, err = readRemote(ctx, sys, location)
 		source = cfg.URL
 	} else {
-		data, location, source, err = readWorkspaceFile(ctx, sys, cfg.File)
+		data, location, source, err = readWorkspaceFile(ctx, workspace, cfg.File)
 	}
 	if err != nil {
 		return loadedSpec{}, err
@@ -78,13 +76,13 @@ func loadSpec(ctx context.Context, sys system.System, cfg SpecConfig) (loadedSpe
 	return loadedSpec{Config: cfg, Source: source, Doc: doc}, nil
 }
 
-func readFromURI(ctx context.Context, sys system.System) openapi3.ReadFromURIFunc {
+func readFromURI(ctx context.Context, sys fpsystem.System, workspace runtimeworkspace.Workspace) openapi3.ReadFromURIFunc {
 	return func(_ *openapi3.Loader, location *url.URL) ([]byte, error) {
 		switch strings.ToLower(location.Scheme) {
 		case "http", "https":
 			return readRemote(ctx, sys, location)
 		case "", "file":
-			data, _, _, err := readWorkspaceFile(ctx, sys, location.Path)
+			data, _, _, err := readWorkspaceFile(ctx, workspace, location.Path)
 			return data, err
 		default:
 			return nil, fmt.Errorf("unsupported openapi ref scheme %q", location.Scheme)
@@ -92,7 +90,7 @@ func readFromURI(ctx context.Context, sys system.System) openapi3.ReadFromURIFun
 	}
 }
 
-func readRemote(ctx context.Context, sys system.System, location *url.URL) ([]byte, error) {
+func readRemote(ctx context.Context, sys fpsystem.System, location *url.URL) ([]byte, error) {
 	if sys == nil || sys.Network() == nil {
 		return nil, fmt.Errorf("network system is nil")
 	}
@@ -120,8 +118,8 @@ func readRemote(ctx context.Context, sys system.System, location *url.URL) ([]by
 	return data, nil
 }
 
-func readWorkspaceFile(ctx context.Context, sys system.System, raw string) ([]byte, *url.URL, string, error) {
-	if sys == nil || sys.Workspace() == nil {
+func readWorkspaceFile(ctx context.Context, workspace runtimeworkspace.Workspace, raw string) ([]byte, *url.URL, string, error) {
+	if workspace == nil {
 		return nil, nil, "", fmt.Errorf("workspace system is nil")
 	}
 	raw = strings.TrimSpace(raw)
@@ -132,11 +130,11 @@ func readWorkspaceFile(ctx context.Context, sys system.System, raw string) ([]by
 		}
 		raw = u.Path
 	}
-	resolved, err := sys.Workspace().ResolveExisting(ctx, raw)
+	resolved, err := workspace.ResolveExisting(ctx, raw)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("read %s: %w", raw, err)
 	}
-	fsys, err := runtimeworkspace.FileSystem(sys.Workspace())
+	fsys, err := runtimeworkspace.FileSystem(workspace)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("read %s: %w", raw, err)
 	}

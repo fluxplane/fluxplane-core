@@ -4,16 +4,16 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
-
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
-func writeGeneratedImage(ctx context.Context, sys system.System, provider, model, prompt, contentType string, data []byte) (GenerateResult, error) {
-	if sys == nil || sys.Workspace() == nil {
+func writeGeneratedImage(ctx context.Context, sys fpsystem.System, provider, model, prompt, contentType string, data []byte) (GenerateResult, error) {
+	workspace := workspaceFromSystem(sys)
+	if workspace == nil {
 		return GenerateResult{}, fmt.Errorf("system workspace is not configured")
 	}
-	scratch, err := sys.Workspace().CreateScratch(ctx, "fluxplane-image-*")
+	scratch, err := workspace.CreateScratch(ctx, "fluxplane-image-*")
 	if err != nil {
 		return GenerateResult{}, err
 	}

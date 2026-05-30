@@ -36,6 +36,10 @@ func (s *MemorySystem) Workspace() runtimeworkspace.Workspace { return s.Workspa
 func (s *MemorySystem) Network() fpsystem.Network             { return network{} }
 func (s *MemorySystem) Process() fpsystem.ProcessManager      { return nil }
 func (s *MemorySystem) Environment() fpsystem.Environment     { return environment{} }
+func (s *MemorySystem) FileSystem() fpsystem.FileSystem {
+	return s.WorkspaceValue.System().FileSystem()
+}
+func (s *MemorySystem) Clock() fpsystem.Clock { return s.WorkspaceValue.System().Clock() }
 
 type environment struct{}
 type network struct {
@@ -630,5 +634,5 @@ func hidden(rel string) bool {
 	return false
 }
 
-var _ system.System = (*MemorySystem)(nil)
+var _ fpsystem.System = (*MemorySystem)(nil)
 var _ runtimeworkspace.Workspace = (*MemoryWorkspace)(nil)

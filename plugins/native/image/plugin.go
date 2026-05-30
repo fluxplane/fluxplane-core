@@ -3,6 +3,8 @@ package image
 import (
 	"context"
 	"fmt"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"time"
 
@@ -13,7 +15,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 const (
@@ -33,9 +34,18 @@ const (
 
 // Plugin contributes image generation and understanding operations.
 type Plugin struct {
-	system        system.System
+	system        fpsystem.System
 	generators    []GenerationProvider
 	understanders []UnderstandingProvider
+}
+
+func workspaceFromSystem(sys fpsystem.System) runtimeworkspace.Workspace {
+	if provider, ok := sys.(interface {
+		Workspace() runtimeworkspace.Workspace
+	}); ok {
+		return provider.Workspace()
+	}
+	return nil
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -65,7 +75,7 @@ func WithUnderstandingProvider(provider UnderstandingProvider) Option {
 }
 
 // New returns an image plugin with built-in providers.
-func New(sys system.System, opts ...Option) Plugin {
+func New(sys fpsystem.System, opts ...Option) Plugin {
 	p := Plugin{
 		system: sys,
 		generators: []GenerationProvider{

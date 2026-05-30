@@ -3,23 +3,23 @@ package web
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"html"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 var duckDuckGoSearchURLTemplate = "https://html.duckduckgo.com/html/?q={query}"
 
 type duckDuckGoSearchProvider struct {
-	system   system.System
+	system   fpsystem.System
 	template string
 }
 
-func newDuckDuckGoSearchProvider(sys system.System) duckDuckGoSearchProvider {
+func newDuckDuckGoSearchProvider(sys fpsystem.System) duckDuckGoSearchProvider {
 	return duckDuckGoSearchProvider{system: sys, template: duckDuckGoSearchURLTemplate}
 }
 

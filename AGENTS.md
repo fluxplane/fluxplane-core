@@ -148,10 +148,11 @@ separate parts.
 - All side-effecting operations enter through
   `runtime/operation.SafetyEnvelope`; no shell, filesystem, network, browser,
   or code execution path may bypass it.
-- Reusable plugins use `runtime/system.System` for filesystem, network,
-  process, browser, and human clarification. Do not import/call `os`,
+- Reusable plugins use explicit capabilities such as
+  `github.com/fluxplane/fluxplane-system.System`, `runtime/workspace.Workspace`,
+  process, browser, and human clarification boundaries. Do not import/call `os`,
   `os/exec`, `syscall`, `net`, `net/http`, or `net/url` directly unless the
-  package implements a `System` adapter.
+  package implements an approved system adapter.
 - Preserve the managed process boundary for stdout/stderr streaming,
   background handles, and per-session cleanup.
 - Prefer `runtime/operation.NewTyped` or `NewTypedResult`. Use input/output

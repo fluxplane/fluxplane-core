@@ -3,6 +3,7 @@ package gitlab
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strconv"
 	"strings"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/identity"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"golang.org/x/oauth2"
@@ -43,7 +43,7 @@ const (
 
 type Plugin struct {
 	pluginhost.Configurable[Config]
-	system        system.System
+	system        fpsystem.System
 	ref           resource.PluginRef
 	cfg           Config
 	secrets       runtimesecret.Resolver
@@ -146,7 +146,7 @@ type gitlabClient interface {
 	DeleteSnippet(context.Context, int64) error
 }
 
-type gitlabClientFactory func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error)
+type gitlabClientFactory func(context.Context, fpsystem.System, resource.PluginRef, Config) (gitlabClient, error)
 
 type resolvedGitLabAuth struct {
 	runtimesecret.Resolution
@@ -161,11 +161,11 @@ var _ pluginhost.AuthMethodContributor = Plugin{}
 var _ pluginhost.AuthTestContributor = Plugin{}
 var _ pluginhost.ExternalIdentityContributor = Plugin{}
 
-func New(sys system.System) Plugin {
+func New(sys fpsystem.System) Plugin {
 	return Plugin{system: sys}
 }
 
-func NewWithResolver(sys system.System, resolver runtimesecret.Resolver) Plugin {
+func NewWithResolver(sys fpsystem.System, resolver runtimesecret.Resolver) Plugin {
 	return Plugin{system: sys, secrets: resolver}
 }
 
@@ -529,7 +529,7 @@ func tokenEnvAliases() []string {
 	return []string{gitlabAccessTokenEnv, gitlabPersonalAccessTokenEnv, gitlabPersonalTokenEnv, gitlabTokenEnv}
 }
 
-func newOfficialClient(ctx context.Context, sys system.System, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
+func newOfficialClient(ctx context.Context, sys fpsystem.System, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
 	auth, err := authFromSecrets(ctx, sys, ref, cfg)
 	if err != nil {
 		return nil, err
@@ -537,7 +537,7 @@ func newOfficialClient(ctx context.Context, sys system.System, ref resource.Plug
 	return newOfficialClientFromAuth(sys, cfg, auth)
 }
 
-func newOfficialClientWithResolver(ctx context.Context, sys system.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
+func newOfficialClientWithResolver(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
 	auth, err := authFromResolver(ctx, resolver, ref, cfg)
 	if err != nil {
 		return nil, err
@@ -545,7 +545,7 @@ func newOfficialClientWithResolver(ctx context.Context, sys system.System, resol
 	return newOfficialClientFromAuth(sys, cfg, auth)
 }
 
-func newOfficialClientFromAuth(sys system.System, cfg Config, auth resolvedGitLabAuth) (gitlabClient, error) {
+func newOfficialClientFromAuth(sys fpsystem.System, cfg Config, auth resolvedGitLabAuth) (gitlabClient, error) {
 	if sys == nil {
 		return nil, fmt.Errorf("gitlabplugin: system is nil")
 	}
@@ -575,7 +575,7 @@ func newOfficialClientFromAuth(sys system.System, cfg Config, auth resolvedGitLa
 	return officialClient{client: client}, nil
 }
 
-func authFromSecrets(ctx context.Context, sys system.System, ref resource.PluginRef, cfg Config) (resolvedGitLabAuth, error) {
+func authFromSecrets(ctx context.Context, sys fpsystem.System, ref resource.PluginRef, cfg Config) (resolvedGitLabAuth, error) {
 	if sys == nil {
 		return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: system is nil")
 	}

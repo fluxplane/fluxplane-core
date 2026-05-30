@@ -300,11 +300,11 @@ func TestLaunchPassesWorkspaceConfigToSystem(t *testing.T) {
 	}
 	defer runtime.Close()
 
-	resolved, err := runtime.System.Workspace().ResolveCreate(context.Background(), "@tmp/out.txt")
+	resolved, err := runtime.Workspace.ResolveCreate(context.Background(), "@tmp/out.txt")
 	if err != nil {
 		t.Fatalf("ResolveCreate: %v", err)
 	}
-	fsys, err := runtimeworkspace.FileSystem(runtime.System.Workspace())
+	fsys, err := runtimeworkspace.FileSystem(runtime.Workspace)
 	if err != nil {
 		t.Fatalf("FileSystem: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestLaunchOpensWebSearchDatasourceThroughCodingPlugin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	plugins := []pluginhost.Plugin{coding.New(sys)}
+	plugins := []pluginhost.Plugin{coding.New(sys, sys.Workspace())}
 
 	registry, err := datasourceRegistry(ctx, bundles, plugins, root)
 	if err != nil {

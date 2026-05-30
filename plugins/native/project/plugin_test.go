@@ -20,17 +20,17 @@ import (
 )
 
 func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
-	runProjectPluginBackends(t, func(t *testing.T, sys system.System) {
-		writeProjectFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
-		writeProjectFile(t, sys.Workspace(), "package.json", `{"name":"app","scripts":{"test":"node test.js"}}`)
-		writeProjectFile(t, sys.Workspace(), "Dockerfile", "FROM scratch\n")
-		writeProjectFile(t, sys.Workspace(), "api.Dockerfile", "FROM alpine\n")
-		writeProjectFile(t, sys.Workspace(), "docker-compose.yaml", "services:\n  app:\n    image: example/app\n")
-		writeProjectFile(t, sys.Workspace(), ".agents/plans/example.md", "# Plan\n")
-		writeProjectFile(t, sys.Workspace(), ".claude/commands/check.md", "# Check\n")
-		writeProjectFile(t, sys.Workspace(), "README.md", "# App\n\n## Usage\n\n### CLI\n")
+	runProjectPluginBackends(t, func(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace) {
+		writeProjectFile(t, workspace, "go.mod", "module example.com/app\n\ngo 1.26\n")
+		writeProjectFile(t, workspace, "package.json", `{"name":"app","scripts":{"test":"node test.js"}}`)
+		writeProjectFile(t, workspace, "Dockerfile", "FROM scratch\n")
+		writeProjectFile(t, workspace, "api.Dockerfile", "FROM alpine\n")
+		writeProjectFile(t, workspace, "docker-compose.yaml", "services:\n  app:\n    image: example/app\n")
+		writeProjectFile(t, workspace, ".agents/plans/example.md", "# Plan\n")
+		writeProjectFile(t, workspace, ".claude/commands/check.md", "# Check\n")
+		writeProjectFile(t, workspace, "README.md", "# App\n\n## Usage\n\n### CLI\n")
 
-		inventory := runProjectOp(t, sys, InventoryOp, map[string]any{"refresh": true})
+		inventory := runProjectOp(t, sys, workspace, InventoryOp, map[string]any{"refresh": true})
 		if !strings.Contains(inventory.Text, ". [project:.]") || !strings.Contains(inventory.Text, "go_module go.mod") || !strings.Contains(inventory.Text, "node_package package.json") || !strings.Contains(inventory.Text, "dockerfile Dockerfile") || !strings.Contains(inventory.Text, "docker_compose docker-compose.yaml") || !strings.Contains(inventory.Text, "agents_dir .agents") || !strings.Contains(inventory.Text, "claude_dir .claude") {
 			t.Fatalf("inventory text = %q", inventory.Text)
 		}
@@ -46,36 +46,36 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 			t.Fatalf("summary = %#v, want workspace ids", summary)
 		}
 
-		tasks := runProjectOp(t, sys, TasksOp, map[string]any{})
+		tasks := runProjectOp(t, sys, workspace, TasksOp, map[string]any{})
 		if !strings.Contains(tasks.Text, "test (package_script)") {
 			t.Fatalf("tasks text = %q", tasks.Text)
 		}
 
-		docs := runProjectOp(t, sys, DocsOp, map[string]any{})
+		docs := runProjectOp(t, sys, workspace, DocsOp, map[string]any{})
 		if !strings.Contains(docs.Text, "# App") || !strings.Contains(docs.Text, "## Usage") || !strings.Contains(docs.Text, "### CLI") {
 			t.Fatalf("docs text = %q", docs.Text)
 		}
-		bareIDFiles := runProjectOp(t, sys, FilesOp, map[string]any{"project_id": ".", "max_results": 20})
+		bareIDFiles := runProjectOp(t, sys, workspace, FilesOp, map[string]any{"project_id": ".", "max_results": 20})
 		if !strings.Contains(bareIDFiles.Text, "go.mod") {
 			t.Fatalf("bare id files text = %q", bareIDFiles.Text)
 		}
-		bareIDDocs := runProjectOp(t, sys, DocsOp, map[string]any{"project_id": "."})
+		bareIDDocs := runProjectOp(t, sys, workspace, DocsOp, map[string]any{"project_id": "."})
 		if !strings.Contains(bareIDDocs.Text, "# App") {
 			t.Fatalf("bare id docs text = %q", bareIDDocs.Text)
 		}
-		agentFiles := runProjectOp(t, sys, FilesOp, map[string]any{"path": ".", "facet_kind": "agents_dir", "max_results": 10})
+		agentFiles := runProjectOp(t, sys, workspace, FilesOp, map[string]any{"path": ".", "facet_kind": "agents_dir", "max_results": 10})
 		if !strings.Contains(agentFiles.Text, ".agents/plans/example.md") || strings.Contains(agentFiles.Text, ".claude/commands/check.md") {
 			t.Fatalf("agent facet files text = %q", agentFiles.Text)
 		}
-		dockerfileFiles := runProjectOp(t, sys, FilesOp, map[string]any{"path": ".", "facet_kind": "dockerfile", "max_results": 20})
+		dockerfileFiles := runProjectOp(t, sys, workspace, FilesOp, map[string]any{"path": ".", "facet_kind": "dockerfile", "max_results": 20})
 		if !strings.Contains(dockerfileFiles.Text, "Dockerfile") || !strings.Contains(dockerfileFiles.Text, "api.Dockerfile") || strings.Contains(dockerfileFiles.Text, "docker-compose.yaml") {
 			t.Fatalf("dockerfile facet files text = %q", dockerfileFiles.Text)
 		}
-		composeFiles := runProjectOp(t, sys, FilesOp, map[string]any{"path": ".", "facet_kind": "docker_compose", "max_results": 20})
+		composeFiles := runProjectOp(t, sys, workspace, FilesOp, map[string]any{"path": ".", "facet_kind": "docker_compose", "max_results": 20})
 		if !strings.Contains(composeFiles.Text, "docker-compose.yaml") || strings.Contains(composeFiles.Text, "Dockerfile") {
 			t.Fatalf("docker compose facet files text = %q", composeFiles.Text)
 		}
-		providers, err := New(sys).ContextProviders(context.Background(), pluginhost.Context{})
+		providers, err := New(sys, workspace).ContextProviders(context.Background(), pluginhost.Context{})
 		if err != nil {
 			t.Fatalf("ContextProviders: %v", err)
 		}
@@ -97,9 +97,10 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 
 func TestProjectObserverAndAssertionDeriver(t *testing.T) {
 	sys := systemtest.NewMemory()
-	writeProjectFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
-	writeProjectFile(t, sys.Workspace(), "README.md", "# App\n")
-	plugin := New(sys)
+	workspace := sys.Workspace()
+	writeProjectFile(t, workspace, "go.mod", "module example.com/app\n\ngo 1.26\n")
+	writeProjectFile(t, workspace, "README.md", "# App\n")
+	plugin := New(sys, workspace)
 
 	observers, err := plugin.EnvironmentObservers(context.Background(), pluginhost.Context{})
 	if err != nil {
@@ -140,9 +141,10 @@ func TestProjectObserverAndAssertionDeriver(t *testing.T) {
 
 func TestProjectPluginResolvesWorkspaceDeclarationsLazily(t *testing.T) {
 	sys := systemtest.NewMemory()
-	plugin := New(sys)
-	writeProjectFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
-	writeProjectFile(t, sys.Workspace(), ".agents/workspaces.json", `{"workspaces":[{"id":"workspace:configured:test","roots":[{"path":"/memory-workspace"}]}]}`)
+	workspace := sys.Workspace()
+	plugin := New(sys, workspace)
+	writeProjectFile(t, workspace, "go.mod", "module example.com/app\n\ngo 1.26\n")
+	writeProjectFile(t, workspace, ".agents/workspaces.json", `{"workspaces":[{"id":"workspace:configured:test","roots":[{"path":"/memory-workspace"}]}]}`)
 
 	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
@@ -187,6 +189,7 @@ func hasEnvironmentHint(hints []coreevidence.Assertion, kind, target string) boo
 
 func TestProjectTaskRunDryRunAndExecution(t *testing.T) {
 	base := systemtest.NewMemory()
+	workspace := base.Workspace()
 	proc := &fakeTaskProcess{result: fpsystem.ProcessResult{
 		Command:  "task",
 		Args:     []string{"--taskfile", "Taskfile.yaml", "lint"},
@@ -195,13 +198,13 @@ func TestProjectTaskRunDryRunAndExecution(t *testing.T) {
 		Duration: 25 * time.Millisecond,
 	}}
 	sys := taskRunSystem{MemorySystem: base, process: proc}
-	writeProjectFile(t, sys.Workspace(), "Taskfile.yaml", "version: '3'\ntasks:\n  lint:\n    desc: Run lint\n    cmds:\n      - go vet ./...\n")
+	writeProjectFile(t, workspace, "Taskfile.yaml", "version: '3'\ntasks:\n  lint:\n    desc: Run lint\n    cmds:\n      - go vet ./...\n")
 
-	dryRun := runProjectTaskOp(t, sys, map[string]any{"name": "lint", "kind": "taskfile", "dry_run": true})
+	dryRun := runProjectTaskOp(t, sys, workspace, map[string]any{"name": "lint", "kind": "taskfile", "dry_run": true})
 	if !dryRun.DryRun || dryRun.Executable != "task" || !sameStrings(dryRun.Args, []string{"--taskfile", "Taskfile.yaml", "lint"}) {
 		t.Fatalf("dry run = %#v", dryRun)
 	}
-	dryRunOp := findProjectOp(t, sys, TaskRunOp)
+	dryRunOp := findProjectOp(t, sys, workspace, TaskRunOp)
 	intents, ok, err := operation.IntentFor(operation.NewContext(context.Background(), nil), dryRunOp, map[string]any{"name": "lint", "kind": "taskfile", "dry_run": true})
 	if err != nil {
 		t.Fatalf("IntentFor dry run: %v", err)
@@ -214,7 +217,7 @@ func TestProjectTaskRunDryRunAndExecution(t *testing.T) {
 	}
 
 	var events []coreevent.Event
-	result := runProjectTaskOpWithEvents(t, sys, map[string]any{"task_id": "taskfile:Taskfile.yaml:lint"}, &events)
+	result := runProjectTaskOpWithEvents(t, sys, workspace, map[string]any{"task_id": "taskfile:Taskfile.yaml:lint"}, &events)
 	if result.Stdout != "ok\n" || result.ExitCode != 0 {
 		t.Fatalf("result = %#v, want process output", result)
 	}
@@ -226,23 +229,24 @@ func TestProjectTaskRunDryRunAndExecution(t *testing.T) {
 	}
 }
 
-func runProjectPluginBackends(t *testing.T, fn func(*testing.T, system.System)) {
+func runProjectPluginBackends(t *testing.T, fn func(*testing.T, fpsystem.System, runtimeworkspace.Workspace)) {
 	t.Helper()
 	t.Run("memory", func(t *testing.T) {
-		fn(t, systemtest.NewMemory())
+		mem := systemtest.NewMemory()
+		fn(t, mem, mem.Workspace())
 	})
 	t.Run("host", func(t *testing.T) {
 		sys, err := system.NewHost(system.Config{Root: t.TempDir()})
 		if err != nil {
 			t.Fatalf("NewHost: %v", err)
 		}
-		fn(t, sys)
+		fn(t, sys, sys.Workspace())
 	})
 }
 
-func runProjectOp(t *testing.T, sys system.System, name string, input map[string]any) operation.Rendered {
+func runProjectOp(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace, name string, input map[string]any) operation.Rendered {
 	t.Helper()
-	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	ops, err := New(sys, workspace).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -263,15 +267,15 @@ func runProjectOp(t *testing.T, sys system.System, name string, input map[string
 	return operation.Rendered{}
 }
 
-func runProjectTaskOp(t *testing.T, sys system.System, input map[string]any) coreproject.TaskRunResult {
+func runProjectTaskOp(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace, input map[string]any) coreproject.TaskRunResult {
 	t.Helper()
 	var events []coreevent.Event
-	return runProjectTaskOpWithEvents(t, sys, input, &events)
+	return runProjectTaskOpWithEvents(t, sys, workspace, input, &events)
 }
 
-func runProjectTaskOpWithEvents(t *testing.T, sys system.System, input map[string]any, events *[]coreevent.Event) coreproject.TaskRunResult {
+func runProjectTaskOpWithEvents(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace, input map[string]any, events *[]coreevent.Event) coreproject.TaskRunResult {
 	t.Helper()
-	op := findProjectOp(t, sys, TaskRunOp)
+	op := findProjectOp(t, sys, workspace, TaskRunOp)
 	ctx := operation.NewContext(context.Background(), coreevent.SinkFunc(func(event coreevent.Event) {
 		*events = append(*events, event)
 	}))
@@ -286,9 +290,9 @@ func runProjectTaskOpWithEvents(t *testing.T, sys system.System, input map[strin
 	return out
 }
 
-func findProjectOp(t *testing.T, sys system.System, name string) operation.Operation {
+func findProjectOp(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace, name string) operation.Operation {
 	t.Helper()
-	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	ops, err := New(sys, workspace).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}

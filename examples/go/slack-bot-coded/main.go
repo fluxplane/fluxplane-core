@@ -29,6 +29,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
 	"github.com/fluxplane/fluxplane-core/plugins/native/skills"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 const (
@@ -62,7 +63,7 @@ func run(ctx context.Context) error {
 	static := launch.StaticPluginView(ctx, launch.StaticPluginOptions{
 		Bundles:                          []resource.ContributionBundle{bundle},
 		IncludeConfigSchemaContributions: true,
-		Plugins: func(system.System) []pluginhost.Plugin {
+		Plugins: func(launch.PluginFactoryContext) []pluginhost.Plugin {
 			return appPlugins(sys)
 		},
 	})
@@ -248,7 +249,7 @@ func appBundle() (resource.ContributionBundle, error) {
 		Build()
 }
 
-func appPlugins(sys system.System) []pluginhost.Plugin {
+func appPlugins(sys fpsystem.System) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
 		identity.New(),
 		slack.New(sys),

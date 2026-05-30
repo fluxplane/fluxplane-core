@@ -5,17 +5,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/fluxplane/fluxplane-core/runtime/system"
-	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 type pollinationsProvider struct{}
 
-func (pollinationsProvider) Info(context.Context, system.System) ProviderInfo {
+func (pollinationsProvider) Info(context.Context, fpsystem.System) ProviderInfo {
 	return ProviderInfo{
 		Name:         "pollinations",
 		Capabilities: []string{"generate"},
@@ -25,7 +24,7 @@ func (pollinationsProvider) Info(context.Context, system.System) ProviderInfo {
 	}
 }
 
-func (pollinationsProvider) Generate(ctx context.Context, sys system.System, req GenerateRequest) (GenerateResult, error) {
+func (pollinationsProvider) Generate(ctx context.Context, sys fpsystem.System, req GenerateRequest) (GenerateResult, error) {
 	model := firstNonEmpty(req.Model, "flux")
 	width := intDefault(req.Width, 1024)
 	height := intDefault(req.Height, 1024)
@@ -58,7 +57,7 @@ func (pollinationsProvider) Generate(ctx context.Context, sys system.System, req
 
 type openAIImageProvider struct{}
 
-func (openAIImageProvider) Info(ctx context.Context, sys system.System) ProviderInfo {
+func (openAIImageProvider) Info(ctx context.Context, sys fpsystem.System) ProviderInfo {
 	configured, missing := configuredByEnv(ctx, sys, "OPENAI_API_KEY")
 	return ProviderInfo{
 		Name:         "openai",
@@ -70,7 +69,7 @@ func (openAIImageProvider) Info(ctx context.Context, sys system.System) Provider
 	}
 }
 
-func (openAIImageProvider) Generate(ctx context.Context, sys system.System, req GenerateRequest) (GenerateResult, error) {
+func (openAIImageProvider) Generate(ctx context.Context, sys fpsystem.System, req GenerateRequest) (GenerateResult, error) {
 	model := firstNonEmpty(req.Model, "gpt-image-1")
 	body := map[string]any{
 		"model":  model,
@@ -142,7 +141,7 @@ func (openAIImageProvider) Generate(ctx context.Context, sys system.System, req 
 
 type openRouterImageProvider struct{}
 
-func (openRouterImageProvider) Info(ctx context.Context, sys system.System) ProviderInfo {
+func (openRouterImageProvider) Info(ctx context.Context, sys fpsystem.System) ProviderInfo {
 	configured, missing := configuredByEnv(ctx, sys, "OPENROUTER_API_KEY")
 	return ProviderInfo{
 		Name:         "openrouter",
@@ -154,7 +153,7 @@ func (openRouterImageProvider) Info(ctx context.Context, sys system.System) Prov
 	}
 }
 
-func (openRouterImageProvider) Generate(ctx context.Context, sys system.System, req GenerateRequest) (GenerateResult, error) {
+func (openRouterImageProvider) Generate(ctx context.Context, sys fpsystem.System, req GenerateRequest) (GenerateResult, error) {
 	model := firstNonEmpty(req.Model, "google/gemini-2.5-flash-image")
 	body := map[string]any{
 		"model": model,
@@ -181,7 +180,7 @@ func (openRouterImageProvider) Generate(ctx context.Context, sys system.System, 
 
 type anthropicUnderstandingProvider struct{}
 
-func (anthropicUnderstandingProvider) Info(ctx context.Context, sys system.System) ProviderInfo {
+func (anthropicUnderstandingProvider) Info(ctx context.Context, sys fpsystem.System) ProviderInfo {
 	configured, missing := configuredByEnv(ctx, sys, "ANTHROPIC_API_KEY")
 	return ProviderInfo{
 		Name:         "anthropic",
@@ -193,7 +192,7 @@ func (anthropicUnderstandingProvider) Info(ctx context.Context, sys system.Syste
 	}
 }
 
-func (anthropicUnderstandingProvider) Understand(ctx context.Context, sys system.System, req UnderstandRequest) (UnderstandResult, error) {
+func (anthropicUnderstandingProvider) Understand(ctx context.Context, sys fpsystem.System, req UnderstandRequest) (UnderstandResult, error) {
 	model := firstNonEmpty(req.Model, "claude-haiku-4-5-20251001")
 	blocks, err := anthropicImageBlocks(ctx, sys, req.Images)
 	if err != nil {
@@ -236,7 +235,7 @@ func (anthropicUnderstandingProvider) Understand(ctx context.Context, sys system
 
 type openRouterUnderstandingProvider struct{}
 
-func (openRouterUnderstandingProvider) Info(ctx context.Context, sys system.System) ProviderInfo {
+func (openRouterUnderstandingProvider) Info(ctx context.Context, sys fpsystem.System) ProviderInfo {
 	configured, missing := configuredByEnv(ctx, sys, "OPENROUTER_API_KEY")
 	return ProviderInfo{
 		Name:         "openrouter",
@@ -248,7 +247,7 @@ func (openRouterUnderstandingProvider) Info(ctx context.Context, sys system.Syst
 	}
 }
 
-func (openRouterUnderstandingProvider) Understand(ctx context.Context, sys system.System, req UnderstandRequest) (UnderstandResult, error) {
+func (openRouterUnderstandingProvider) Understand(ctx context.Context, sys fpsystem.System, req UnderstandRequest) (UnderstandResult, error) {
 	model := firstNonEmpty(req.Model, "anthropic/claude-haiku-4.5")
 	content, err := openRouterVisionContent(ctx, sys, req.Images, firstNonEmpty(req.Prompt, defaultPrompt))
 	if err != nil {

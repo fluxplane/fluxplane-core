@@ -26,7 +26,7 @@ import (
 type filesystemTestEnv struct {
 	name      string
 	root      string
-	sys       system.System
+	sys       fpsystem.System
 	workspace runtimeworkspace.Workspace
 	host      bool
 }
@@ -120,6 +120,8 @@ func (s *memorySystem) Workspace() runtimeworkspace.Workspace { return s.workspa
 func (s *memorySystem) Network() fpsystem.Network             { return memoryNetwork{} }
 func (s *memorySystem) Process() fpsystem.ProcessManager      { return nil }
 func (s *memorySystem) Environment() fpsystem.Environment     { return memoryEnvironment{} }
+func (s *memorySystem) FileSystem() fpsystem.FileSystem       { return s.workspace.System().FileSystem() }
+func (s *memorySystem) Clock() fpsystem.Clock                 { return s.workspace.System().Clock() }
 func (memoryEnvironment) Lookup(context.Context, string) (string, bool, error) {
 	return "", false, nil
 }
@@ -648,7 +650,7 @@ func containsHiddenPath(rel string) bool {
 	return false
 }
 
-var _ system.System = (*memorySystem)(nil)
+var _ fpsystem.System = (*memorySystem)(nil)
 var _ runtimeworkspace.Workspace = (*memoryWorkspace)(nil)
 var _ fpsystem.Network = memoryNetwork{}
 var _ fpsystem.Environment = memoryEnvironment{}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -21,7 +22,6 @@ import (
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-policy"
 )
 
@@ -41,7 +41,7 @@ type AuthConfig = atlassian.AuthConfig
 
 type Plugin struct {
 	pluginhost.Configurable[atlassian.Config]
-	system   system.System
+	system   fpsystem.System
 	store    runtimesecret.FileStore
 	resolver runtimesecret.Resolver
 	ref      resource.PluginRef
@@ -55,7 +55,7 @@ var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
 var _ pluginhost.AuthTestContributor = Plugin{}
 
-func New(sys system.System, stores ...runtimesecret.FileStore) Plugin {
+func New(sys fpsystem.System, stores ...runtimesecret.FileStore) Plugin {
 	store := runtimesecret.NewFileStore(atlassian.DefaultAuthStorePath)
 	if len(stores) > 0 {
 		store = stores[0]
@@ -63,7 +63,7 @@ func New(sys system.System, stores ...runtimesecret.FileStore) Plugin {
 	return NewWithResolver(sys, store, store)
 }
 
-func NewWithResolver(sys system.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver) Plugin {
+func NewWithResolver(sys fpsystem.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver) Plugin {
 	if resolver == nil {
 		resolver = store
 	}
@@ -677,7 +677,7 @@ type jiraProject struct {
 	Self           string `json:"self"`
 }
 
-func jiraCreateIssue(ctx context.Context, sys system.System, session atlassian.Session, input issueCreateInput, out any) (int, error) {
+func jiraCreateIssue(ctx context.Context, sys fpsystem.System, session atlassian.Session, input issueCreateInput, out any) (int, error) {
 	fields := map[string]any{
 		"project":   map[string]string{"key": input.ProjectKey},
 		"issuetype": map[string]string{"name": input.IssueType},
@@ -698,17 +698,17 @@ func jiraCreateIssue(ctx context.Context, sys system.System, session atlassian.S
 	return atlassian.DoJSON(ctx, sys, session, http.MethodPost, "/issue", map[string]any{"fields": fields}, out)
 }
 
-func jiraAddComment(ctx context.Context, sys system.System, session atlassian.Session, input issueCommentInput, out any) (int, error) {
+func jiraAddComment(ctx context.Context, sys fpsystem.System, session atlassian.Session, input issueCommentInput, out any) (int, error) {
 	body := map[string]any{"body": jiraMarkdownToADF(ctx, sys, session, input.Body)}
 	path := "/issue/" + url.PathEscape(input.IssueKey) + "/comment"
 	return atlassian.DoJSON(ctx, sys, session, http.MethodPost, path, body, out)
 }
 
-func jiraMarkdownToADF(ctx context.Context, sys system.System, session atlassian.Session, text string) md2adf.Node {
+func jiraMarkdownToADF(ctx context.Context, sys fpsystem.System, session atlassian.Session, text string) md2adf.Node {
 	return md2adf.Convert(jiraLinkifyIssueKeys(ctx, sys, session, text))
 }
 
-func jiraLinkifyIssueKeys(ctx context.Context, sys system.System, session atlassian.Session, text string) string {
+func jiraLinkifyIssueKeys(ctx context.Context, sys fpsystem.System, session atlassian.Session, text string) string {
 	siteURL := strings.TrimRight(strings.TrimSpace(session.SiteURL), "/")
 	if siteURL == "" || strings.TrimSpace(text) == "" || sys == nil || sys.Network() == nil {
 		return text
@@ -732,7 +732,7 @@ func jiraLinkifyIssueKeys(ctx context.Context, sys system.System, session atlass
 	})
 }
 
-func jiraSearchIssues(ctx context.Context, sys system.System, session atlassian.Session, jql string, startAt, maxResults int, out any) (int, error) {
+func jiraSearchIssues(ctx context.Context, sys fpsystem.System, session atlassian.Session, jql string, startAt, maxResults int, out any) (int, error) {
 	limit := normalizedLimit(maxResults)
 	query := url.Values{}
 	query.Set("jql", jql)
@@ -742,7 +742,7 @@ func jiraSearchIssues(ctx context.Context, sys system.System, session atlassian.
 	return atlassian.DoJSON(ctx, sys, session, http.MethodGet, "/search/jql?"+query.Encode(), nil, out)
 }
 
-func jiraGetIssue(ctx context.Context, sys system.System, session atlassian.Session, key string) (Issue, error) {
+func jiraGetIssue(ctx context.Context, sys fpsystem.System, session atlassian.Session, key string) (Issue, error) {
 	var raw jiraIssue
 	if _, err := atlassian.DoJSON(ctx, sys, session, http.MethodGet, "/issue/"+url.PathEscape(strings.TrimSpace(key))+"?expand=renderedFields,names", nil, &raw); err != nil {
 		return Issue{}, err
@@ -750,7 +750,7 @@ func jiraGetIssue(ctx context.Context, sys system.System, session atlassian.Sess
 	return issueFromJira(raw), nil
 }
 
-func jiraListProjects(ctx context.Context, sys system.System, session atlassian.Session, startAt, maxResults int) ([]Project, int, error) {
+func jiraListProjects(ctx context.Context, sys fpsystem.System, session atlassian.Session, startAt, maxResults int) ([]Project, int, error) {
 	query := url.Values{}
 	query.Set("startAt", strconv.Itoa(max(0, startAt)))
 	query.Set("maxResults", strconv.Itoa(normalizedLimit(maxResults)))
@@ -765,7 +765,7 @@ func jiraListProjects(ctx context.Context, sys system.System, session atlassian.
 	return projects, data.Total, nil
 }
 
-func jiraGetProject(ctx context.Context, sys system.System, session atlassian.Session, key string) (Project, error) {
+func jiraGetProject(ctx context.Context, sys fpsystem.System, session atlassian.Session, key string) (Project, error) {
 	var raw jiraProject
 	if _, err := atlassian.DoJSON(ctx, sys, session, http.MethodGet, "/project/"+url.PathEscape(strings.TrimSpace(key)), nil, &raw); err != nil {
 		return Project{}, err

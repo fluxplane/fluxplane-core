@@ -10,7 +10,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 const (
@@ -32,7 +31,7 @@ type Config struct {
 // Plugin observes local AWS configuration without exposing credential values.
 type Plugin struct {
 	pluginhost.Configurable[Config]
-	system system.System
+	system fpsystem.System
 	ref    resource.PluginRef
 	cfg    Config
 }
@@ -42,7 +41,7 @@ var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
 var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
-func New(sys system.System) Plugin {
+func New(sys fpsystem.System) Plugin {
 	return Plugin{system: sys}
 }
 

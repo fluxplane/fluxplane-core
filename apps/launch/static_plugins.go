@@ -9,7 +9,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-policy"
 )
 
@@ -18,7 +17,7 @@ import (
 type StaticPluginOptions struct {
 	Bundles                          []resource.ContributionBundle
 	Launch                           distribution.LaunchConfig
-	Plugins                          func(system.System) []pluginhost.Plugin
+	Plugins                          func(PluginFactoryContext) []pluginhost.Plugin
 	IncludeConfigSchemaContributions bool
 }
 
@@ -142,9 +141,9 @@ func staticPluginRefs(bundles []resource.ContributionBundle) []resource.PluginRe
 
 func availableStaticPlugins(opts StaticPluginOptions) []pluginhost.Plugin {
 	if opts.Plugins != nil {
-		return opts.Plugins(nil)
+		return opts.Plugins(PluginFactoryContext{})
 	}
-	plugins := availablePlugins(nil, nil, nil, "", false)
+	plugins := availablePlugins(nil, nil, nil, nil, "", false)
 	if hasAnyDatasource(opts.Bundles) {
 		plugins = append(plugins, datasource.New(nil))
 	}

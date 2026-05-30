@@ -26,7 +26,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/taskexecutor"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-event"
@@ -69,8 +68,9 @@ const (
 
 // Plugin contributes task creation resources and operations.
 type Plugin struct {
-	Runner TaskRunner
-	System system.System
+	Runner    TaskRunner
+	System    fpsystem.System
+	Workspace runtimeworkspace.Workspace
 }
 
 // TaskRunner controls asynchronous task execution.
@@ -94,8 +94,8 @@ func NewWithRunner(runner TaskRunner) Plugin { return Plugin{Runner: runner} }
 
 // NewWithRunnerAndSystem returns the task plugin with scheduler controls and
 // a system boundary for safe artifact ref reads.
-func NewWithRunnerAndSystem(runner TaskRunner, sys system.System) Plugin {
-	return Plugin{Runner: runner, System: sys}
+func NewWithRunnerAndSystem(runner TaskRunner, sys fpsystem.System, workspace runtimeworkspace.Workspace) Plugin {
+	return Plugin{Runner: runner, System: sys, Workspace: workspace}
 }
 
 // Manifest returns plugin metadata.
@@ -202,7 +202,7 @@ func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operati
 		operationruntime.NewTypedResult[coretask.TaskArtifactGetRequest, coretask.TaskArtifactGetResult](taskGetArtifactSpec(), getArtifact(store), operationruntime.WithAccessFields[coretask.TaskArtifactGetRequest](
 			operationruntime.TaskAccess(func(input coretask.TaskArtifactGetRequest) string { return string(input.ID) }, policy.ActionTaskRead),
 		)),
-		operationruntime.NewTypedResult[coretask.TaskArtifactReadRequest, coretask.TaskArtifactReadResult](taskReadArtifactSpec(), readArtifact(store, p.System), operationruntime.WithAccessFields[coretask.TaskArtifactReadRequest](
+		operationruntime.NewTypedResult[coretask.TaskArtifactReadRequest, coretask.TaskArtifactReadResult](taskReadArtifactSpec(), readArtifact(store, p.Workspace), operationruntime.WithAccessFields[coretask.TaskArtifactReadRequest](
 			operationruntime.TaskAccess(func(input coretask.TaskArtifactReadRequest) string { return string(input.ID) }, policy.ActionTaskRead),
 		)),
 		operationruntime.NewTypedResult[coretask.TaskValidateRequest, coretask.TaskValidationResult](taskValidateSpec(), validateTask(store), operationruntime.WithAccessFields[coretask.TaskValidateRequest](
@@ -967,7 +967,7 @@ func getArtifact(store runtimetask.Store) func(operation.Context, coretask.TaskA
 	}
 }
 
-func readArtifact(store runtimetask.Store, sys system.System) func(operation.Context, coretask.TaskArtifactReadRequest) operation.Result {
+func readArtifact(store runtimetask.Store, workspace runtimeworkspace.Workspace) func(operation.Context, coretask.TaskArtifactReadRequest) operation.Result {
 	return func(ctx operation.Context, req coretask.TaskArtifactReadRequest) operation.Result {
 		state, ok, result := loadTask(ctx, store, req.ID)
 		if !ok {
@@ -988,7 +988,7 @@ func readArtifact(store runtimetask.Store, sys system.System) func(operation.Con
 			maxBytes = 4096
 		}
 		if artifactPrefersRef(scoped.Artifact) {
-			return readArtifactRef(ctx, sys, scoped, maxBytes)
+			return readArtifactRef(ctx, workspace, scoped, maxBytes)
 		}
 		if text, omitted, ok := artifactValuePreview(scoped.Artifact.Value, int(maxBytes)); ok {
 			return operation.OK(coretask.TaskArtifactReadResult{Artifact: scoped, Content: text, Truncated: omitted > 0, Source: "value"})
@@ -996,7 +996,7 @@ func readArtifact(store runtimetask.Store, sys system.System) func(operation.Con
 		if strings.TrimSpace(scoped.Artifact.Ref) == "" {
 			return operation.Failed("task_artifact_content_missing", "artifact has no inline value or ref", map[string]any{"task_id": req.ID, "artifact_id": req.ArtifactID})
 		}
-		return readArtifactRef(ctx, sys, scoped, maxBytes)
+		return readArtifactRef(ctx, workspace, scoped, maxBytes)
 	}
 }
 
@@ -1004,7 +1004,7 @@ func artifactPrefersRef(artifact coretask.ArtifactSpec) bool {
 	return strings.TrimSpace(artifact.Ref) != "" && strings.EqualFold(artifact.Metadata["replaced"], "true")
 }
 
-func readArtifactRef(ctx operation.Context, sys system.System, scoped coretask.ScopedArtifact, maxBytes int64) operation.Result {
+func readArtifactRef(ctx operation.Context, workspace runtimeworkspace.Workspace, scoped coretask.ScopedArtifact, maxBytes int64) operation.Result {
 	ref := strings.TrimSpace(scoped.Artifact.Ref)
 	if ref == "" {
 		return operation.Failed("task_artifact_content_missing", "artifact has no ref", map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID})
@@ -1022,14 +1022,14 @@ func readArtifactRef(ctx operation.Context, sys system.System, scoped coretask.S
 			ResolvedPath: ref,
 		})
 	}
-	if sys == nil || sys.Workspace() == nil {
+	if workspace == nil {
 		return operation.Failed("task_artifact_reader_missing", "task_read_artifact requires a runtime system for ref reads", map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
 	}
-	resolved, err := sys.Workspace().ResolveExisting(ctx, ref)
+	resolved, err := workspace.ResolveExisting(ctx, ref)
 	if err != nil {
 		return operation.Failed("task_artifact_ref_read_failed", err.Error(), map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
 	}
-	fsys, err := runtimeworkspace.FileSystem(sys.Workspace())
+	fsys, err := runtimeworkspace.FileSystem(workspace)
 	if err != nil {
 		return operation.Failed("task_artifact_ref_read_failed", err.Error(), map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
 	}

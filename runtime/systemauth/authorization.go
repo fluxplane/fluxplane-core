@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
-	"net"
-	"os"
-	"strings"
-
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-policy"
 	"github.com/fluxplane/fluxplane-policy/policyauth"
 	fpsystem "github.com/fluxplane/fluxplane-system"
+	"net"
+	"os"
+	"strings"
 )
 
 // Config controls policy enforcement at system boundaries.
@@ -23,24 +21,28 @@ type Config struct {
 // environment accesses are checked against policyauth.AuthorizationContext when one
 // is present on the call context. Calls without an authorization context keep
 // the existing embedding behavior and are allowed.
-func System(sys system.System, cfg Config) system.System {
+func System(sys fpsystem.System, cfg Config) fpsystem.System {
 	if sys == nil {
 		return nil
 	}
 	return authorizedSystem{base: sys, cfg: cfg}
 }
 
+// Workspace wraps workspace so context-bearing workspace accesses are checked
+// against policyauth.AuthorizationContext when one is present on the call context.
+func Workspace(workspace runtimeworkspace.Workspace, cfg Config) runtimeworkspace.Workspace {
+	if workspace == nil {
+		return nil
+	}
+	return authorizedWorkspace{base: workspace, cfg: cfg}
+}
+
 type authorizedSystem struct {
-	base system.System
+	base fpsystem.System
 	cfg  Config
 }
 
-func (s authorizedSystem) Workspace() runtimeworkspace.Workspace {
-	if workspace := s.base.Workspace(); workspace != nil {
-		return authorizedWorkspace{base: workspace, cfg: s.cfg}
-	}
-	return nil
-}
+func (s authorizedSystem) FileSystem() fpsystem.FileSystem { return s.base.FileSystem() }
 
 func (s authorizedSystem) Network() fpsystem.Network {
 	if network := s.base.Network(); network != nil {
@@ -62,6 +64,8 @@ func (s authorizedSystem) Environment() fpsystem.Environment {
 	}
 	return nil
 }
+
+func (s authorizedSystem) Clock() fpsystem.Clock { return s.base.Clock() }
 
 type authorizedWorkspace struct {
 	base runtimeworkspace.Workspace

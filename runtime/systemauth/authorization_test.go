@@ -26,17 +26,17 @@ func TestSystemEnforcesWorkspaceActions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	sys := System(host, Config{})
+	workspace := Workspace(host.Workspace(), Config{})
 	ctx := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
 		Actions:   []policy.Action{policy.ActionWorkspaceRead},
 	}})
 
-	if _, err := sys.Workspace().ResolveExisting(ctx, "README.md"); err != nil {
+	if _, err := workspace.ResolveExisting(ctx, "README.md"); err != nil {
 		t.Fatalf("ResolveExisting denied: %v", err)
 	}
-	_, err = sys.Workspace().ResolveCreate(ctx, "out.txt")
+	_, err = workspace.ResolveCreate(ctx, "out.txt")
 	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
 		t.Fatalf("ResolveCreate error = %v, want authorization deny", err)
 	}
@@ -63,6 +63,8 @@ func TestWorkspaceAllowsSemanticOperations(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 	sys := System(host, Config{})
+	_ = sys
+	workspace := Workspace(host.Workspace(), Config{})
 	ctx := authorizedTestContext([]policy.Grant{
 		{
 			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
@@ -76,19 +78,19 @@ func TestWorkspaceAllowsSemanticOperations(t *testing.T) {
 		},
 	})
 
-	if got := sys.Workspace().Root(); got == "" {
+	if got := workspace.Root(); got == "" {
 		t.Fatal("Root() returned empty root")
 	}
-	if roots := sys.Workspace().Roots(); len(roots) != 2 {
+	if roots := workspace.Roots(); len(roots) != 2 {
 		t.Fatalf("Roots() len = %d, want 2", len(roots))
 	}
-	if _, err := sys.Workspace().ResolveExisting(ctx, "README.md"); err != nil {
+	if _, err := workspace.ResolveExisting(ctx, "README.md"); err != nil {
 		t.Fatalf("ResolveExisting: %v", err)
 	}
-	if _, err := sys.Workspace().ResolveCreate(ctx, "nested/out.txt"); err != nil {
+	if _, err := workspace.ResolveCreate(ctx, "nested/out.txt"); err != nil {
 		t.Fatalf("ResolveCreate: %v", err)
 	}
-	scratch, err := sys.Workspace().CreateScratch(ctx, "auth-test-*")
+	scratch, err := workspace.CreateScratch(ctx, "auth-test-*")
 	if err != nil {
 		t.Fatalf("CreateScratch: %v", err)
 	}
@@ -119,16 +121,18 @@ func TestSystemAuthorizesCanonicalWorkspacePath(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 	sys := System(host, Config{})
+	_ = sys
+	workspace := Workspace(host.Workspace(), Config{})
 	ctx := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "docs/**"}},
 		Actions:   []policy.Action{policy.ActionWorkspaceRead},
 	}})
 
-	if _, err := sys.Workspace().ResolveExisting(ctx, "docs/README.md"); err != nil {
+	if _, err := workspace.ResolveExisting(ctx, "docs/README.md"); err != nil {
 		t.Fatalf("ResolveExisting docs/README.md denied: %v", err)
 	}
-	_, err = sys.Workspace().ResolveExisting(ctx, "docs/../secret.txt")
+	_, err = workspace.ResolveExisting(ctx, "docs/../secret.txt")
 	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
 		t.Fatalf("ResolveExisting traversal error = %v, want authorization deny", err)
 	}
@@ -144,6 +148,8 @@ func TestSystemEnforcesEnvironmentSecretRead(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 	sys := System(host, Config{})
+	workspace := Workspace(host.Workspace(), Config{})
+	_ = workspace
 	denied := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},

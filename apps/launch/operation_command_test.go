@@ -20,7 +20,7 @@ func TestOperationRunCommandRunsConfiguredOperation(t *testing.T) {
 	writeOperationRunManifest(t, dir)
 
 	cmd := NewOperationCommandWithLoader(nil, func(ctx PluginFactoryContext) []pluginhost.Plugin {
-		return append(availablePluginsWithAuth(ctx.System, ctx.Dispatcher, ctx.TaskRunner, ctx.NativeAuthStore, ctx.NativeAuthResolver), echo.New())
+		return append(availablePluginsWithAuth(ctx.System, nil, ctx.Dispatcher, ctx.TaskRunner, ctx.NativeAuthStore, ctx.NativeAuthResolver), echo.New())
 	})
 	out := bytes.Buffer{}
 	cmd.SetOut(&out)
@@ -46,7 +46,7 @@ func TestOperationRunCommandReportsUnknownOperation(t *testing.T) {
 	writeOperationRunManifest(t, dir)
 
 	cmd := NewOperationCommandWithLoader(nil, func(ctx PluginFactoryContext) []pluginhost.Plugin {
-		return append(availablePluginsWithAuth(ctx.System, ctx.Dispatcher, ctx.TaskRunner, ctx.NativeAuthStore, ctx.NativeAuthResolver), echo.New())
+		return append(availablePluginsWithAuth(ctx.System, nil, ctx.Dispatcher, ctx.TaskRunner, ctx.NativeAuthStore, ctx.NativeAuthResolver), echo.New())
 	})
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
@@ -90,7 +90,7 @@ func TestOperationRunCommandPassesAuthPathToPluginFactory(t *testing.T) {
 			t.Fatalf("ResolveSecret: %v", err)
 		}
 		resolved = ok && material.Value == "stored-token"
-		return append(availablePluginsWithAuth(ctx.System, ctx.Dispatcher, ctx.TaskRunner, ctx.NativeAuthStore, ctx.NativeAuthResolver), echo.New())
+		return append(availablePluginsWithAuth(ctx.System, nil, ctx.Dispatcher, ctx.TaskRunner, ctx.NativeAuthStore, ctx.NativeAuthResolver), echo.New())
 	})
 	out := bytes.Buffer{}
 	cmd.SetOut(&out)
@@ -125,7 +125,7 @@ func TestOperationRunCommandProcessAuthEnvRequiresOptIn(t *testing.T) {
 					t.Fatalf("ResolveSecret: %v", err)
 				}
 				found = ok && material.Value == "from-process"
-				return append(availablePluginsWithAuth(ctx.System, ctx.Dispatcher, ctx.TaskRunner, ctx.NativeAuthStore, ctx.NativeAuthResolver), echo.New())
+				return append(availablePluginsWithAuth(ctx.System, nil, ctx.Dispatcher, ctx.TaskRunner, ctx.NativeAuthStore, ctx.NativeAuthResolver), echo.New())
 			})
 			out := bytes.Buffer{}
 			cmd.SetOut(&out)

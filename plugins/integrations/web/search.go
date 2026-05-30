@@ -3,12 +3,12 @@ package web
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"sync"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-policy"
 )
 
@@ -211,7 +211,7 @@ func networkAccess(target string) operationruntime.AccessDescriptor {
 	return operationruntime.NetworkDescriptor(target, policy.ActionNetworkFetch)
 }
 
-func searchProviders(ctx context.Context, sys system.System) []SearchProvider {
+func searchProviders(ctx context.Context, sys fpsystem.System) []SearchProvider {
 	var providers []SearchProvider
 	if tavily := newTavilySearchProvider(ctx, sys); tavily.Available(ctx) {
 		providers = append(providers, tavily)
@@ -222,7 +222,7 @@ func searchProviders(ctx context.Context, sys system.System) []SearchProvider {
 	return providers
 }
 
-func selectSearchProviders(ctx context.Context, sys system.System, requested []string) ([]SearchProvider, []searchError) {
+func selectSearchProviders(ctx context.Context, sys fpsystem.System, requested []string) ([]SearchProvider, []searchError) {
 	available := searchProviders(ctx, sys)
 	if len(requested) == 0 {
 		return available, nil
@@ -330,7 +330,7 @@ func renderSearchResults(out searchOutput) string {
 	return strings.TrimSpace(b.String())
 }
 
-func env(ctx context.Context, sys system.System, key string) string {
+func env(ctx context.Context, sys fpsystem.System, key string) string {
 	if sys == nil || sys.Environment() == nil {
 		return ""
 	}

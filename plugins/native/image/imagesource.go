@@ -4,18 +4,16 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	fpsystem "github.com/fluxplane/fluxplane-system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 	"mime"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/fluxplane/fluxplane-core/runtime/system"
-	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
-	fpsystem "github.com/fluxplane/fluxplane-system"
-	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
-func anthropicImageBlocks(ctx context.Context, sys system.System, images []string) ([]map[string]any, error) {
+func anthropicImageBlocks(ctx context.Context, sys fpsystem.System, images []string) ([]map[string]any, error) {
 	blocks := make([]map[string]any, 0, len(images))
 	for i, image := range images {
 		source, err := imageSource(ctx, sys, image)
@@ -27,7 +25,7 @@ func anthropicImageBlocks(ctx context.Context, sys system.System, images []strin
 	return blocks, nil
 }
 
-func openRouterVisionContent(ctx context.Context, sys system.System, images []string, prompt string) ([]map[string]any, error) {
+func openRouterVisionContent(ctx context.Context, sys fpsystem.System, images []string, prompt string) ([]map[string]any, error) {
 	content := make([]map[string]any, 0, len(images)+1)
 	for i, image := range images {
 		source, err := imageSource(ctx, sys, image)
@@ -60,7 +58,7 @@ func (r resolvedImage) dataURL() string {
 	return "data:" + r.contentType + ";base64," + base64.StdEncoding.EncodeToString(r.data)
 }
 
-func imageSource(ctx context.Context, sys system.System, raw string) (resolvedImage, error) {
+func imageSource(ctx context.Context, sys fpsystem.System, raw string) (resolvedImage, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return resolvedImage{}, fmt.Errorf("image source cannot be empty")
@@ -89,14 +87,15 @@ func imageSource(ctx context.Context, sys system.System, raw string) (resolvedIm
 		}
 		return resolvedImage{contentType: contentType, data: resp.Body}, nil
 	}
-	if sys == nil || sys.Workspace() == nil {
+	workspace := workspaceFromSystem(sys)
+	if workspace == nil {
 		return resolvedImage{}, fmt.Errorf("system workspace is not configured")
 	}
-	resolved, err := sys.Workspace().ResolveExisting(ctx, raw)
+	resolved, err := workspace.ResolveExisting(ctx, raw)
 	if err != nil {
 		return resolvedImage{}, err
 	}
-	fsys, err := runtimeworkspace.FileSystem(sys.Workspace())
+	fsys, err := runtimeworkspace.FileSystem(workspace)
 	if err != nil {
 		return resolvedImage{}, err
 	}

@@ -344,7 +344,7 @@ type testSystem struct {
 	env       fpsystem.Environment
 }
 
-func newTestSystem(t *testing.T, dir string, network fpsystem.Network, env map[string]string) system.System {
+func newTestSystem(t *testing.T, dir string, network fpsystem.Network, env map[string]string) fpsystem.System {
 	t.Helper()
 	host, err := system.NewHost(system.Config{Root: dir, AllowPrivateNetwork: true})
 	if err != nil {
@@ -360,6 +360,16 @@ func (s testSystem) Workspace() runtimeworkspace.Workspace { return s.workspace 
 func (s testSystem) Network() fpsystem.Network             { return s.network }
 func (s testSystem) Process() fpsystem.ProcessManager      { return nil }
 func (s testSystem) Environment() fpsystem.Environment     { return s.env }
+func (s testSystem) FileSystem() fpsystem.FileSystem {
+	if s.workspace == nil {
+		return nil
+	}
+	return s.workspace.System().FileSystem()
+}
+func (s testSystem) Clock() fpsystem.Clock {
+	sys, _ := systemkit.NewSystem().WithRealClock().Build()
+	return sys.Clock()
+}
 
 type testEnv struct {
 	values map[string]string

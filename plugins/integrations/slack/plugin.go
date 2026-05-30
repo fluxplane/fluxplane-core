@@ -2,6 +2,7 @@ package slack
 
 import (
 	"context"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/activation"
@@ -12,7 +13,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	"github.com/slack-go/slack"
 )
@@ -41,7 +41,7 @@ type slackClientFactory func(token, appToken string) *slack.Client
 
 type Plugin struct {
 	pluginhost.Configurable[Config]
-	system        system.System
+	system        fpsystem.System
 	store         runtimesecret.FileStore
 	secrets       runtimesecret.Resolver
 	ref           resource.PluginRef
@@ -56,15 +56,15 @@ var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
 var _ pluginhost.AuthTestContributor = Plugin{}
 
-func New(sys system.System, stores ...runtimesecret.FileStore) Plugin {
+func New(sys fpsystem.System, stores ...runtimesecret.FileStore) Plugin {
 	return NewWithDispatcher(sys, nil, stores...)
 }
 
-func NewWithDispatcher(sys system.System, dispatcher *Dispatcher, stores ...runtimesecret.FileStore) Plugin {
+func NewWithDispatcher(sys fpsystem.System, dispatcher *Dispatcher, stores ...runtimesecret.FileStore) Plugin {
 	return NewWithResolver(sys, dispatcher, nil, stores...)
 }
 
-func NewWithResolver(sys system.System, dispatcher *Dispatcher, resolver runtimesecret.Resolver, stores ...runtimesecret.FileStore) Plugin {
+func NewWithResolver(sys fpsystem.System, dispatcher *Dispatcher, resolver runtimesecret.Resolver, stores ...runtimesecret.FileStore) Plugin {
 	if dispatcher == nil {
 		dispatcher = NewDispatcher()
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -28,7 +29,6 @@ import (
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
@@ -128,7 +128,7 @@ func policyFromConfig(cfg Config, fallback string) namespacePolicy {
 
 type Plugin struct {
 	pluginhost.Configurable[Config]
-	system system.System
+	system fpsystem.System
 	ref    resource.PluginRef
 	cfg    Config
 	client kubernetes.Interface
@@ -143,11 +143,11 @@ var _ pluginhost.AssertionDeriverContributor = Plugin{}
 var _ pluginhost.DiscoveryProviderContributor = Plugin{}
 var _ pluginhost.SecretResolverContributor = Plugin{}
 
-func New(sys system.System) Plugin {
+func New(sys fpsystem.System) Plugin {
 	return Plugin{system: sys}
 }
 
-func NewWithClient(sys system.System, client kubernetes.Interface) Plugin {
+func NewWithClient(sys fpsystem.System, client kubernetes.Interface) Plugin {
 	return Plugin{system: sys, client: client}
 }
 
@@ -683,7 +683,7 @@ func defaultNamespace(ctx context.Context, cfg Config) (string, error) {
 	return namespace, nil
 }
 
-func lookupEnv(ctx context.Context, sys system.System, key string) (string, bool, error) {
+func lookupEnv(ctx context.Context, sys fpsystem.System, key string) (string, bool, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return "", false, nil

@@ -2,6 +2,7 @@ package image
 
 import (
 	"context"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"testing"
 
@@ -142,20 +143,20 @@ func findOp(t *testing.T, ops []operation.Operation, name operation.Name) operat
 
 type fakeGenerator struct{}
 
-func (fakeGenerator) Info(context.Context, system.System) ProviderInfo {
+func (fakeGenerator) Info(context.Context, fpsystem.System) ProviderInfo {
 	return ProviderInfo{Name: "fake", Capabilities: []string{"generate"}, Configured: true}
 }
 
-func (fakeGenerator) Generate(context.Context, system.System, GenerateRequest) (GenerateResult, error) {
+func (fakeGenerator) Generate(context.Context, fpsystem.System, GenerateRequest) (GenerateResult, error) {
 	return GenerateResult{Provider: "fake", Model: "test", FilePath: "/tmp/fake.png", ContentType: "image/png", SizeBytes: 3}, nil
 }
 
 type fakeUnderstander struct{}
 
-func (fakeUnderstander) Info(context.Context, system.System) ProviderInfo {
+func (fakeUnderstander) Info(context.Context, fpsystem.System) ProviderInfo {
 	return ProviderInfo{Name: "fake", Capabilities: []string{"understand"}, Configured: true}
 }
 
-func (fakeUnderstander) Understand(context.Context, system.System, UnderstandRequest) (UnderstandResult, error) {
+func (fakeUnderstander) Understand(context.Context, fpsystem.System, UnderstandRequest) (UnderstandResult, error) {
 	return UnderstandResult{Provider: "fake", Model: "test", Text: "fake description"}, nil
 }

@@ -482,6 +482,11 @@ func (s fakeSystem) Workspace() runtimeworkspace.Workspace { return nil }
 func (s fakeSystem) Network() fpsystem.Network             { return s.network }
 func (s fakeSystem) Process() fpsystem.ProcessManager      { return nil }
 func (s fakeSystem) Environment() fpsystem.Environment     { return s.env }
+func (s fakeSystem) FileSystem() fpsystem.FileSystem       { return nil }
+func (s fakeSystem) Clock() fpsystem.Clock {
+	sys, _ := systemkit.NewSystem().WithRealClock().Build()
+	return sys.Clock()
+}
 
 func newTestPlugin(t *testing.T, network fpsystem.Network, env map[string]string) Plugin {
 	t.Helper()

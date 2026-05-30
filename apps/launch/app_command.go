@@ -428,11 +428,11 @@ func configSchemaData(ctx context.Context, loader Loader, appDir string) ([]byte
 
 func configSchemaAvailablePlugins(appDir string) []pluginhost.Plugin {
 	hostSystem := configSchemaSystem(appDir)
-	available := availablePlugins(hostSystem, nil, nil, "", false)
+	available := availablePlugins(hostSystem, hostSystem.Workspace(), nil, nil, "", false)
 	return appendPluginIfMissing(available, datasource.New(nil))
 }
 
-func configSchemaSystem(appDir string) system.System {
+func configSchemaSystem(appDir string) *system.Host {
 	if strings.TrimSpace(appDir) == "" {
 		appDir = "."
 	}
@@ -494,7 +494,7 @@ func configSchemaResources(ctx context.Context, loader Loader, appDir string, av
 		Bundles:                          loaded.Distribution.Bundles,
 		Launch:                           loaded.Launch,
 		IncludeConfigSchemaContributions: true,
-		Plugins: func(system.System) []pluginhost.Plugin {
+		Plugins: func(PluginFactoryContext) []pluginhost.Plugin {
 			return available
 		},
 	})

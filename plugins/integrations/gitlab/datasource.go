@@ -3,6 +3,7 @@ package gitlab
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,14 +15,13 @@ import (
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
 const defaultPageSize = 20
 
 type gitlabDatasourceProvider struct {
-	system        system.System
+	system        fpsystem.System
 	ref           resource.PluginRef
 	config        Config
 	secrets       runtimesecret.Resolver
@@ -65,7 +65,7 @@ func (p gitlabDatasourceProvider) Open(ctx context.Context, spec coredatasource.
 
 type gitlabAccessor struct {
 	spec              coredatasource.Spec
-	system            system.System
+	system            fpsystem.System
 	ref               resource.PluginRef
 	config            Config
 	secrets           runtimesecret.Resolver

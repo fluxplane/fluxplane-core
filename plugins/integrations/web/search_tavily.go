@@ -4,21 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 const tavilySearchURL = "https://api.tavily.com/search"
 
 type tavilySearchProvider struct {
-	system system.System
+	system fpsystem.System
 	apiKey string
 }
 
-func newTavilySearchProvider(ctx context.Context, sys system.System) tavilySearchProvider {
+func newTavilySearchProvider(ctx context.Context, sys fpsystem.System) tavilySearchProvider {
 	return tavilySearchProvider{system: sys, apiKey: env(ctx, sys, "TAVILY_API_KEY")}
 }
 

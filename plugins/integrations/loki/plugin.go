@@ -5,6 +5,7 @@ package loki
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
 	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 const (
@@ -62,7 +62,7 @@ type AutoDiscoverConfig struct {
 // Plugin contributes Loki resources.
 type Plugin struct {
 	pluginhost.Configurable[Config]
-	system    system.System
+	system    fpsystem.System
 	ref       resource.PluginRef
 	cfg       Config
 	discovery *runtimediscovery.Registry
@@ -75,7 +75,7 @@ var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
 
 // New returns a Loki plugin.
-func New(sys system.System) Plugin {
+func New(sys fpsystem.System) Plugin {
 	return Plugin{system: sys, discovery: runtimediscovery.NewRegistry(), endpoints: runtimeendpoint.NewRegistry(15 * time.Minute)}
 }
 

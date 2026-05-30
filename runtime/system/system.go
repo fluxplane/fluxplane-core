@@ -23,14 +23,6 @@ import (
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
-// System groups the runtime boundaries that can touch the outside world.
-type System interface {
-	Workspace() runtimeworkspace.Workspace
-	Network() fpsystem.Network
-	Process() fpsystem.ProcessManager
-	Environment() fpsystem.Environment
-}
-
 // Config configures the host-backed system implementation.
 type Config struct {
 	Root                string
@@ -107,6 +99,9 @@ func NewHost(cfg Config) (*Host, error) {
 // Workspace returns the workspace boundary.
 func (h *Host) Workspace() runtimeworkspace.Workspace { return h.workspace }
 
+// FileSystem returns the host filesystem boundary.
+func (h *Host) FileSystem() fpsystem.FileSystem { return h.workspace.System().FileSystem() }
+
 // Network returns the network boundary.
 func (h *Host) Network() fpsystem.Network { return h.network }
 
@@ -115,6 +110,9 @@ func (h *Host) Process() fpsystem.ProcessManager { return h.process }
 
 // Environment returns the host environment boundary.
 func (h *Host) Environment() fpsystem.Environment { return h.env }
+
+// Clock returns the host clock boundary.
+func (h *Host) Clock() fpsystem.Clock { return h.workspace.System().Clock() }
 
 // HostEnvironment implements Environment using an explicitly allowed env set.
 type HostEnvironment struct {

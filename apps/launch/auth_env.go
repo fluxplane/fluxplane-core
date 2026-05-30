@@ -2,17 +2,17 @@ package launch
 
 import (
 	"context"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"os"
 	"strings"
 
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 // PluginAuthOptions configures native plugin credential resolution for local
 // launch surfaces.
 type PluginAuthOptions struct {
-	System             system.System
+	System             fpsystem.System
 	AuthPath           string
 	AllowPluginAuthEnv bool
 }
@@ -43,7 +43,7 @@ func pluginAuthPath(path string) string {
 	return path
 }
 
-func pluginAuthResolver(sys system.System, store runtimesecret.FileStore, allowProcessEnvironment bool) runtimesecret.Resolver {
+func pluginAuthResolver(sys fpsystem.System, store runtimesecret.FileStore, allowProcessEnvironment bool) runtimesecret.Resolver {
 	resolver := runtimesecret.ChainResolver{store}
 	if sys != nil && sys.Environment() != nil {
 		resolver = append(resolver, runtimesecret.EnvResolver{Environment: sys.Environment()})

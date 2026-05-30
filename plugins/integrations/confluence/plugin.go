@@ -3,6 +3,7 @@ package confluence
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"html"
 	"net/http"
 	"net/url"
@@ -18,7 +19,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/internal/atlassian"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 const (
@@ -38,7 +38,7 @@ var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
 
 type Plugin struct {
 	pluginhost.Configurable[atlassian.Config]
-	system   system.System
+	system   fpsystem.System
 	store    runtimesecret.FileStore
 	resolver runtimesecret.Resolver
 	ref      resource.PluginRef
@@ -51,7 +51,7 @@ var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
 var _ pluginhost.AuthTestContributor = Plugin{}
 
-func New(sys system.System, stores ...runtimesecret.FileStore) Plugin {
+func New(sys fpsystem.System, stores ...runtimesecret.FileStore) Plugin {
 	store := runtimesecret.NewFileStore(atlassian.DefaultAuthStorePath)
 	if len(stores) > 0 {
 		store = stores[0]
@@ -59,7 +59,7 @@ func New(sys system.System, stores ...runtimesecret.FileStore) Plugin {
 	return NewWithResolver(sys, store, store)
 }
 
-func NewWithResolver(sys system.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver) Plugin {
+func NewWithResolver(sys fpsystem.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver) Plugin {
 	if resolver == nil {
 		resolver = store
 	}
@@ -518,7 +518,7 @@ type confluenceDescription struct {
 	View  confluenceBodyValue `json:"view"`
 }
 
-func confluenceListPages(ctx context.Context, sys system.System, session atlassian.Session, cursor string, limit int) ([]Page, string, error) {
+func confluenceListPages(ctx context.Context, sys fpsystem.System, session atlassian.Session, cursor string, limit int) ([]Page, string, error) {
 	if confluenceUseV1(session) {
 		return confluenceListPagesV1(ctx, sys, session, cursor, limit)
 	}
@@ -539,7 +539,7 @@ func confluenceListPages(ctx context.Context, sys system.System, session atlassi
 	return pages, nextCursor(data.Links.Next), nil
 }
 
-func confluenceListSpaces(ctx context.Context, sys system.System, session atlassian.Session, cursor string, limit int) ([]Space, string, error) {
+func confluenceListSpaces(ctx context.Context, sys fpsystem.System, session atlassian.Session, cursor string, limit int) ([]Space, string, error) {
 	if confluenceUseV1(session) {
 		return confluenceListSpacesV1(ctx, sys, session, cursor, limit)
 	}
@@ -559,7 +559,7 @@ func confluenceListSpaces(ctx context.Context, sys system.System, session atlass
 	return spaces, nextCursor(data.Links.Next), nil
 }
 
-func confluenceGetPage(ctx context.Context, sys system.System, session atlassian.Session, id string) (Page, error) {
+func confluenceGetPage(ctx context.Context, sys fpsystem.System, session atlassian.Session, id string) (Page, error) {
 	if confluenceUseV1(session) {
 		return confluenceGetPageV1(ctx, sys, session, id)
 	}
@@ -570,7 +570,7 @@ func confluenceGetPage(ctx context.Context, sys system.System, session atlassian
 	return pageFromConfluence(session.SiteURL, raw), nil
 }
 
-func confluenceGetSpace(ctx context.Context, sys system.System, session atlassian.Session, id string) (Space, error) {
+func confluenceGetSpace(ctx context.Context, sys fpsystem.System, session atlassian.Session, id string) (Space, error) {
 	if confluenceUseV1(session) {
 		return confluenceGetSpaceV1(ctx, sys, session, id)
 	}
@@ -591,7 +591,7 @@ func confluenceGetSpace(ctx context.Context, sys system.System, session atlassia
 	return spaceFromConfluence(session.SiteURL, raw), nil
 }
 
-func confluenceListSpacesByKey(ctx context.Context, sys system.System, session atlassian.Session, key string) ([]Space, string, error) {
+func confluenceListSpacesByKey(ctx context.Context, sys fpsystem.System, session atlassian.Session, key string) ([]Space, string, error) {
 	if confluenceUseV1(session) {
 		return confluenceListSpacesByKeyV1(ctx, sys, session, key)
 	}
@@ -609,7 +609,7 @@ func confluenceListSpacesByKey(ctx context.Context, sys system.System, session a
 	return spaces, nextCursor(data.Links.Next), nil
 }
 
-func confluenceListPagesV1(ctx context.Context, sys system.System, session atlassian.Session, cursor string, limit int) ([]Page, string, error) {
+func confluenceListPagesV1(ctx context.Context, sys fpsystem.System, session atlassian.Session, cursor string, limit int) ([]Page, string, error) {
 	query := url.Values{}
 	query.Set("type", "page")
 	query.Set("limit", strconv.Itoa(normalizedLimit(limit)))
@@ -629,7 +629,7 @@ func confluenceListPagesV1(ctx context.Context, sys system.System, session atlas
 	return pages, nextCursor(data.Links.Next), nil
 }
 
-func confluenceListSpacesV1(ctx context.Context, sys system.System, session atlassian.Session, cursor string, limit int) ([]Space, string, error) {
+func confluenceListSpacesV1(ctx context.Context, sys fpsystem.System, session atlassian.Session, cursor string, limit int) ([]Space, string, error) {
 	query := url.Values{}
 	query.Set("limit", strconv.Itoa(normalizedLimit(limit)))
 	query.Set("expand", "description.plain")
@@ -648,7 +648,7 @@ func confluenceListSpacesV1(ctx context.Context, sys system.System, session atla
 	return spaces, nextCursor(data.Links.Next), nil
 }
 
-func confluenceGetPageV1(ctx context.Context, sys system.System, session atlassian.Session, id string) (Page, error) {
+func confluenceGetPageV1(ctx context.Context, sys fpsystem.System, session atlassian.Session, id string) (Page, error) {
 	var raw confluenceV1Page
 	v1 := confluenceV1Session(session)
 	if _, err := atlassian.DoJSON(ctx, sys, v1, http.MethodGet, "/content/"+url.PathEscape(strings.TrimSpace(id))+"?expand=body.storage,version,space,ancestors", nil, &raw); err != nil {
@@ -657,7 +657,7 @@ func confluenceGetPageV1(ctx context.Context, sys system.System, session atlassi
 	return pageFromConfluenceV1(session.SiteURL, raw), nil
 }
 
-func confluenceGetSpaceV1(ctx context.Context, sys system.System, session atlassian.Session, id string) (Space, error) {
+func confluenceGetSpaceV1(ctx context.Context, sys fpsystem.System, session atlassian.Session, id string) (Space, error) {
 	spaces, _, err := confluenceListSpacesByKeyV1(ctx, sys, session, id)
 	if err != nil {
 		return Space{}, err
@@ -668,7 +668,7 @@ func confluenceGetSpaceV1(ctx context.Context, sys system.System, session atlass
 	return spaces[0], nil
 }
 
-func confluenceListSpacesByKeyV1(ctx context.Context, sys system.System, session atlassian.Session, key string) ([]Space, string, error) {
+func confluenceListSpacesByKeyV1(ctx context.Context, sys fpsystem.System, session atlassian.Session, key string) ([]Space, string, error) {
 	query := url.Values{}
 	query.Set("limit", "1")
 	query.Set("expand", "description.plain")

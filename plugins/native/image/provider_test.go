@@ -258,6 +258,16 @@ func (s providerTestSystem) Workspace() runtimeworkspace.Workspace { return s.wo
 func (s providerTestSystem) Network() fpsystem.Network             { return s.network }
 func (s providerTestSystem) Process() fpsystem.ProcessManager      { return nil }
 func (s providerTestSystem) Environment() fpsystem.Environment     { return s.env }
+func (s providerTestSystem) FileSystem() fpsystem.FileSystem {
+	if s.workspace == nil {
+		return nil
+	}
+	return s.workspace.System().FileSystem()
+}
+func (s providerTestSystem) Clock() fpsystem.Clock {
+	sys, _ := systemkit.NewSystem().WithRealClock().Build()
+	return sys.Clock()
+}
 
 type recordingNetwork struct {
 	fpsystemtest.UnsupportedNetwork

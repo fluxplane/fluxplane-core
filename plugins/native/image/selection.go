@@ -3,13 +3,12 @@ package image
 import (
 	"context"
 	"fmt"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"sort"
 	"strings"
-
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
-func selectGenerationProvider(ctx context.Context, sys system.System, providers []GenerationProvider, requested string) (GenerationProvider, error) {
+func selectGenerationProvider(ctx context.Context, sys fpsystem.System, providers []GenerationProvider, requested string) (GenerationProvider, error) {
 	requested = strings.TrimSpace(requested)
 	var configured []string
 	var available []string
@@ -36,7 +35,7 @@ func selectGenerationProvider(ctx context.Context, sys system.System, providers 
 	return nil, fmt.Errorf("no configured image generation provider; available: %s", strings.Join(configured, ", "))
 }
 
-func selectUnderstandingProvider(ctx context.Context, sys system.System, providers []UnderstandingProvider, requested string) (UnderstandingProvider, error) {
+func selectUnderstandingProvider(ctx context.Context, sys fpsystem.System, providers []UnderstandingProvider, requested string) (UnderstandingProvider, error) {
 	requested = strings.TrimSpace(requested)
 	var available []string
 	var missing []string
