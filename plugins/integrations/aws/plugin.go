@@ -31,9 +31,9 @@ type Config struct {
 // Plugin observes local AWS configuration without exposing credential values.
 type Plugin struct {
 	pluginhost.Configurable[Config]
-	system fpsystem.System
-	ref    resource.PluginRef
-	cfg    Config
+	environment fpsystem.Environment
+	ref         resource.PluginRef
+	cfg         Config
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -42,7 +42,18 @@ var _ pluginhost.ObserverContributor = Plugin{}
 var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
 func New(sys fpsystem.System) Plugin {
-	return Plugin{system: sys}
+	return NewWithEnvironment(environmentFromSystem(sys))
+}
+
+func NewWithEnvironment(environment fpsystem.Environment) Plugin {
+	return Plugin{environment: environment}
+}
+
+func environmentFromSystem(sys fpsystem.System) fpsystem.Environment {
+	if sys == nil {
+		return nil
+	}
+	return sys.Environment()
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -108,11 +119,7 @@ func (o observer) Observe(ctx context.Context, _ runtimeevidence.ObservationRequ
 		content["source"] = "config"
 	}
 
-	var env fpsystem.Environment
-	if o.plugin.system != nil {
-		env = o.plugin.system.Environment()
-	}
-	if env != nil {
+	if env := o.plugin.environment; env != nil {
 		if content["profile"] == "" {
 			profile, _, err := lookupFirst(ctx, env, profileKeys(o.plugin.cfg)...)
 			if err != nil {

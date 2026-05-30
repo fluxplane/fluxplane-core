@@ -80,9 +80,9 @@ func TestAWSPluginContributesObserverAndDeriver(t *testing.T) {
 func TestAWSObserverTreatsRegionOnlyAsConfiguredNotAvailable(t *testing.T) {
 	ctx := context.Background()
 	plugin := Plugin{
-		system: fakeSystem{env: fakeEnvironment{"AWS_REGION": "eu-central-1"}},
-		ref:    resource.PluginRef{Name: Name},
-		cfg:    Config{},
+		environment: fakeEnvironment{"AWS_REGION": "eu-central-1"},
+		ref:         resource.PluginRef{Name: Name},
+		cfg:         Config{},
 	}
 	observations, diagnostics := runtimeevidence.RunObservers(ctx, []runtimeevidence.Observer{observer{plugin: plugin}}, runtimeevidence.ObservationRequest{Phase: coreevidence.PhaseTurn})
 	if len(diagnostics) != 0 {
