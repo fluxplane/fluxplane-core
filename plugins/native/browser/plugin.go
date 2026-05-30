@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	browserapi "github.com/fluxplane/fluxplane-browser"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
@@ -324,7 +325,7 @@ type scrollInput struct {
 	TimeoutMS int    `json:"timeout_ms,omitempty" jsonschema:"description=Timeout in milliseconds."`
 }
 
-func (p Plugin) browser() (system.BrowserManager, operation.Result) {
+func (p Plugin) browser() (browserapi.Manager, operation.Result) {
 	browser := p.system.Browser()
 	if browser == nil {
 		return nil, operation.Failed("browser_not_configured", "browser manager is not configured", nil)
@@ -338,7 +339,7 @@ func (p Plugin) open() operationruntime.TypedResultHandler[openInput, map[string
 		if browser == nil {
 			return failed
 		}
-		out, err := browser.Open(ctx, system.BrowserOpenRequest{URL: req.URL, Width: req.Width, Height: req.Height, Timeout: duration(req.TimeoutMS, 30*time.Second)})
+		out, err := browser.Open(ctx, browserapi.OpenRequest{URL: req.URL, Width: req.Width, Height: req.Height, Timeout: duration(req.TimeoutMS, 30*time.Second)})
 		if err != nil {
 			return operation.Failed("browser_open_failed", err.Error(), nil)
 		}
@@ -367,7 +368,7 @@ func (p Plugin) navigate() operationruntime.TypedResultHandler[sessionInput, map
 
 func (p Plugin) click() operationruntime.TypedResultHandler[selectorInput, map[string]any] {
 	return func(ctx operation.Context, req selectorInput) operation.Result {
-		return p.selectorAction(ctx, ClickOp, req, func(browser system.BrowserManager, ctx context.Context, req system.BrowserSelectorRequest) (system.BrowserPageResult, error) {
+		return p.selectorAction(ctx, ClickOp, req, func(browser browserapi.Manager, ctx context.Context, req browserapi.SelectorRequest) (browserapi.PageResult, error) {
 			return browser.Click(ctx, req)
 		})
 	}
@@ -375,13 +376,13 @@ func (p Plugin) click() operationruntime.TypedResultHandler[selectorInput, map[s
 
 func (p Plugin) hover() operationruntime.TypedResultHandler[selectorInput, map[string]any] {
 	return func(ctx operation.Context, req selectorInput) operation.Result {
-		return p.selectorAction(ctx, HoverOp, req, func(browser system.BrowserManager, ctx context.Context, req system.BrowserSelectorRequest) (system.BrowserPageResult, error) {
+		return p.selectorAction(ctx, HoverOp, req, func(browser browserapi.Manager, ctx context.Context, req browserapi.SelectorRequest) (browserapi.PageResult, error) {
 			return browser.Hover(ctx, req)
 		})
 	}
 }
 
-func (p Plugin) selectorAction(ctx operation.Context, name string, req selectorInput, fn func(system.BrowserManager, context.Context, system.BrowserSelectorRequest) (system.BrowserPageResult, error)) operation.Result {
+func (p Plugin) selectorAction(ctx operation.Context, name string, req selectorInput, fn func(browserapi.Manager, context.Context, browserapi.SelectorRequest) (browserapi.PageResult, error)) operation.Result {
 	if strings.TrimSpace(req.Selector) == "" || strings.TrimSpace(req.SessionID) == "" {
 		return operation.Failed("invalid_browser_input", "session_id and selector are required", nil)
 	}
@@ -389,7 +390,7 @@ func (p Plugin) selectorAction(ctx operation.Context, name string, req selectorI
 	if browser == nil {
 		return failed
 	}
-	out, err := fn(browser, ctx, system.BrowserSelectorRequest{SessionID: req.SessionID, Selector: req.Selector, Timeout: duration(req.TimeoutMS, 30*time.Second)})
+	out, err := fn(browser, ctx, browserapi.SelectorRequest{SessionID: req.SessionID, Selector: req.Selector, Timeout: duration(req.TimeoutMS, 30*time.Second)})
 	if err != nil {
 		return operation.Failed(name+"_failed", err.Error(), nil)
 	}
@@ -403,7 +404,7 @@ func (p Plugin) typ() operationruntime.TypedResultHandler[typeInput, map[string]
 		if browser == nil {
 			return failed
 		}
-		out, err := browser.Type(ctx, system.BrowserTypeRequest{SessionID: req.SessionID, Selector: req.Selector, Text: req.Text, Submit: req.Submit, Timeout: duration(req.TimeoutMS, 30*time.Second)})
+		out, err := browser.Type(ctx, browserapi.TypeRequest{SessionID: req.SessionID, Selector: req.Selector, Text: req.Text, Submit: req.Submit, Timeout: duration(req.TimeoutMS, 30*time.Second)})
 		if err != nil {
 			return operation.Failed("browser_type_failed", err.Error(), nil)
 		}
@@ -417,7 +418,7 @@ func (p Plugin) selectOption() operationruntime.TypedResultHandler[selectInput, 
 		if browser == nil {
 			return failed
 		}
-		out, err := browser.Select(ctx, system.BrowserSelectRequest{SessionID: req.SessionID, Selector: req.Selector, Values: req.Values, Timeout: duration(req.TimeoutMS, 30*time.Second)})
+		out, err := browser.Select(ctx, browserapi.SelectRequest{SessionID: req.SessionID, Selector: req.Selector, Values: req.Values, Timeout: duration(req.TimeoutMS, 30*time.Second)})
 		if err != nil {
 			return operation.Failed("browser_select_failed", err.Error(), nil)
 		}
@@ -431,7 +432,7 @@ func (p Plugin) read() operationruntime.TypedResultHandler[readInput, map[string
 		if browser == nil {
 			return failed
 		}
-		out, err := browser.Read(ctx, system.BrowserReadRequest{SessionID: req.SessionID, Selector: req.Selector, Timeout: duration(req.TimeoutMS, 30*time.Second)})
+		out, err := browser.Read(ctx, browserapi.ReadRequest{SessionID: req.SessionID, Selector: req.Selector, Timeout: duration(req.TimeoutMS, 30*time.Second)})
 		if err != nil {
 			return operation.Failed("browser_read_failed", err.Error(), nil)
 		}
@@ -443,7 +444,7 @@ func (p Plugin) read() operationruntime.TypedResultHandler[readInput, map[string
 
 func (p Plugin) screenshot() operationruntime.TypedResultHandler[sessionInput, map[string]any] {
 	return func(ctx operation.Context, req sessionInput) operation.Result {
-		return p.artifact(ctx, ScreenshotOp, req, func(browser system.BrowserManager, ctx context.Context, req system.BrowserSessionRequest) (system.BrowserArtifact, error) {
+		return p.artifact(ctx, ScreenshotOp, req, func(browser browserapi.Manager, ctx context.Context, req browserapi.SessionRequest) (browserapi.Artifact, error) {
 			return browser.Screenshot(ctx, req)
 		})
 	}
@@ -451,13 +452,13 @@ func (p Plugin) screenshot() operationruntime.TypedResultHandler[sessionInput, m
 
 func (p Plugin) pdf() operationruntime.TypedResultHandler[sessionInput, map[string]any] {
 	return func(ctx operation.Context, req sessionInput) operation.Result {
-		return p.artifact(ctx, PDFOp, req, func(browser system.BrowserManager, ctx context.Context, req system.BrowserSessionRequest) (system.BrowserArtifact, error) {
+		return p.artifact(ctx, PDFOp, req, func(browser browserapi.Manager, ctx context.Context, req browserapi.SessionRequest) (browserapi.Artifact, error) {
 			return browser.PDF(ctx, req)
 		})
 	}
 }
 
-func (p Plugin) artifact(ctx operation.Context, name string, req sessionInput, fn func(system.BrowserManager, context.Context, system.BrowserSessionRequest) (system.BrowserArtifact, error)) operation.Result {
+func (p Plugin) artifact(ctx operation.Context, name string, req sessionInput, fn func(browserapi.Manager, context.Context, browserapi.SessionRequest) (browserapi.Artifact, error)) operation.Result {
 	browser, failed := p.browser()
 	if browser == nil {
 		return failed
@@ -477,7 +478,7 @@ func (p Plugin) evaluate() operationruntime.TypedResultHandler[evaluateInput, ma
 		if browser == nil {
 			return failed
 		}
-		out, err := browser.Evaluate(ctx, system.BrowserEvaluateRequest{SessionID: req.SessionID, Script: req.Script, Timeout: duration(req.TimeoutMS, 30*time.Second)})
+		out, err := browser.Evaluate(ctx, browserapi.EvaluateRequest{SessionID: req.SessionID, Script: req.Script, Timeout: duration(req.TimeoutMS, 30*time.Second)})
 		if err != nil {
 			return operation.Failed("browser_evaluate_failed", err.Error(), nil)
 		}
@@ -491,7 +492,7 @@ func (p Plugin) wait() operationruntime.TypedResultHandler[waitInput, map[string
 		if browser == nil {
 			return failed
 		}
-		out, err := browser.Wait(ctx, system.BrowserWaitRequest{SessionID: req.SessionID, Selector: req.Selector, Duration: duration(req.DurationMS, 0), Timeout: duration(req.TimeoutMS, 30*time.Second)})
+		out, err := browser.Wait(ctx, browserapi.WaitRequest{SessionID: req.SessionID, Selector: req.Selector, Duration: duration(req.DurationMS, 0), Timeout: duration(req.TimeoutMS, 30*time.Second)})
 		if err != nil {
 			return operation.Failed("browser_wait_failed", err.Error(), nil)
 		}
@@ -505,7 +506,7 @@ func (p Plugin) scroll() operationruntime.TypedResultHandler[scrollInput, map[st
 		if browser == nil {
 			return failed
 		}
-		out, err := browser.Scroll(ctx, system.BrowserScrollRequest{SessionID: req.SessionID, X: req.X, Y: req.Y, Timeout: duration(req.TimeoutMS, 30*time.Second)})
+		out, err := browser.Scroll(ctx, browserapi.ScrollRequest{SessionID: req.SessionID, X: req.X, Y: req.Y, Timeout: duration(req.TimeoutMS, 30*time.Second)})
 		if err != nil {
 			return operation.Failed("browser_scroll_failed", err.Error(), nil)
 		}
@@ -515,7 +516,7 @@ func (p Plugin) scroll() operationruntime.TypedResultHandler[scrollInput, map[st
 
 func (p Plugin) back() operationruntime.TypedResultHandler[sessionInput, map[string]any] {
 	return func(ctx operation.Context, req sessionInput) operation.Result {
-		return p.sessionAction(ctx, BackOp, req, func(browser system.BrowserManager, ctx context.Context, req system.BrowserSessionRequest) (system.BrowserPageResult, error) {
+		return p.sessionAction(ctx, BackOp, req, func(browser browserapi.Manager, ctx context.Context, req browserapi.SessionRequest) (browserapi.PageResult, error) {
 			return browser.Back(ctx, req)
 		})
 	}
@@ -523,13 +524,13 @@ func (p Plugin) back() operationruntime.TypedResultHandler[sessionInput, map[str
 
 func (p Plugin) forward() operationruntime.TypedResultHandler[sessionInput, map[string]any] {
 	return func(ctx operation.Context, req sessionInput) operation.Result {
-		return p.sessionAction(ctx, ForwardOp, req, func(browser system.BrowserManager, ctx context.Context, req system.BrowserSessionRequest) (system.BrowserPageResult, error) {
+		return p.sessionAction(ctx, ForwardOp, req, func(browser browserapi.Manager, ctx context.Context, req browserapi.SessionRequest) (browserapi.PageResult, error) {
 			return browser.Forward(ctx, req)
 		})
 	}
 }
 
-func (p Plugin) sessionAction(ctx operation.Context, name string, req sessionInput, fn func(system.BrowserManager, context.Context, system.BrowserSessionRequest) (system.BrowserPageResult, error)) operation.Result {
+func (p Plugin) sessionAction(ctx operation.Context, name string, req sessionInput, fn func(browserapi.Manager, context.Context, browserapi.SessionRequest) (browserapi.PageResult, error)) operation.Result {
 	browser, failed := p.browser()
 	if browser == nil {
 		return failed
@@ -554,8 +555,8 @@ func (p Plugin) close() operationruntime.TypedResultHandler[sessionInput, map[st
 	}
 }
 
-func sessionReq(req sessionInput) system.BrowserSessionRequest {
-	return system.BrowserSessionRequest{SessionID: req.SessionID, URL: req.URL, Timeout: duration(req.TimeoutMS, 30*time.Second)}
+func sessionReq(req sessionInput) browserapi.SessionRequest {
+	return browserapi.SessionRequest{SessionID: req.SessionID, URL: req.URL, Timeout: duration(req.TimeoutMS, 30*time.Second)}
 }
 
 func duration(ms int, fallback time.Duration) time.Duration {

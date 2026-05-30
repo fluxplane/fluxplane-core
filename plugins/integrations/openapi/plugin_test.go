@@ -2,6 +2,7 @@ package openapi
 
 import (
 	"context"
+	browser "github.com/fluxplane/fluxplane-browser"
 	"os"
 	"path/filepath"
 	"strings"
@@ -357,7 +358,7 @@ func newTestSystem(t *testing.T, dir string, network system.Network, env map[str
 func (s testSystem) Workspace() system.Workspace     { return s.workspace }
 func (s testSystem) Network() system.Network         { return s.network }
 func (s testSystem) Process() system.ProcessManager  { return nil }
-func (s testSystem) Browser() system.BrowserManager  { return nil }
+func (s testSystem) Browser() browser.Manager        { return nil }
 func (s testSystem) Clarifier() system.Clarifier     { return nil }
 func (s testSystem) Environment() system.Environment { return s.env }
 

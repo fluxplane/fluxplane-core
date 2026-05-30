@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	browser "github.com/fluxplane/fluxplane-browser"
 	"testing"
 
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
@@ -112,7 +113,7 @@ type fakeSystem struct {
 func (s fakeSystem) Workspace() system.Workspace     { return nil }
 func (s fakeSystem) Network() system.Network         { return nil }
 func (s fakeSystem) Process() system.ProcessManager  { return nil }
-func (s fakeSystem) Browser() system.BrowserManager  { return nil }
+func (s fakeSystem) Browser() browser.Manager        { return nil }
 func (s fakeSystem) Clarifier() system.Clarifier     { return nil }
 func (s fakeSystem) Environment() system.Environment { return s.env }
 

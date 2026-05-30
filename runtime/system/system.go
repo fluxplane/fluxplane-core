@@ -22,9 +22,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fluxplane/fluxplane-event"
+	browser "github.com/fluxplane/fluxplane-browser"
 	"github.com/fluxplane/fluxplane-core/core/pathpattern"
 	"github.com/fluxplane/fluxplane-core/runtime/httptransport"
+	"github.com/fluxplane/fluxplane-event"
 )
 
 // System groups the runtime boundaries that can touch the outside world.
@@ -32,7 +33,7 @@ type System interface {
 	Workspace() Workspace
 	Network() Network
 	Process() ProcessManager
-	Browser() BrowserManager
+	Browser() browser.Manager
 	Clarifier() Clarifier
 	Environment() Environment
 }
@@ -42,7 +43,7 @@ type Config struct {
 	Root                string
 	Workspace           WorkspaceConfig
 	AllowPrivateNetwork bool
-	Browser             BrowserManager
+	Browser             browser.Manager
 	Clarifier           Clarifier
 }
 
@@ -75,7 +76,7 @@ type Host struct {
 	workspace *HostWorkspace
 	network   *HostNetwork
 	process   *HostProcess
-	browser   BrowserManager
+	browser   browser.Manager
 	clarifier Clarifier
 	env       *WorkspaceEnvironment
 }
@@ -126,7 +127,7 @@ func (h *Host) Network() Network { return h.network }
 func (h *Host) Process() ProcessManager { return h.process }
 
 // Browser returns the configured browser manager, when one is available.
-func (h *Host) Browser() BrowserManager { return h.browser }
+func (h *Host) Browser() browser.Manager { return h.browser }
 
 // Clarifier returns the configured human-input boundary, when one is available.
 func (h *Host) Clarifier() Clarifier { return h.clarifier }
@@ -135,7 +136,7 @@ func (h *Host) Clarifier() Clarifier { return h.clarifier }
 func (h *Host) Environment() Environment { return h.env }
 
 // SetBrowser installs a browser manager after host construction.
-func (h *Host) SetBrowser(browser BrowserManager) { h.browser = browser }
+func (h *Host) SetBrowser(manager browser.Manager) { h.browser = manager }
 
 // SetClarifier installs a human input boundary after host construction.
 func (h *Host) SetClarifier(clarifier Clarifier) { h.clarifier = clarifier }

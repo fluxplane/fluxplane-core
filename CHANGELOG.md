@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Browser automation now uses `github.com/fluxplane/fluxplane-browser`,
+  with core injecting URL authorization and artifact persistence callbacks.
+
 ## [0.22.0] - 2026-05-29
 
 ### Added

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	browser "github.com/fluxplane/fluxplane-browser"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -120,7 +121,7 @@ func newMemorySystem() *memorySystem {
 func (s *memorySystem) Workspace() system.Workspace     { return s.workspace }
 func (s *memorySystem) Network() system.Network         { return memoryNetwork{} }
 func (s *memorySystem) Process() system.ProcessManager  { return nil }
-func (s *memorySystem) Browser() system.BrowserManager  { return nil }
+func (s *memorySystem) Browser() browser.Manager        { return nil }
 func (s *memorySystem) Clarifier() system.Clarifier     { return nil }
 func (s *memorySystem) Environment() system.Environment { return memoryEnvironment{} }
 func (memoryEnvironment) Lookup(context.Context, string) (string, bool, error) {

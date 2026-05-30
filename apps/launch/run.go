@@ -10,12 +10,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fluxplane/fluxplane-browser/cdp"
 	fluxplane "github.com/fluxplane/fluxplane-core"
 	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
 	"github.com/fluxplane/fluxplane-core/adapters/distribution/localruntime"
 	distrun "github.com/fluxplane/fluxplane-core/adapters/distribution/run"
 	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
-	"github.com/fluxplane/fluxplane-core/adapters/system/browsercdp"
 	"github.com/fluxplane/fluxplane-core/adapters/ui/terminal"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	"github.com/fluxplane/fluxplane-core/core/channel"
@@ -281,7 +281,11 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	}
 	runtimeSystem := system.WithAuthorization(hostSystem, system.AuthorizationConfig{TraceAllows: opts.Debug})
 	hostSystem.SetClarifier(terminal.Prompter{In: os.Stdin, Out: os.Stderr})
-	browser, err := browsercdp.New(browsercdp.Config{Workspace: runtimeSystem.Workspace(), Headless: browserHeadless()})
+	browser, err := cdp.New(cdp.Config{
+		AuthorizeURL:   system.BrowserURLAuthorizer(system.AuthorizationConfig{TraceAllows: opts.Debug}),
+		ArtifactWriter: browserArtifactWriter{workspace: runtimeSystem.Workspace()},
+		Headless:       browserHeadless(),
+	})
 	if err == nil {
 		hostSystem.SetBrowser(browser)
 	} else if opts.Debug {

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	browser "github.com/fluxplane/fluxplane-browser"
 	"github.com/fluxplane/fluxplane-core/core/policy"
 )
 
@@ -1076,75 +1077,68 @@ func TestAuthorizedSystemEnforcesNetworkActions(t *testing.T) {
 	}
 }
 
-func TestAuthorizedSystemEnforcesBrowserNetworkAccess(t *testing.T) {
-	browser := &recordingBrowser{}
-	sys := WithAuthorization(testSystemBoundary{browser: browser}, AuthorizationConfig{})
+func TestBrowserURLAuthorizerEnforcesNetworkAccess(t *testing.T) {
+	authorize := BrowserURLAuthorizer(AuthorizationConfig{})
 	denied := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
 		Actions:   []policy.Action{policy.ActionWorkspaceRead},
 	}})
-	if _, err := sys.Browser().Open(denied, BrowserOpenRequest{URL: "https://example.com"}); err == nil || !strings.Contains(err.Error(), "authorization_deny") {
-		t.Fatalf("Open denied error = %v, want authorization deny", err)
-	}
-	if browser.openCalls != 0 {
-		t.Fatalf("browser open calls = %d, want 0", browser.openCalls)
+	if err := authorize(denied, "https://example.com"); err == nil || !strings.Contains(err.Error(), "authorization_deny") {
+		t.Fatalf("authorize denied error = %v, want authorization deny", err)
 	}
 
 	allowed := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-		Resources: []policy.ResourceRef{{Kind: policy.ResourceNetwork, Name: "*"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourceNetwork, Name: "https://example.com"}},
 		Actions:   []policy.Action{policy.ActionNetworkFetch},
 	}})
-	if _, err := sys.Browser().Open(allowed, BrowserOpenRequest{URL: "https://example.com"}); err != nil {
-		t.Fatalf("Open allowed denied: %v", err)
-	}
-	if browser.openCalls != 1 {
-		t.Fatalf("browser open calls = %d, want 1", browser.openCalls)
+	if err := authorize(allowed, "https://example.com"); err != nil {
+		t.Fatalf("authorize allowed denied: %v", err)
 	}
 }
 
-func TestAuthorizedBrowserAllowsSessionOperations(t *testing.T) {
-	browser := &recordingBrowser{}
-	sys := WithAuthorization(testSystemBoundary{browser: browser}, AuthorizationConfig{})
+func TestAuthorizedSystemReturnsConfiguredBrowser(t *testing.T) {
+	br := &recordingBrowser{}
+	sys := WithAuthorization(testSystemBoundary{browser: br}, AuthorizationConfig{})
 	ctx := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourceNetwork, Name: "*"}},
 		Actions:   []policy.Action{policy.ActionNetworkFetch},
 	}})
 	manager := sys.Browser()
-	if _, err := manager.Open(ctx, BrowserOpenRequest{URL: "https://example.com"}); err != nil {
+	if _, err := manager.Open(ctx, browser.OpenRequest{URL: "https://example.com"}); err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	session := BrowserSessionRequest{SessionID: "browser-1", URL: "https://example.com/page"}
+	session := browser.SessionRequest{SessionID: "browser-1", URL: "https://example.com/page"}
 	if _, err := manager.Navigate(ctx, session); err != nil {
 		t.Fatalf("Navigate: %v", err)
 	}
-	if _, err := manager.Click(ctx, BrowserSelectorRequest{SessionID: "browser-1", Selector: "button"}); err != nil {
+	if _, err := manager.Click(ctx, browser.SelectorRequest{SessionID: "browser-1", Selector: "button"}); err != nil {
 		t.Fatalf("Click: %v", err)
 	}
-	if _, err := manager.Type(ctx, BrowserTypeRequest{SessionID: "browser-1", Selector: "input", Text: "hello"}); err != nil {
+	if _, err := manager.Type(ctx, browser.TypeRequest{SessionID: "browser-1", Selector: "input", Text: "hello"}); err != nil {
 		t.Fatalf("Type: %v", err)
 	}
-	if _, err := manager.Select(ctx, BrowserSelectRequest{SessionID: "browser-1", Selector: "select", Values: []string{"one"}}); err != nil {
+	if _, err := manager.Select(ctx, browser.SelectRequest{SessionID: "browser-1", Selector: "select", Values: []string{"one"}}); err != nil {
 		t.Fatalf("Select: %v", err)
 	}
-	if _, err := manager.Read(ctx, BrowserReadRequest{SessionID: "browser-1"}); err != nil {
+	if _, err := manager.Read(ctx, browser.ReadRequest{SessionID: "browser-1"}); err != nil {
 		t.Fatalf("Read: %v", err)
 	}
 	if _, err := manager.Screenshot(ctx, session); err != nil {
 		t.Fatalf("Screenshot: %v", err)
 	}
-	if _, err := manager.Evaluate(ctx, BrowserEvaluateRequest{SessionID: "browser-1", Script: "1+1"}); err != nil {
+	if _, err := manager.Evaluate(ctx, browser.EvaluateRequest{SessionID: "browser-1", Script: "1+1"}); err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
-	if _, err := manager.Wait(ctx, BrowserWaitRequest{SessionID: "browser-1", Selector: "body"}); err != nil {
+	if _, err := manager.Wait(ctx, browser.WaitRequest{SessionID: "browser-1", Selector: "body"}); err != nil {
 		t.Fatalf("Wait: %v", err)
 	}
-	if _, err := manager.Scroll(ctx, BrowserScrollRequest{SessionID: "browser-1", Y: 10}); err != nil {
+	if _, err := manager.Scroll(ctx, browser.ScrollRequest{SessionID: "browser-1", Y: 10}); err != nil {
 		t.Fatalf("Scroll: %v", err)
 	}
-	if _, err := manager.Hover(ctx, BrowserSelectorRequest{SessionID: "browser-1", Selector: "a"}); err != nil {
+	if _, err := manager.Hover(ctx, browser.SelectorRequest{SessionID: "browser-1", Selector: "a"}); err != nil {
 		t.Fatalf("Hover: %v", err)
 	}
 	if _, err := manager.Back(ctx, session); err != nil {
@@ -1233,14 +1227,14 @@ type testSystemBoundary struct {
 	workspace Workspace
 	network   Network
 	process   ProcessManager
-	browser   BrowserManager
+	browser   browser.Manager
 	env       Environment
 }
 
 func (s testSystemBoundary) Workspace() Workspace     { return s.workspace }
 func (s testSystemBoundary) Network() Network         { return s.network }
 func (s testSystemBoundary) Process() ProcessManager  { return s.process }
-func (s testSystemBoundary) Browser() BrowserManager  { return s.browser }
+func (s testSystemBoundary) Browser() browser.Manager { return s.browser }
 func (s testSystemBoundary) Clarifier() Clarifier     { return nil }
 func (s testSystemBoundary) Environment() Environment { return s.env }
 
@@ -1254,50 +1248,50 @@ func (recordingClarifier) Clarify(context.Context, ClarifyRequest) (ClarifyResul
 	return ClarifyResult{}, nil
 }
 
-func (b *recordingBrowser) Open(context.Context, BrowserOpenRequest) (BrowserOpenResult, error) {
+func (b *recordingBrowser) Open(context.Context, browser.OpenRequest) (browser.OpenResult, error) {
 	b.openCalls++
-	return BrowserOpenResult{SessionID: "browser-1", URL: "https://example.com"}, nil
+	return browser.OpenResult{SessionID: "browser-1", URL: "https://example.com"}, nil
 }
-func (*recordingBrowser) Navigate(context.Context, BrowserSessionRequest) (BrowserPageResult, error) {
-	return BrowserPageResult{}, nil
+func (*recordingBrowser) Navigate(context.Context, browser.SessionRequest) (browser.PageResult, error) {
+	return browser.PageResult{}, nil
 }
-func (*recordingBrowser) Click(context.Context, BrowserSelectorRequest) (BrowserPageResult, error) {
-	return BrowserPageResult{}, nil
+func (*recordingBrowser) Click(context.Context, browser.SelectorRequest) (browser.PageResult, error) {
+	return browser.PageResult{}, nil
 }
-func (*recordingBrowser) Type(context.Context, BrowserTypeRequest) (BrowserPageResult, error) {
-	return BrowserPageResult{}, nil
+func (*recordingBrowser) Type(context.Context, browser.TypeRequest) (browser.PageResult, error) {
+	return browser.PageResult{}, nil
 }
-func (*recordingBrowser) Select(context.Context, BrowserSelectRequest) (BrowserPageResult, error) {
-	return BrowserPageResult{}, nil
+func (*recordingBrowser) Select(context.Context, browser.SelectRequest) (browser.PageResult, error) {
+	return browser.PageResult{}, nil
 }
-func (*recordingBrowser) Read(context.Context, BrowserReadRequest) (BrowserReadResult, error) {
-	return BrowserReadResult{}, nil
+func (*recordingBrowser) Read(context.Context, browser.ReadRequest) (browser.ReadResult, error) {
+	return browser.ReadResult{}, nil
 }
-func (*recordingBrowser) Screenshot(context.Context, BrowserSessionRequest) (BrowserArtifact, error) {
-	return BrowserArtifact{}, nil
+func (*recordingBrowser) Screenshot(context.Context, browser.SessionRequest) (browser.Artifact, error) {
+	return browser.Artifact{}, nil
 }
-func (*recordingBrowser) Evaluate(context.Context, BrowserEvaluateRequest) (BrowserEvaluateResult, error) {
-	return BrowserEvaluateResult{}, nil
+func (*recordingBrowser) Evaluate(context.Context, browser.EvaluateRequest) (browser.EvaluateResult, error) {
+	return browser.EvaluateResult{}, nil
 }
-func (*recordingBrowser) Wait(context.Context, BrowserWaitRequest) (BrowserPageResult, error) {
-	return BrowserPageResult{}, nil
+func (*recordingBrowser) Wait(context.Context, browser.WaitRequest) (browser.PageResult, error) {
+	return browser.PageResult{}, nil
 }
-func (*recordingBrowser) Scroll(context.Context, BrowserScrollRequest) (BrowserPageResult, error) {
-	return BrowserPageResult{}, nil
+func (*recordingBrowser) Scroll(context.Context, browser.ScrollRequest) (browser.PageResult, error) {
+	return browser.PageResult{}, nil
 }
-func (*recordingBrowser) Hover(context.Context, BrowserSelectorRequest) (BrowserPageResult, error) {
-	return BrowserPageResult{}, nil
+func (*recordingBrowser) Hover(context.Context, browser.SelectorRequest) (browser.PageResult, error) {
+	return browser.PageResult{}, nil
 }
-func (*recordingBrowser) Back(context.Context, BrowserSessionRequest) (BrowserPageResult, error) {
-	return BrowserPageResult{}, nil
+func (*recordingBrowser) Back(context.Context, browser.SessionRequest) (browser.PageResult, error) {
+	return browser.PageResult{}, nil
 }
-func (*recordingBrowser) Forward(context.Context, BrowserSessionRequest) (BrowserPageResult, error) {
-	return BrowserPageResult{}, nil
+func (*recordingBrowser) Forward(context.Context, browser.SessionRequest) (browser.PageResult, error) {
+	return browser.PageResult{}, nil
 }
-func (*recordingBrowser) PDF(context.Context, BrowserSessionRequest) (BrowserArtifact, error) {
-	return BrowserArtifact{}, nil
+func (*recordingBrowser) PDF(context.Context, browser.SessionRequest) (browser.Artifact, error) {
+	return browser.Artifact{}, nil
 }
-func (*recordingBrowser) Close(context.Context, BrowserSessionRequest) error { return nil }
+func (*recordingBrowser) Close(context.Context, browser.SessionRequest) error { return nil }
 
 func authorizedTestContext(grants []policy.Grant) context.Context {
 	return policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{

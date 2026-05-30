@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	browser "github.com/fluxplane/fluxplane-browser"
 	"github.com/fluxplane/fluxplane-core/core/policy"
 )
 
@@ -54,13 +55,8 @@ func (s authorizedSystem) Process() ProcessManager {
 	return nil
 }
 
-func (s authorizedSystem) Browser() BrowserManager {
-	if browser := s.base.Browser(); browser != nil {
-		return authorizedBrowserManager{base: browser, cfg: s.cfg}
-	}
-	return nil
-}
-func (s authorizedSystem) Clarifier() Clarifier { return s.base.Clarifier() }
+func (s authorizedSystem) Browser() browser.Manager { return s.base.Browser() }
+func (s authorizedSystem) Clarifier() Clarifier     { return s.base.Clarifier() }
 
 func (s authorizedSystem) Environment() Environment {
 	if env := s.base.Environment(); env != nil {
@@ -369,119 +365,20 @@ func (p authorizedProcessManager) exec(ctx context.Context, command string) erro
 	return authorizeSystem(ctx, p.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: strings.TrimSpace(command)}, policy.ActionProcessExec)
 }
 
-type authorizedBrowserManager struct {
-	base BrowserManager
-	cfg  AuthorizationConfig
-}
-
-func (b authorizedBrowserManager) Open(ctx context.Context, req BrowserOpenRequest) (BrowserOpenResult, error) {
-	if err := b.fetch(ctx, req.URL); err != nil {
-		return BrowserOpenResult{}, err
+// BrowserURLAuthorizer returns a browser URL authorization callback for
+// browser implementations assembled outside runtime/system.
+func BrowserURLAuthorizer(cfg AuthorizationConfig) browser.URLAuthorizer {
+	return func(ctx context.Context, target string) error {
+		return authorizeBrowserURL(ctx, cfg, target)
 	}
-	return b.base.Open(ctx, req)
 }
 
-func (b authorizedBrowserManager) Navigate(ctx context.Context, req BrowserSessionRequest) (BrowserPageResult, error) {
-	if err := b.fetch(ctx, req.URL); err != nil {
-		return BrowserPageResult{}, err
-	}
-	return b.base.Navigate(ctx, req)
-}
-
-func (b authorizedBrowserManager) Click(ctx context.Context, req BrowserSelectorRequest) (BrowserPageResult, error) {
-	if err := b.fetch(ctx, "*"); err != nil {
-		return BrowserPageResult{}, err
-	}
-	return b.base.Click(ctx, req)
-}
-
-func (b authorizedBrowserManager) Type(ctx context.Context, req BrowserTypeRequest) (BrowserPageResult, error) {
-	if err := b.fetch(ctx, "*"); err != nil {
-		return BrowserPageResult{}, err
-	}
-	return b.base.Type(ctx, req)
-}
-
-func (b authorizedBrowserManager) Select(ctx context.Context, req BrowserSelectRequest) (BrowserPageResult, error) {
-	if err := b.fetch(ctx, "*"); err != nil {
-		return BrowserPageResult{}, err
-	}
-	return b.base.Select(ctx, req)
-}
-
-func (b authorizedBrowserManager) Read(ctx context.Context, req BrowserReadRequest) (BrowserReadResult, error) {
-	if err := b.fetch(ctx, "*"); err != nil {
-		return BrowserReadResult{}, err
-	}
-	return b.base.Read(ctx, req)
-}
-
-func (b authorizedBrowserManager) Screenshot(ctx context.Context, req BrowserSessionRequest) (BrowserArtifact, error) {
-	if err := b.fetch(ctx, "*"); err != nil {
-		return BrowserArtifact{}, err
-	}
-	return b.base.Screenshot(ctx, req)
-}
-
-func (b authorizedBrowserManager) Evaluate(ctx context.Context, req BrowserEvaluateRequest) (BrowserEvaluateResult, error) {
-	if err := b.fetch(ctx, "*"); err != nil {
-		return BrowserEvaluateResult{}, err
-	}
-	return b.base.Evaluate(ctx, req)
-}
-
-func (b authorizedBrowserManager) Wait(ctx context.Context, req BrowserWaitRequest) (BrowserPageResult, error) {
-	if err := b.fetch(ctx, "*"); err != nil {
-		return BrowserPageResult{}, err
-	}
-	return b.base.Wait(ctx, req)
-}
-
-func (b authorizedBrowserManager) Scroll(ctx context.Context, req BrowserScrollRequest) (BrowserPageResult, error) {
-	if err := b.fetch(ctx, "*"); err != nil {
-		return BrowserPageResult{}, err
-	}
-	return b.base.Scroll(ctx, req)
-}
-
-func (b authorizedBrowserManager) Hover(ctx context.Context, req BrowserSelectorRequest) (BrowserPageResult, error) {
-	if err := b.fetch(ctx, "*"); err != nil {
-		return BrowserPageResult{}, err
-	}
-	return b.base.Hover(ctx, req)
-}
-
-func (b authorizedBrowserManager) Back(ctx context.Context, req BrowserSessionRequest) (BrowserPageResult, error) {
-	if err := b.fetch(ctx, "*"); err != nil {
-		return BrowserPageResult{}, err
-	}
-	return b.base.Back(ctx, req)
-}
-
-func (b authorizedBrowserManager) Forward(ctx context.Context, req BrowserSessionRequest) (BrowserPageResult, error) {
-	if err := b.fetch(ctx, "*"); err != nil {
-		return BrowserPageResult{}, err
-	}
-	return b.base.Forward(ctx, req)
-}
-
-func (b authorizedBrowserManager) PDF(ctx context.Context, req BrowserSessionRequest) (BrowserArtifact, error) {
-	if err := b.fetch(ctx, "*"); err != nil {
-		return BrowserArtifact{}, err
-	}
-	return b.base.PDF(ctx, req)
-}
-
-func (b authorizedBrowserManager) Close(ctx context.Context, req BrowserSessionRequest) error {
-	return b.base.Close(ctx, req)
-}
-
-func (b authorizedBrowserManager) fetch(ctx context.Context, target string) error {
+func authorizeBrowserURL(ctx context.Context, cfg AuthorizationConfig, target string) error {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		target = "*"
 	}
-	return authorizeSystem(ctx, b.cfg, policy.ResourceRef{Kind: policy.ResourceNetwork, Name: target}, policy.ActionNetworkFetch)
+	return authorizeSystem(ctx, cfg, policy.ResourceRef{Kind: policy.ResourceNetwork, Name: target}, policy.ActionNetworkFetch)
 }
 
 type authorizedEnvironment struct {

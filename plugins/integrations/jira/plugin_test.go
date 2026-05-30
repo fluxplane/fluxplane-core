@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	browser "github.com/fluxplane/fluxplane-browser"
 	"strings"
 	"testing"
 
@@ -480,7 +481,7 @@ type fakeSystem struct {
 func (s fakeSystem) Workspace() system.Workspace     { return nil }
 func (s fakeSystem) Network() system.Network         { return s.network }
 func (s fakeSystem) Process() system.ProcessManager  { return nil }
-func (s fakeSystem) Browser() system.BrowserManager  { return nil }
+func (s fakeSystem) Browser() browser.Manager        { return nil }
 func (s fakeSystem) Clarifier() system.Clarifier     { return nil }
 func (s fakeSystem) Environment() system.Environment { return s.env }
 
