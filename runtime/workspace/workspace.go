@@ -1,10 +1,7 @@
 package workspace
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"strings"
 
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -13,12 +10,12 @@ import (
 // workspace identity/path semantics and exposes the scoped fluxplane-system
 // used for concrete IO.
 type Workspace interface {
+	fpsystem.PathResolver
+	fpsystem.ScratchProvider
+	fpsystem.BoundedFileReader
 	System() fpsystem.System
 	Root() string
 	Roots() []Root
-	ResolveExisting(context.Context, string) (ResolvedPath, error)
-	ResolveCreate(context.Context, string) (ResolvedPath, error)
-	CreateScratch(context.Context, string) (ScratchDir, error)
 }
 
 // Root describes one runtime root exposed by a Workspace.
@@ -32,26 +29,13 @@ type Root struct {
 }
 
 // ResolvedPath is a canonical workspace path resolved against a Workspace.
-type ResolvedPath struct {
-	Input string `json:"input,omitempty"`
-	Abs   string `json:"abs"`
-	Rel   string `json:"rel"`
-}
+type ResolvedPath = fpsystem.ResolvedPath
 
 // ScratchDir is an isolated temporary directory owned by a Workspace.
-type ScratchDir interface {
-	Root() string
-	WriteFile(context.Context, string, []byte, os.FileMode) (ResolvedPath, error)
-	RemoveAll(context.Context) error
-}
+type ScratchDir = fpsystem.ScratchDir
 
 // PathName returns the scoped filesystem name for resolved.
-func PathName(resolved ResolvedPath) string {
-	if strings.TrimSpace(resolved.Rel) == "" {
-		return "."
-	}
-	return resolved.Rel
-}
+func PathName(resolved ResolvedPath) string { return fpsystem.PathName(resolved) }
 
 // FileSystem returns the scoped filesystem exposed by ws.
 func FileSystem(ws Workspace) (fpsystem.FileSystem, error) {

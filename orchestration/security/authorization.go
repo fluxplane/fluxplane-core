@@ -105,6 +105,18 @@ func (w authorizedWorkspace) ResolveCreate(ctx context.Context, raw string) (run
 	return resolved, nil
 }
 
+func (w authorizedWorkspace) ReadFile(ctx context.Context, raw string, maxBytes int64) ([]byte, bool, runtimeworkspace.ResolvedPath, error) {
+	resolved, err := w.ResolveExisting(ctx, raw)
+	if err != nil {
+		return nil, false, runtimeworkspace.ResolvedPath{}, err
+	}
+	data, truncated, _, err := w.base.ReadFile(ctx, raw, maxBytes)
+	if err != nil {
+		return nil, false, runtimeworkspace.ResolvedPath{}, err
+	}
+	return data, truncated, resolved, nil
+}
+
 func (w authorizedWorkspace) CreateScratch(ctx context.Context, prefix string) (runtimeworkspace.ScratchDir, error) {
 	if err := Authorize(ctx, w.cfg, policy.ResourceRef{Kind: policy.ResourceWorkspace, Name: "scratch"}, policy.ActionWorkspaceWrite); err != nil {
 		return nil, err
