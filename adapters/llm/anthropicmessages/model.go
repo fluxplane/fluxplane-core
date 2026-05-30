@@ -19,7 +19,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
-	"github.com/fluxplane/fluxplane-core/runtime/httptransport"
+	"github.com/fluxplane/fluxplane-system/httptransport"
 )
 
 const (

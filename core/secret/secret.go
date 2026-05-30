@@ -4,35 +4,47 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	auth "github.com/fluxplane/fluxplane-auth"
+	shared "github.com/fluxplane/fluxplane-secret"
 )
 
-// Scheme identifies how a secret ref is addressed.
-type Scheme string
+// Shared secret contract aliases.
+type Scheme = shared.Scheme
+
+type Kind = shared.Kind
+
+type Slot = shared.Slot
+
+type Use = shared.Use
+
+type StoreRef = shared.StoreRef
 
 const (
-	SchemeEnv        Scheme = "env"
-	SchemePlugin     Scheme = "plugin"
-	SchemeKubernetes Scheme = "kubernetes"
+	SchemeEnv        = shared.SchemeEnv
+	SchemePlugin     = shared.SchemePlugin
+	SchemeKubernetes = shared.SchemeKubernetes
+
+	KindAPIKey      = shared.KindAPIKey
+	KindBearerToken = shared.KindBearerToken
+	KindOAuth2Token = shared.KindOAuth2Token
+	KindBasic       = shared.KindBasic
+	KindPKI         = shared.KindPKI
+
+	UseAuthToken = shared.UseAuthToken
+	UseAPIKey    = shared.UseAPIKey
+	UsePassword  = shared.UsePassword
+	UseTLS       = shared.UseTLS
+	UseSigning   = shared.UseSigning
 )
 
-// Kind identifies the material shape stored or resolved for a secret.
-type Kind string
+// AuthMethodKind is retained for core compatibility and maps onto fluxplane-auth Method.
+type AuthMethodKind = auth.Method
 
 const (
-	KindAPIKey      Kind = "api_key"
-	KindBearerToken Kind = "bearer_token"
-	KindOAuth2Token Kind = "oauth2_token"
-	KindBasic       Kind = "basic"
-	KindPKI         Kind = "pki"
-)
-
-// AuthMethodKind identifies how credential material may be obtained.
-type AuthMethodKind string
-
-const (
-	AuthMethodEnv    AuthMethodKind = "env"
-	AuthMethodOAuth2 AuthMethodKind = "oauth2"
-	AuthMethodStored AuthMethodKind = "stored"
+	AuthMethodEnv    AuthMethodKind = auth.MethodEnv
+	AuthMethodOAuth2 AuthMethodKind = auth.MethodOAuth2AuthCode
+	AuthMethodStored AuthMethodKind = auth.MethodStored
 )
 
 // Ref identifies one secret without carrying its value.
@@ -41,6 +53,18 @@ type Ref struct {
 	Plugin   string `json:"plugin,omitempty" yaml:"plugin,omitempty"`
 	Instance string `json:"instance,omitempty" yaml:"instance,omitempty"`
 	Name     string `json:"name" yaml:"name"`
+}
+
+// FromSharedRef converts a shared fluxplane-secret ref to the compatibility shape.
+func FromSharedRef(ref shared.Ref) Ref {
+	ref = ref.Normalize()
+	return Ref{Scheme: ref.Scheme, Plugin: ref.Plugin, Instance: ref.Instance, Name: string(ref.Slot)}.Normalize()
+}
+
+// Shared returns the canonical shared fluxplane-secret ref.
+func (r Ref) Shared() shared.Ref {
+	r = r.Normalize()
+	return shared.Ref{Scheme: r.Scheme, Plugin: r.Plugin, Instance: r.Instance, Slot: shared.Slot(r.Name)}.Normalize()
 }
 
 // Normalize returns a trimmed ref.
@@ -53,90 +77,23 @@ func (r Ref) Normalize() Ref {
 }
 
 // ResourceName returns the authorization resource name for the ref.
-func (r Ref) ResourceName() string {
-	r = r.Normalize()
-	switch r.Scheme {
-	case SchemeEnv:
-		if r.Name == "" {
-			return "env/*"
-		}
-		return "env/" + r.Name
-	case SchemePlugin:
-		parts := []string{"plugin", r.Plugin}
-		if r.Instance != "" {
-			parts = append(parts, r.Instance)
-		}
-		if r.Name != "" {
-			parts = append(parts, r.Name)
-		}
-		return strings.Join(nonEmpty(parts), "/")
-	case SchemeKubernetes:
-		return strings.Trim(strings.Join(nonEmpty([]string{"kubernetes", r.Plugin, r.Instance, r.Name}), "/"), "/")
-	default:
-		return strings.Trim(strings.Join(nonEmpty([]string{string(r.Scheme), r.Plugin, r.Instance, r.Name}), "/"), "/")
-	}
-}
+func (r Ref) ResourceName() string { return r.Shared().ResourceName() }
 
 // Env returns an env secret ref.
-func Env(name string) Ref {
-	return Ref{Scheme: SchemeEnv, Name: strings.TrimSpace(name)}
-}
+func Env(name string) Ref { return FromSharedRef(shared.Env(name)) }
 
 // Plugin returns a plugin-scoped secret ref.
 func Plugin(plugin, instance, name string) Ref {
-	return Ref{Scheme: SchemePlugin, Plugin: plugin, Instance: instance, Name: name}.Normalize()
+	return FromSharedRef(shared.Plugin(plugin, instance, shared.Slot(name)))
 }
 
-// Kubernetes returns a Kubernetes Secret key ref. Plugin stores namespace,
-// Instance stores secret name, and Name stores key.
+// Kubernetes returns a Kubernetes Secret key ref.
 func Kubernetes(namespace, secretName, key string) Ref {
-	return Ref{Scheme: SchemeKubernetes, Plugin: namespace, Instance: secretName, Name: key}.Normalize()
+	return FromSharedRef(shared.Kubernetes(namespace, secretName, shared.Slot(key)))
 }
 
 // ParseRef parses a canonical secret resource name into a Ref.
-func ParseRef(value string) Ref {
-	parts := strings.Split(strings.Trim(strings.TrimSpace(value), "/"), "/")
-	if len(parts) == 0 || parts[0] == "" {
-		return Ref{}
-	}
-	switch Scheme(parts[0]) {
-	case SchemeEnv:
-		if len(parts) >= 2 {
-			return Env(strings.Join(parts[1:], "/"))
-		}
-		return Ref{Scheme: SchemeEnv}
-	case SchemePlugin:
-		ref := Ref{Scheme: SchemePlugin}
-		if len(parts) >= 2 {
-			ref.Plugin = parts[1]
-		}
-		if len(parts) >= 3 {
-			ref.Instance = parts[2]
-		}
-		if len(parts) >= 4 {
-			ref.Name = strings.Join(parts[3:], "/")
-		}
-		return ref.Normalize()
-	case SchemeKubernetes:
-		ref := Ref{Scheme: SchemeKubernetes}
-		if len(parts) >= 2 {
-			ref.Plugin = parts[1]
-		}
-		if len(parts) >= 3 {
-			ref.Instance = parts[2]
-		}
-		if len(parts) >= 4 {
-			ref.Name = strings.Join(parts[3:], "/")
-		}
-		return ref.Normalize()
-	default:
-		ref := Ref{Scheme: Scheme(parts[0])}
-		if len(parts) >= 2 {
-			ref.Name = strings.Join(parts[1:], "/")
-		}
-		return ref.Normalize()
-	}
-}
+func ParseRef(value string) Ref { return FromSharedRef(shared.ParseRef(value)) }
 
 // Material is secret material available only to trusted runtime code.
 type Material struct {
@@ -144,8 +101,17 @@ type Material struct {
 	Value string `json:"-"`
 }
 
-// AuthRequest asks runtime to obtain usable credential material for one plugin
-// instance without exposing raw values to the model.
+// Shared returns the canonical shared fluxplane-secret material.
+func (m Material) Shared() shared.Material {
+	return shared.Material{Kind: m.Kind, Value: []byte(m.Value)}
+}
+
+// FromSharedMaterial converts shared material to the compatibility shape.
+func FromSharedMaterial(m shared.Material) Material {
+	return Material{Kind: m.Kind, Value: string(m.Value)}
+}
+
+// AuthRequest asks runtime to obtain usable credential material for one plugin instance.
 type AuthRequest struct {
 	Plugin   string           `json:"plugin" yaml:"plugin"`
 	Instance string           `json:"instance,omitempty" yaml:"instance,omitempty"`
@@ -167,8 +133,7 @@ func (r AuthRequest) SecretRef() Ref {
 	return Plugin(r.Plugin, r.Instance, r.Purpose)
 }
 
-// AuthMethodSpec describes a way a plugin can authenticate without carrying
-// credentials.
+// AuthMethodSpec describes a way a plugin can authenticate without carrying credentials.
 type AuthMethodSpec struct {
 	Name        string            `json:"name" yaml:"name"`
 	Method      AuthMethodKind    `json:"method" yaml:"method"`
@@ -183,30 +148,24 @@ type AuthMethodSpec struct {
 	SetupFields []SetupFieldSpec  `json:"setup_fields,omitempty" yaml:"setup_fields,omitempty"`
 }
 
-// EnvSpec describes an environment-variable backed auth method. Name is the
-// configured variable for the instance; Aliases are setup suggestions.
-type EnvSpec struct {
-	Name    string   `json:"name,omitempty" yaml:"name,omitempty"`
-	Aliases []string `json:"aliases,omitempty" yaml:"aliases,omitempty"`
+func (s AuthMethodSpec) Shared() auth.MethodSpec {
+	fields := make([]auth.FieldSpec, 0, len(s.SetupFields))
+	for _, field := range s.SetupFields {
+		fields = append(fields, field.Shared())
+	}
+	return auth.MethodSpec{Name: s.Name, Method: s.Method, Kind: s.Kind, DisplayName: s.DisplayName, Description: s.Description, Secret: s.Secret.Shared(), Env: auth.EnvSpec(s.Env), Header: auth.HeaderSpec(s.Header), OAuth2: auth.OAuth2Spec(s.OAuth2), SetupFields: fields, Annotations: cloneMap(s.Metadata)}.Normalize()
 }
+
+// EnvSpec describes an environment-variable backed auth method.
+type EnvSpec = auth.EnvSpec
 
 // HeaderSpec describes where an API key/token is applied.
-type HeaderSpec struct {
-	Name   string `json:"name,omitempty" yaml:"name,omitempty"`
-	Scheme string `json:"scheme,omitempty" yaml:"scheme,omitempty"`
-}
+type HeaderSpec = auth.HeaderSpec
 
 // OAuth2Spec describes OAuth2 authorization-code endpoints and scopes.
-type OAuth2Spec struct {
-	AuthorizeURL string            `json:"authorize_url,omitempty" yaml:"authorize_url,omitempty"`
-	TokenURL     string            `json:"token_url,omitempty" yaml:"token_url,omitempty"`
-	RefreshURL   string            `json:"refresh_url,omitempty" yaml:"refresh_url,omitempty"`
-	Scopes       []string          `json:"scopes,omitempty" yaml:"scopes,omitempty"`
-	ExtraParams  map[string]string `json:"extra_params,omitempty" yaml:"extra_params,omitempty"`
-}
+type OAuth2Spec = auth.OAuth2Spec
 
-// SetupFieldSpec describes non-model-visible setup inputs needed to establish
-// an auth method.
+// SetupFieldSpec describes non-model-visible setup inputs needed to establish an auth method.
 type SetupFieldSpec struct {
 	Name          string  `json:"name" yaml:"name"`
 	DisplayName   string  `json:"display_name,omitempty" yaml:"display_name,omitempty"`
@@ -217,56 +176,26 @@ type SetupFieldSpec struct {
 	Env           EnvSpec `json:"env,omitempty" yaml:"env,omitempty"`
 }
 
-// Placeholder is the model-visible opaque secret token.
-type Placeholder string
+func (s SetupFieldSpec) Shared() auth.FieldSpec {
+	return auth.FieldSpec{Slot: shared.Slot(strings.TrimSpace(s.Name)), DisplayName: s.DisplayName, Description: s.Description, Required: s.Required, RequiredGroup: s.RequiredGroup, Sensitive: s.Sensitive, Env: auth.EnvSpec(s.Env)}.Normalize()
+}
 
-var placeholderRE = regexp.MustCompile(`\$\{secret:([A-Za-z0-9._~+/=-]+)\}`)
+// Placeholder is the model-visible opaque secret token.
+type Placeholder = shared.Placeholder
 
 // PlaceholderFor renders a handle as a model-visible placeholder.
-func PlaceholderFor(handle string) Placeholder {
-	return Placeholder("${secret:" + strings.TrimSpace(handle) + "}")
-}
+func PlaceholderFor(handle string) Placeholder { return shared.PlaceholderFor(handle) }
 
 // ParsePlaceholder parses a complete placeholder.
-func ParsePlaceholder(value string) (string, bool) {
-	matches := placeholderRE.FindStringSubmatch(strings.TrimSpace(value))
-	if len(matches) != 2 || matches[0] != strings.TrimSpace(value) {
-		return "", false
-	}
-	return matches[1], true
-}
+func ParsePlaceholder(value string) (string, bool) { return shared.ParsePlaceholder(value) }
 
 // ReplacePlaceholders replaces all placeholders in value.
 func ReplacePlaceholders(value string, replace func(handle string) (string, error)) (string, error) {
-	if replace == nil {
-		return value, nil
-	}
-	var first error
-	out := placeholderRE.ReplaceAllStringFunc(value, func(match string) string {
-		if first != nil {
-			return match
-		}
-		handle, ok := ParsePlaceholder(match)
-		if !ok {
-			return match
-		}
-		replacement, err := replace(handle)
-		if err != nil {
-			first = err
-			return match
-		}
-		return replacement
-	})
-	if first != nil {
-		return "", first
-	}
-	return out, nil
+	return shared.ReplacePlaceholders(value, replace)
 }
 
 // RedactPlaceholders removes model-visible secret handles from value.
-func RedactPlaceholders(value string) string {
-	return placeholderRE.ReplaceAllString(value, "${secret:redacted}")
-}
+func RedactPlaceholders(value string) string { return shared.RedactPlaceholders(value) }
 
 // ValidateAuthMethod returns an error for incomplete method specs.
 func ValidateAuthMethod(spec AuthMethodSpec) error {
@@ -311,6 +240,19 @@ func nonEmpty(values []string) []string {
 		if strings.TrimSpace(value) != "" {
 			out = append(out, strings.TrimSpace(value))
 		}
+	}
+	return out
+}
+
+var placeholderRE = regexp.MustCompile(`\$\{secret:([A-Za-z0-9._~+/=-]+)\}`)
+
+func cloneMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
 	}
 	return out
 }

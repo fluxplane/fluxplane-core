@@ -27,8 +27,8 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
-	"github.com/fluxplane/fluxplane-core/runtime/httptransport"
 	runtimeusage "github.com/fluxplane/fluxplane-core/runtime/usage"
+	"github.com/fluxplane/fluxplane-system/httptransport"
 )
 
 var (

@@ -19,8 +19,8 @@ import (
 
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
-	"github.com/fluxplane/fluxplane-core/runtime/httptransport"
 	coreevent "github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-system/httptransport"
 )
 
 var _ clientapi.ChannelClient = (*Client)(nil)

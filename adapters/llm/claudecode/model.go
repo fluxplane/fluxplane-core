@@ -16,7 +16,7 @@ import (
 	adapterllm "github.com/fluxplane/fluxplane-core/adapters/llm"
 	"github.com/fluxplane/fluxplane-core/adapters/llm/anthropicmessages"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
-	"github.com/fluxplane/fluxplane-core/runtime/httptransport"
+	"github.com/fluxplane/fluxplane-system/httptransport"
 )
 
 const (

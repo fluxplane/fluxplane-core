@@ -6,7 +6,6 @@ require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.1
 	github.com/amitybell/piper v0.0.0-20250621082041-2bb74e3a4a55
 	github.com/amitybell/piper-voice-jenny v0.0.0-20231118093224-dcf0d49e46b7
-	github.com/andybalholm/brotli v1.2.1
 	github.com/codewandler/axon v0.20.1
 	github.com/codewandler/cmdrisk v0.1.1
 	github.com/codewandler/markdown v0.46.3
@@ -15,16 +14,17 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/containerd/platforms v0.2.1
 	github.com/fluxplane/codegate v1.1.0
+	github.com/fluxplane/fluxplane-auth v0.1.0
 	github.com/fluxplane/fluxplane-browser v0.1.0
-	github.com/fluxplane/fluxplane-event v0.1.0
 	github.com/fluxplane/fluxplane-endpoint v0.1.0
+	github.com/fluxplane/fluxplane-event v0.1.0
 	github.com/fluxplane/fluxplane-policy v0.1.1
-	github.com/fluxplane/fluxplane-system v0.1.4
+	github.com/fluxplane/fluxplane-secret v0.1.0
+	github.com/fluxplane/fluxplane-system v0.1.5
 	github.com/getkin/kin-openapi v0.138.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/invopop/jsonschema v0.14.0
-	github.com/klauspost/compress v1.18.6
 	github.com/moby/go-archive v0.2.0
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
@@ -62,6 +62,7 @@ require (
 	github.com/amitybell/piper-asset v0.0.0-20231030194325-d36a29e3b1fd // indirect
 	github.com/amitybell/piper-bin-linux v0.0.0-20231118093037-92b3de178ad8 // indirect
 	github.com/amitybell/piper-bin-windows v0.0.0-20231118093113-cc2cef2f6b74 // indirect
+	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -126,6 +127,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/knights-analytics/hugot v0.7.0 // indirect
 	github.com/knights-analytics/ortgenai v0.3.1 // indirect
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
