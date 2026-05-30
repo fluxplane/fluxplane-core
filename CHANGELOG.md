@@ -102,6 +102,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   active.
 
 ### Changed
+- Documented `plugins/integrations/*` as a legacy compatibility tree. Active
+  product integration surfaces now belong in dex via
+  `github.com/fluxplane/fluxplane-dex/fluxplaneplugin`, so the legacy packages
+  are not blockers for core `fpsystem.System` boundary-retirement work.
 - Disabled the default registration for `gitlab`, `jira`, `confluence`,
   `kubernetes`, `loki`, `mysql`, `openai`, `image`, and `web` natives —
   they are no longer added by `availablePluginsWithAuth`,

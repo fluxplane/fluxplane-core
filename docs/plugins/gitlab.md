@@ -1,5 +1,11 @@
 # GitLab Plugin
 
+> **Legacy core note:** the core `plugins/integrations/gitlab` implementation is
+> retained as a legacy compatibility package. Active GitLab integration surfaces
+> should be provided through dex via
+> `github.com/fluxplane/fluxplane-dex/fluxplaneplugin`. See
+> [Legacy integrations](legacy-integrations.md).
+
 GitLab is exposed as native datasource entities and typed operations. Use
 datasource list/search for compact discovery, get/relation for targeted details,
 and operations only for side effects.

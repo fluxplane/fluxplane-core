@@ -1,5 +1,11 @@
 # Atlassian Auth
 
+> **Legacy core note:** the core Jira and Confluence implementations under
+> `plugins/integrations` are retained as legacy compatibility packages. Active
+> Atlassian integration surfaces should be provided through dex via
+> `github.com/fluxplane/fluxplane-dex/fluxplaneplugin`. See
+> [Legacy integrations](legacy-integrations.md).
+
 Jira and Confluence support three auth shapes. The names are intentionally
 about how requests are authenticated, not only where the token was created.
 
