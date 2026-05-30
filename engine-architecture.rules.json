@@ -102,6 +102,8 @@
     ]
   },
   "exceptions": [
+      {"kind": "architecture_inner_host_io", "package": "orchestration/security", "reason": "authorization boundary wraps injected fluxplane-system capabilities and must inspect network/address primitives"},
+      {"kind": "architecture_plugin_host_effect", "package": "plugins/native/human", "reason": "human TTS plugin intentionally launches local audio playback as an opt-in native host capability"},
     {"kind": "architecture_runtime_host_io", "package": "runtime/datasource/semantic", "reason": "semantic JSON store persists local index state"},
     {"kind": "architecture_runtime_host_io", "package": "runtime/evidence", "reason": "runtime observers read host identity and environment evidence"},
     {"kind": "architecture_runtime_host_io", "package": "runtime/httptransport", "reason": "runtime HTTP transport implementation owns concrete network behavior"},

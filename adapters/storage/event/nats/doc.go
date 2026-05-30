@@ -1,2 +1,2 @@
-// Package nats implements core/event.Store on NATS JetStream.
+// Package nats implements fluxplane-event.Store on NATS JetStream.
 package nats
