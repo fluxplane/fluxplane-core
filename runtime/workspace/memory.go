@@ -2,7 +2,6 @@
 package workspace
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,11 +10,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/pathpattern"
 	fpsystem "github.com/fluxplane/fluxplane-system"
+	"github.com/fluxplane/fluxplane-system/memsystem"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
@@ -48,33 +45,19 @@ func (environment) Lookup(context.Context, string) (string, bool, error) { retur
 
 // MemoryWorkspace is a root-confined mutable Workspace for tests.
 type MemoryWorkspace struct {
-	mu    sync.Mutex
-	root  string
-	nodes map[string]*node
-	now   time.Time
-}
-
-type node struct {
-	dir     bool
-	data    []byte
-	mode    os.FileMode
-	modTime time.Time
+	root string
+	fsys *memsystem.FileSystem
 }
 
 // NewMemoryWorkspace returns an empty memory workspace.
 func NewMemoryWorkspace() *MemoryWorkspace {
-	now := time.Unix(1700000000, 0).UTC()
-	return &MemoryWorkspace{
-		root:  "/memory-workspace",
-		nodes: map[string]*node{"": {dir: true, mode: 0755 | os.ModeDir, modTime: now}},
-		now:   now,
-	}
+	return &MemoryWorkspace{root: "/memory-workspace", fsys: memsystem.NewFileSystem()}
 }
 
 func (w *MemoryWorkspace) Root() string { return w.root }
 
 func (w *MemoryWorkspace) System() fpsystem.System {
-	sys, _ := systemkit.NewSystem().WithFileSystem(memoryFileSystem{workspace: w}).Build()
+	sys, _ := systemkit.NewSystem().WithFileSystem(w.fsys).Build()
 	return sys
 }
 
@@ -87,21 +70,17 @@ func (w *MemoryWorkspace) Roots() []Root {
 }
 
 func (w *MemoryWorkspace) ResolveExisting(_ context.Context, raw string) (ResolvedPath, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
 	if err != nil {
 		return ResolvedPath{}, err
 	}
-	if _, ok := w.nodes[rel]; !ok {
-		return ResolvedPath{}, fs.ErrNotExist
+	if _, err := w.fsys.Stat(relName(rel)); err != nil {
+		return ResolvedPath{}, err
 	}
 	return w.resolved(raw, rel), nil
 }
 
 func (w *MemoryWorkspace) ResolveCreate(_ context.Context, raw string) (ResolvedPath, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
 	if err != nil {
 		return ResolvedPath{}, err
@@ -109,76 +88,50 @@ func (w *MemoryWorkspace) ResolveCreate(_ context.Context, raw string) (Resolved
 	return w.resolved(raw, rel), nil
 }
 
-func (w *MemoryWorkspace) ReadFile(_ context.Context, raw string, maxBytes int64) ([]byte, bool, ResolvedPath, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	rel, err := w.clean(raw)
+func (w *MemoryWorkspace) ReadFile(ctx context.Context, raw string, maxBytes int64) ([]byte, bool, ResolvedPath, error) {
+	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
 		return nil, false, ResolvedPath{}, err
 	}
-	n, ok := w.nodes[rel]
-	if !ok {
-		return nil, false, ResolvedPath{}, fs.ErrNotExist
+	info, err := w.fsys.Stat(relName(resolved.Rel))
+	if err != nil {
+		return nil, false, ResolvedPath{}, err
 	}
-	if n.dir {
+	if info.IsDir() {
 		return nil, false, ResolvedPath{}, fmt.Errorf("path is a directory")
 	}
-	data := append([]byte(nil), n.data...)
-	if maxBytes <= 0 {
-		return data, false, w.resolved(raw, rel), nil
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, w.fsys, relName(resolved.Rel), maxBytes)
+	if err != nil {
+		return nil, false, ResolvedPath{}, err
 	}
-	truncated := int64(len(data)) > maxBytes
-	if truncated {
-		data = data[:maxBytes]
-	}
-	return data, truncated, w.resolved(raw, rel), nil
+	return data, truncated, resolved, nil
 }
 
 func (w *MemoryWorkspace) ReadFileLines(ctx context.Context, raw string, start, end int, maxBytes int64) ([]byte, int, bool, ResolvedPath, error) {
-	data, _, resolved, err := w.ReadFile(ctx, raw, 0)
+	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
 		return nil, 0, false, ResolvedPath{}, err
 	}
-	if start <= 0 {
-		start = 1
+	info, err := w.fsys.Stat(relName(resolved.Rel))
+	if err != nil {
+		return nil, 0, false, ResolvedPath{}, err
 	}
-	lines := strings.SplitAfter(string(data), "\n")
-	var out bytes.Buffer
-	for i, line := range lines {
-		lineNo := i + 1
-		if lineNo < start || (end > 0 && lineNo > end) {
-			continue
-		}
-		if maxBytes > 0 && int64(out.Len()+len(line)) > maxBytes {
-			remaining := int(maxBytes) - out.Len()
-			if remaining > 0 {
-				out.WriteString(line[:remaining])
-			}
-			return out.Bytes(), start, true, resolved, nil
-		}
-		out.WriteString(line)
+	if info.IsDir() {
+		return nil, 0, false, ResolvedPath{}, fmt.Errorf("path is a directory")
 	}
-	return out.Bytes(), start, false, resolved, nil
+	data, firstLine, truncated, err := fpsystem.ReadFileLines(ctx, w.fsys, relName(resolved.Rel), start, end, maxBytes)
+	return data, firstLine, truncated, resolved, err
 }
 
-func (w *MemoryWorkspace) WriteFile(_ context.Context, raw string, data []byte, mode os.FileMode, overwrite bool) (ResolvedPath, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	rel, err := w.clean(raw)
+func (w *MemoryWorkspace) WriteFile(ctx context.Context, raw string, data []byte, mode os.FileMode, overwrite bool) (ResolvedPath, error) {
+	resolved, err := w.ResolveCreate(ctx, raw)
 	if err != nil {
 		return ResolvedPath{}, err
 	}
-	if rel == "" {
+	if resolved.Rel == "" {
 		return ResolvedPath{}, fmt.Errorf("path is a directory")
 	}
-	if _, ok := w.nodes[rel]; ok && !overwrite {
-		return ResolvedPath{}, fmt.Errorf("path already exists")
-	}
-	if err := w.ensureParentDirs(rel); err != nil {
-		return ResolvedPath{}, err
-	}
-	w.nodes[rel] = &node{data: append([]byte(nil), data...), mode: mode, modTime: w.tick()}
-	return w.resolved(raw, rel), nil
+	return resolved, w.fsys.WriteFile(ctx, relName(resolved.Rel), data, fpsystem.WriteFileOptions{Perm: mode, Overwrite: overwrite})
 }
 
 func (w *MemoryWorkspace) CopyFile(ctx context.Context, src, dst string, overwrite bool) (ResolvedPath, ResolvedPath, int64, error) {
@@ -195,206 +148,92 @@ func (w *MemoryWorkspace) MoveFile(ctx context.Context, src, dst string, overwri
 	if err != nil {
 		return ResolvedPath{}, ResolvedPath{}, 0, err
 	}
-	_, _ = w.Remove(ctx, src)
+	if srcResolved.Rel != dstResolved.Rel {
+		_ = w.fsys.Remove(ctx, relName(srcResolved.Rel))
+	}
 	return srcResolved, dstResolved, n, nil
 }
 
-func (w *MemoryWorkspace) MkdirAll(_ context.Context, raw string, mode os.FileMode) (ResolvedPath, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	rel, err := w.clean(raw)
+func (w *MemoryWorkspace) MkdirAll(ctx context.Context, raw string, mode os.FileMode) (ResolvedPath, error) {
+	resolved, err := w.ResolveCreate(ctx, raw)
 	if err != nil {
 		return ResolvedPath{}, err
 	}
-	if rel != "" {
-		for _, dir := range prefixes(rel) {
-			w.nodes[dir] = &node{dir: true, mode: mode | os.ModeDir, modTime: w.tick()}
-		}
-	}
-	return w.resolved(raw, rel), nil
+	return resolved, w.fsys.MkdirAll(ctx, relName(resolved.Rel), fpsystem.MkdirOptions{Perm: mode})
 }
 
-func (w *MemoryWorkspace) Remove(_ context.Context, raw string) (ResolvedPath, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	rel, err := w.clean(raw)
+func (w *MemoryWorkspace) Remove(ctx context.Context, raw string) (ResolvedPath, error) {
+	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
 		return ResolvedPath{}, err
 	}
-	if rel == "" {
+	if resolved.Rel == "" {
 		return ResolvedPath{}, fmt.Errorf("cannot remove workspace root")
 	}
-	if _, ok := w.nodes[rel]; !ok {
-		return ResolvedPath{}, fs.ErrNotExist
-	}
-	for path := range w.nodes {
-		if strings.HasPrefix(path, rel+"/") {
-			return ResolvedPath{}, fmt.Errorf("directory not empty")
-		}
-	}
-	resolved := w.resolved(raw, rel)
-	delete(w.nodes, rel)
-	return resolved, nil
+	return resolved, w.fsys.Remove(ctx, relName(resolved.Rel))
 }
 
-func (w *MemoryWorkspace) Stat(_ context.Context, raw string) (fs.FileInfo, ResolvedPath, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	rel, err := w.clean(raw)
+func (w *MemoryWorkspace) Stat(ctx context.Context, raw string) (fs.FileInfo, ResolvedPath, error) {
+	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
 		return nil, ResolvedPath{}, err
 	}
-	n, ok := w.nodes[rel]
-	if !ok {
-		return nil, ResolvedPath{}, fs.ErrNotExist
-	}
-	return fileInfo{name: base(rel), node: n}, w.resolved(raw, rel), nil
+	info, err := w.fsys.Stat(relName(resolved.Rel))
+	return info, resolved, err
 }
 
-func (w *MemoryWorkspace) ReadDir(_ context.Context, raw string) ([]fs.DirEntry, ResolvedPath, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	rel, err := w.clean(raw)
+func (w *MemoryWorkspace) ReadDir(ctx context.Context, raw string) ([]fs.DirEntry, ResolvedPath, error) {
+	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
 		return nil, ResolvedPath{}, err
 	}
-	n, ok := w.nodes[rel]
-	if !ok {
-		return nil, ResolvedPath{}, fs.ErrNotExist
-	}
-	if !n.dir {
-		return nil, ResolvedPath{}, fmt.Errorf("path is not a directory")
-	}
-	prefix := ""
-	if rel != "" {
-		prefix = rel + "/"
-	}
-	seen := map[string]string{}
-	for p := range w.nodes {
-		if p == rel || !strings.HasPrefix(p, prefix) {
-			continue
-		}
-		rest := strings.TrimPrefix(p, prefix)
-		name, _, _ := strings.Cut(rest, "/")
-		seen[name] = prefix + name
-	}
-	names := make([]string, 0, len(seen))
-	for name := range seen {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	out := make([]fs.DirEntry, 0, len(names))
-	for _, name := range names {
-		out = append(out, dirEntry{name: name, node: w.nodes[seen[name]]})
-	}
-	return out, w.resolved(raw, rel), nil
+	entries, err := w.fsys.ReadDir(relName(resolved.Rel))
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	return entries, resolved, err
 }
 
-func (w *MemoryWorkspace) Walk(_ context.Context, raw string, opts WalkOptions) ([]WalkEntry, ResolvedPath, bool, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	root, err := w.clean(raw)
+func (w *MemoryWorkspace) Walk(ctx context.Context, raw string, opts WalkOptions) ([]WalkEntry, ResolvedPath, bool, error) {
+	root, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
 		return nil, ResolvedPath{}, false, err
 	}
-	rootNode, ok := w.nodes[root]
-	if !ok {
-		return nil, ResolvedPath{}, false, fs.ErrNotExist
+	systemEntries, truncated, err := fpsystem.Walk(ctx, w.fsys, relName(root.Rel), fpsystem.WalkOptions{
+		Depth:         opts.Depth,
+		ShowHidden:    opts.ShowHidden,
+		MaxEntries:    opts.MaxEntries,
+		FilesOnly:     opts.FilesOnly,
+		SkipDirs:      opts.SkipDirs,
+		FilterPattern: opts.FilterPattern,
+	})
+	if err != nil {
+		return nil, ResolvedPath{}, false, err
 	}
-	if !rootNode.dir {
-		return []WalkEntry{w.walkEntry(root, rootNode, 0)}, w.resolved(raw, root), false, nil
+	entries := make([]WalkEntry, 0, len(systemEntries))
+	for _, entry := range systemEntries {
+		path := w.resolved(entry.Path, normalizeRel(entry.Path))
+		entries = append(entries, WalkEntry{Path: path, Name: entry.Name, Kind: entry.Kind, Size: entry.Size, Mode: entry.Mode, ModTime: entry.ModTime, Level: entry.Level})
 	}
-	depth := opts.Depth
-	if depth <= 0 {
-		depth = 3
-	}
-	limit := opts.MaxEntries
-	if limit <= 0 {
-		limit = 1000
-	}
-	skipDirs := map[string]bool{}
-	for _, name := range opts.SkipDirs {
-		name = strings.TrimSpace(name)
-		if name != "" {
-			skipDirs[name] = true
-		}
-	}
-	prefix := ""
-	if root != "" {
-		prefix = root + "/"
-	}
-	var paths []string
-	for p, n := range w.nodes {
-		if p == root || !strings.HasPrefix(p, prefix) {
-			continue
-		}
-		rest := strings.TrimPrefix(p, prefix)
-		level := strings.Count(rest, "/") + 1
-		if skippedByDir(rest, skipDirs) || level > depth || (!opts.ShowHidden && hidden(rest)) || (opts.FilesOnly && n.dir) {
-			continue
-		}
-		paths = append(paths, p)
-	}
-	sort.Strings(paths)
-	truncated := false
-	if len(paths) > limit {
-		paths = paths[:limit]
-		truncated = true
-	}
-	out := make([]WalkEntry, 0, len(paths))
-	for _, p := range paths {
-		rest := strings.TrimPrefix(p, prefix)
-		out = append(out, w.walkEntry(p, w.nodes[p], strings.Count(rest, "/")+1))
-	}
-	return out, w.resolved(raw, root), truncated, nil
-}
-
-func skippedByDir(rel string, skipDirs map[string]bool) bool {
-	if len(skipDirs) == 0 {
-		return false
-	}
-	for _, part := range strings.Split(rel, "/") {
-		if skipDirs[part] {
-			return true
-		}
-	}
-	return false
+	return entries, root, truncated, nil
 }
 
 func (w *MemoryWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptions) ([]ResolvedPath, bool, error) {
-	compiled, err := pathpattern.Compile(pattern)
+	base := strings.TrimSpace(opts.Base)
+	if base == "" {
+		base = "."
+	}
+	basePath, err := w.ResolveExisting(ctx, base)
 	if err != nil {
 		return nil, false, err
 	}
-	limit := opts.MaxResults
-	if limit <= 0 || limit > 10000 {
-		limit = 1000
-	}
-	scanLimit := opts.MaxScanned
-	if scanLimit <= 0 || scanLimit > 100000 {
-		scanLimit = 10000
-	}
-	entries, root, truncated, err := w.Walk(ctx, opts.Base, WalkOptions{Depth: 50, ShowHidden: true, MaxEntries: scanLimit})
+	names, truncated, err := fpsystem.Glob(ctx, w.fsys, pattern, fpsystem.GlobOptions{Base: relName(basePath.Rel), MaxResults: opts.MaxResults, MaxScanned: opts.MaxScanned, SkipDirs: opts.SkipDirs})
 	if err != nil {
 		return nil, false, err
 	}
-	out := make([]ResolvedPath, 0)
-	resultsTruncated := false
-	for _, entry := range entries {
-		rel := entry.Path.Rel
-		matchRel := rel
-		if root.Rel != "" && strings.HasPrefix(matchRel, root.Rel+"/") {
-			matchRel = strings.TrimPrefix(matchRel, root.Rel+"/")
-		}
-		if compiled.Match(matchRel) || compiled.Match(rel) {
-			if len(out) < limit {
-				out = append(out, entry.Path)
-			} else {
-				resultsTruncated = true
-			}
-		}
+	matches := make([]ResolvedPath, 0, len(names))
+	for _, name := range names {
+		matches = append(matches, w.resolved(name, normalizeRel(name)))
 	}
-	return out, truncated || resultsTruncated, nil
+	return matches, truncated, nil
 }
 
 func (w *MemoryWorkspace) CreateScratch(context.Context, string) (ScratchDir, error) {
@@ -406,32 +245,24 @@ func (w *MemoryWorkspace) clean(raw string) (string, error) {
 	if raw == "" || raw == "." {
 		return "", nil
 	}
-	if strings.HasPrefix(raw, w.root) {
-		raw = strings.TrimPrefix(strings.TrimPrefix(raw, w.root), "/")
+	root := filepath.ToSlash(w.root)
+	if raw == root {
+		return "", nil
 	}
-	if filepath.IsAbs(raw) {
+	if strings.HasPrefix(raw, root+"/") {
+		raw = strings.TrimPrefix(raw, root+"/")
+	}
+	if strings.HasPrefix(raw, "/") {
 		return "", fmt.Errorf("path escapes workspace root")
 	}
-	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(raw)))
-	if clean == "." {
+	clean := normalizeRel(raw)
+	if clean == "" {
 		return "", nil
 	}
 	if clean == ".." || strings.HasPrefix(clean, "../") {
 		return "", fmt.Errorf("path escapes workspace root")
 	}
 	return clean, nil
-}
-
-func (w *MemoryWorkspace) ensureParentDirs(rel string) error {
-	for _, dir := range prefixes(parent(rel)) {
-		if existing := w.nodes[dir]; existing != nil && !existing.dir {
-			return fmt.Errorf("path component is a file")
-		}
-		if w.nodes[dir] == nil {
-			w.nodes[dir] = &node{dir: true, mode: 0755 | os.ModeDir, modTime: w.tick()}
-		}
-	}
-	return nil
 }
 
 func (w *MemoryWorkspace) resolved(input, rel string) ResolvedPath {
@@ -442,194 +273,23 @@ func (w *MemoryWorkspace) resolved(input, rel string) ResolvedPath {
 	return ResolvedPath{Input: input, Abs: abs, Rel: rel}
 }
 
-func (w *MemoryWorkspace) walkEntry(rel string, n *node, level int) WalkEntry {
-	kind := "file"
-	if n.dir {
-		kind = "dir"
-	}
-	return WalkEntry{Path: w.resolved(rel, rel), Name: base(rel), Kind: kind, Size: int64(len(n.data)), Mode: n.mode.String(), ModTime: n.modTime, Level: level}
-}
-
-func (w *MemoryWorkspace) tick() time.Time {
-	w.now = w.now.Add(time.Second)
-	return w.now
-}
-
-type fileInfo struct {
-	name string
-	node *node
-}
-
-func (i fileInfo) Name() string       { return i.name }
-func (i fileInfo) Size() int64        { return int64(len(i.node.data)) }
-func (i fileInfo) Mode() os.FileMode  { return i.node.mode }
-func (i fileInfo) ModTime() time.Time { return i.node.modTime }
-func (i fileInfo) IsDir() bool        { return i.node.dir }
-func (i fileInfo) Sys() any           { return nil }
-
-type dirEntry struct {
-	name string
-	node *node
-}
-
-func (e dirEntry) Name() string      { return e.name }
-func (e dirEntry) IsDir() bool       { return e.node.dir }
-func (e dirEntry) Type() fs.FileMode { return e.node.mode.Type() }
-func (e dirEntry) Info() (fs.FileInfo, error) {
-	return fileInfo(e), nil
-}
-
-type memoryFileSystem struct {
-	workspace *MemoryWorkspace
-}
-
-func (f memoryFileSystem) Open(name string) (fs.File, error) {
-	info, _, err := f.workspace.Stat(context.Background(), name)
-	if err != nil {
-		return nil, err
-	}
-	if info.IsDir() {
-		return &memoryFile{info: info}, nil
-	}
-	data, _, _, err := f.workspace.ReadFile(context.Background(), name, 0)
-	if err != nil {
-		return nil, err
-	}
-	return &memoryFile{Reader: bytes.NewReader(data), info: info}, nil
-}
-
-func (f memoryFileSystem) Stat(name string) (fs.FileInfo, error) {
-	info, _, err := f.workspace.Stat(context.Background(), name)
-	return info, err
-}
-
-func (f memoryFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
-	entries, _, err := f.workspace.ReadDir(context.Background(), name)
-	return entries, err
-}
-
-func (f memoryFileSystem) ReadFile(name string) ([]byte, error) {
-	data, _, _, err := f.workspace.ReadFile(context.Background(), name, 0)
-	return data, err
-}
-
-func (f memoryFileSystem) WriteFile(ctx context.Context, name string, data []byte, opts fpsystem.WriteFileOptions) error {
-	perm := opts.Perm
-	if perm == 0 {
-		perm = 0644
-	}
-	_, err := f.workspace.WriteFile(ctx, name, data, perm, opts.Overwrite)
-	return err
-}
-
-func (f memoryFileSystem) WriteTempFile(ctx context.Context, dir, pattern string, data []byte, opts fpsystem.WriteTempFileOptions) (string, error) {
-	relDir, err := f.workspace.clean(dir)
-	if err != nil {
-		return "", err
-	}
-	pattern = strings.TrimSpace(pattern)
-	if pattern == "" {
-		pattern = "tmp-*"
-	}
-	if strings.ContainsAny(pattern, `/\`) {
-		return "", fmt.Errorf("temp file pattern must not contain a path separator")
-	}
-	perm := opts.Perm
-	if perm == 0 {
-		perm = 0644
-	}
-	for i := 1; i <= 1_000_000; i++ {
-		name := joinRel(relDir, tempFileName(pattern, i))
-		if _, err := f.workspace.WriteFile(ctx, name, data, perm, false); err == nil {
-			return name, nil
-		} else if !strings.Contains(err.Error(), "already exists") {
-			return "", err
-		}
-	}
-	return "", fmt.Errorf("could not allocate temp file")
-}
-
-func (f memoryFileSystem) MkdirAll(ctx context.Context, name string, opts fpsystem.MkdirOptions) error {
-	perm := opts.Perm
-	if perm == 0 {
-		perm = 0755
-	}
-	_, err := f.workspace.MkdirAll(ctx, name, perm)
-	return err
-}
-
-func (f memoryFileSystem) Remove(ctx context.Context, name string) error {
-	_, err := f.workspace.Remove(ctx, name)
-	return err
-}
-
-func (f memoryFileSystem) Rename(ctx context.Context, oldName, newName string, opts fpsystem.RenameOptions) error {
-	_, _, _, err := f.workspace.MoveFile(ctx, oldName, newName, opts.Overwrite)
-	return err
-}
-
-type memoryFile struct {
-	*bytes.Reader
-	info fs.FileInfo
-}
-
-func (f *memoryFile) Stat() (fs.FileInfo, error) { return f.info, nil }
-func (f *memoryFile) Close() error               { return nil }
-func (f *memoryFile) Read(p []byte) (int, error) {
-	if f.Reader == nil {
-		return 0, fs.ErrInvalid
-	}
-	return f.Reader.Read(p)
-}
-
-func prefixes(rel string) []string {
-	if rel == "" {
-		return nil
-	}
-	parts := strings.Split(rel, "/")
-	out := make([]string, 0, len(parts))
-	for i := range parts {
-		out = append(out, strings.Join(parts[:i+1], "/"))
-	}
-	return out
-}
-
-func parent(rel string) string {
-	if rel == "" || !strings.Contains(rel, "/") {
-		return ""
-	}
-	return rel[:strings.LastIndex(rel, "/")]
-}
-
-func base(rel string) string {
-	if rel == "" {
+func relName(rel string) string {
+	if strings.TrimSpace(rel) == "" {
 		return "."
 	}
-	return rel[strings.LastIndex(rel, "/")+1:]
+	return rel
 }
 
-func joinRel(dir, name string) string {
-	if dir == "" {
-		return name
+func normalizeRel(raw string) string {
+	raw = strings.TrimSpace(filepath.ToSlash(raw))
+	if raw == "" || raw == "." {
+		return ""
 	}
-	return dir + "/" + name
-}
-
-func tempFileName(pattern string, sequence int) string {
-	token := fmt.Sprintf("%06d", sequence)
-	if strings.Contains(pattern, "*") {
-		return strings.Replace(pattern, "*", token, 1)
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(raw)))
+	if clean == "." {
+		return ""
 	}
-	return pattern + token
-}
-
-func hidden(rel string) bool {
-	for _, part := range strings.Split(rel, "/") {
-		if strings.HasPrefix(part, ".") {
-			return true
-		}
-	}
-	return false
+	return clean
 }
 
 var _ fpsystem.System = (*MemorySystem)(nil)
