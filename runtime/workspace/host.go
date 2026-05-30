@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -445,37 +444,9 @@ func (w *HostWorkspace) CopyFile(ctx context.Context, rawSrc, rawDst string, ove
 	if err != nil {
 		return ResolvedPath{}, ResolvedPath{}, 0, err
 	}
-	if src.Abs == dst.Abs {
-		return src, dst, info.Size(), nil
-	}
-	if !overwrite {
-		if _, err := os.Lstat(dst.Abs); err == nil {
-			return ResolvedPath{}, ResolvedPath{}, 0, fmt.Errorf("path already exists")
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(dst.Abs), 0755); err != nil {
-		return ResolvedPath{}, ResolvedPath{}, 0, err
-	}
-	in, err := os.Open(src.Abs)
+	written, err := fpsystem.CopyRegularFile(src.Abs, dst.Abs, overwrite)
 	if err != nil {
-		return ResolvedPath{}, ResolvedPath{}, 0, err
-	}
-	defer func() { _ = in.Close() }()
-	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	if !overwrite {
-		flags |= os.O_EXCL
-	}
-	out, err := os.OpenFile(dst.Abs, flags, info.Mode().Perm())
-	if err != nil {
-		return ResolvedPath{}, ResolvedPath{}, 0, err
-	}
-	written, copyErr := io.Copy(out, in)
-	closeErr := out.Close()
-	if copyErr != nil {
-		return ResolvedPath{}, ResolvedPath{}, written, copyErr
-	}
-	if closeErr != nil {
-		return ResolvedPath{}, ResolvedPath{}, written, closeErr
+		return ResolvedPath{}, ResolvedPath{}, written, err
 	}
 	return src, dst, written, nil
 }
@@ -634,9 +605,6 @@ func (w *HostWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptio
 
 // CreateScratch creates an isolated temporary directory for runtime-owned work.
 func (w *HostWorkspace) CreateScratch(_ context.Context, prefix string) (ScratchDir, error) {
-	if strings.TrimSpace(prefix) == "" {
-		prefix = "fluxplane-*"
-	}
 	base := ""
 	var root workspaceRoot
 	if w.scratchRoot != "" {
@@ -650,76 +618,43 @@ func (w *HostWorkspace) CreateScratch(_ context.Context, prefix string) (Scratch
 		}
 		base = root.root
 	}
-	dir, err := os.MkdirTemp(base, prefix)
+	scratch, err := fpsystem.NewHostScratchDir(base, prefix)
 	if err != nil {
-		return nil, err
-	}
-	real, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		_ = os.RemoveAll(dir)
 		return nil, err
 	}
 	rel := ""
 	if w.scratchRoot != "" {
-		resolved, err := w.resolved(dir, root, real)
+		resolved, err := w.resolved(scratch.Root(), root, scratch.Root())
 		if err != nil {
-			_ = os.RemoveAll(dir)
+			_ = scratch.RemoveAll(context.Background())
 			return nil, err
 		}
 		rel = resolved.Rel
 	}
-	return &hostScratchDir{root: real, rel: rel}, nil
+	return &hostScratchDir{scratch: scratch, rel: rel}, nil
 }
 
 type hostScratchDir struct {
-	root string
-	rel  string
+	scratch *fpsystem.HostScratchDir
+	rel     string
 }
 
-func (s *hostScratchDir) Root() string { return s.root }
+func (s *hostScratchDir) Root() string { return s.scratch.Root() }
 
-func (s *hostScratchDir) WriteFile(_ context.Context, raw string, data []byte, mode os.FileMode) (ResolvedPath, error) {
-	resolved, err := s.resolveCreate(raw)
+func (s *hostScratchDir) WriteFile(ctx context.Context, raw string, data []byte, mode os.FileMode) (ResolvedPath, error) {
+	path, err := s.scratch.WriteFile(ctx, raw, data, mode)
 	if err != nil {
 		return ResolvedPath{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(resolved.Abs), 0755); err != nil {
-		return ResolvedPath{}, err
-	}
-	return resolved, os.WriteFile(resolved.Abs, data, mode)
-}
-
-func (s *hostScratchDir) RemoveAll(context.Context) error {
-	return os.RemoveAll(s.root)
-}
-
-func (s *hostScratchDir) resolveCreate(raw string) (ResolvedPath, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ResolvedPath{}, fmt.Errorf("scratch path is empty")
-	}
-	clean := filepath.Clean(raw)
-	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
-		return ResolvedPath{}, fmt.Errorf("scratch path escapes root")
-	}
-	abs := filepath.Join(s.root, clean)
-	parent, err := filepath.EvalSymlinks(filepath.Dir(abs))
-	if err != nil {
-		return ResolvedPath{}, err
-	}
-	real := filepath.Join(parent, filepath.Base(abs))
-	if err := pathWithin(s.root, real); err != nil {
-		return ResolvedPath{}, err
-	}
-	rel, err := filepath.Rel(s.root, real)
-	if err != nil {
-		return ResolvedPath{}, err
-	}
-	rel = filepath.ToSlash(rel)
+	rel := path.Rel
 	if s.rel != "" {
 		rel = filepath.ToSlash(filepath.Join(s.rel, rel))
 	}
-	return ResolvedPath{Input: raw, Abs: real, Rel: rel}, nil
+	return ResolvedPath{Input: path.Input, Abs: path.Abs, Rel: rel}, nil
+}
+
+func (s *hostScratchDir) RemoveAll(ctx context.Context) error {
+	return s.scratch.RemoveAll(ctx)
 }
 
 func (w *HostWorkspace) candidate(raw string) (workspaceRoot, string, error) {
@@ -854,14 +789,7 @@ func (w *HostWorkspace) filesystemName(resolved ResolvedPath) (fpsystem.FileSyst
 }
 
 func pathWithin(root, candidate string) error {
-	rel, err := filepath.Rel(root, candidate)
-	if err != nil {
-		return err
-	}
-	if rel == "." || rel == "" {
-		return nil
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+	if err := fpsystem.PathWithin(root, candidate); err != nil {
 		return fmt.Errorf("path escapes workspace root")
 	}
 	return nil
