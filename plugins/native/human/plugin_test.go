@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
@@ -149,18 +148,6 @@ func (p *recordingProcess) Ensure(ctx context.Context, req system.ProcessRequest
 
 func (p *recordingProcess) Group(string) system.ProcessGroup                   { return nil }
 func (p *recordingProcess) List(context.Context) ([]system.ProcessInfo, error) { return nil, nil }
-func (p *recordingProcess) Status(context.Context, string) (system.ProcessInfo, error) {
-	return system.ProcessInfo{}, fmt.Errorf("not found")
-}
-func (p *recordingProcess) Output(context.Context, string) (system.ProcessOutput, error) {
-	return system.ProcessOutput{}, fmt.Errorf("not found")
-}
-func (p *recordingProcess) Wait(context.Context, string, time.Duration) (system.ProcessResult, error) {
-	return system.ProcessResult{}, fmt.Errorf("not found")
-}
-func (p *recordingProcess) Stop(context.Context, string) error { return nil }
-func (p *recordingProcess) Kill(context.Context, string) error { return nil }
-
 func hasProcessIntent(intents operation.IntentSet, command string) bool {
 	for _, intent := range intents.Operations {
 		target, ok := intent.Target.(operation.ProcessTarget)

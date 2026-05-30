@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
@@ -153,24 +152,4 @@ func (p *fakeProcess) Group(string) system.ProcessGroup { return nil }
 
 func (p *fakeProcess) List(context.Context) ([]system.ProcessInfo, error) {
 	return nil, errors.New("not implemented")
-}
-
-func (p *fakeProcess) Status(context.Context, string) (system.ProcessInfo, error) {
-	return system.ProcessInfo{}, errors.New("not implemented")
-}
-
-func (p *fakeProcess) Output(context.Context, string) (system.ProcessOutput, error) {
-	return system.ProcessOutput{}, errors.New("not implemented")
-}
-
-func (p *fakeProcess) Wait(context.Context, string, time.Duration) (system.ProcessResult, error) {
-	return system.ProcessResult{}, errors.New("not implemented")
-}
-
-func (p *fakeProcess) Stop(context.Context, string) error {
-	return errors.New("not implemented")
-}
-
-func (p *fakeProcess) Kill(context.Context, string) error {
-	return errors.New("not implemented")
 }

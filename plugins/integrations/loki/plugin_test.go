@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
@@ -383,26 +382,6 @@ func (p *recordingLokiProcess) Group(string) system.ProcessGroup { return nil }
 
 func (p *recordingLokiProcess) List(context.Context) ([]system.ProcessInfo, error) {
 	return nil, errors.New("not implemented")
-}
-
-func (p *recordingLokiProcess) Status(context.Context, string) (system.ProcessInfo, error) {
-	return system.ProcessInfo{}, errors.New("not implemented")
-}
-
-func (p *recordingLokiProcess) Output(context.Context, string) (system.ProcessOutput, error) {
-	return system.ProcessOutput{}, errors.New("not implemented")
-}
-
-func (p *recordingLokiProcess) Wait(context.Context, string, time.Duration) (system.ProcessResult, error) {
-	return system.ProcessResult{}, errors.New("not implemented")
-}
-
-func (p *recordingLokiProcess) Stop(context.Context, string) error {
-	return errors.New("not implemented")
-}
-
-func (p *recordingLokiProcess) Kill(context.Context, string) error {
-	return errors.New("not implemented")
 }
 
 type lokiProcessHandle struct {

@@ -1116,19 +1116,11 @@ func blockedIP(ip net.IP) bool {
 }
 
 // ProcessRunner runs a process through a system boundary.
-type ProcessRunner interface {
-	Run(context.Context, ProcessRequest) (ProcessResult, error)
-}
+type ProcessRunner = fpsystem.ProcessRunner
 
 // ProcessManager is the long-running process boundary for shells, dev servers,
 // tests, and other streaming/background workloads.
-type ProcessManager interface {
-	ProcessRunner
-	Start(context.Context, ProcessRequest) (ProcessHandle, error)
-	Ensure(context.Context, ProcessRequest) (ProcessHandle, bool, error)
-	Group(string) ProcessGroup
-	List(context.Context) ([]ProcessInfo, error)
-}
+type ProcessManager = fpsystem.ProcessManager
 
 // ProcessGroup controls the managed processes assigned to one group.
 type ProcessGroup = fpsystem.ProcessGroup
@@ -1154,10 +1146,6 @@ const (
 
 // ProcessRequest describes one bounded process execution.
 type ProcessRequest = fpsystem.ProcessRequest
-
-// ProcessOutput is retained only for legacy test doubles that still declare
-// extra Output methods; ProcessManager no longer exposes output snapshots.
-type ProcessOutput = fpsystem.CapturedProcessResult
 
 // ProcessResult is the captured process outcome.
 type ProcessResult = fpsystem.ProcessResult

@@ -341,22 +341,6 @@ func (p *fakeTaskProcess) Group(string) system.ProcessGroup { return nil }
 
 func (p *fakeTaskProcess) List(context.Context) ([]system.ProcessInfo, error) { return nil, nil }
 
-func (p *fakeTaskProcess) Status(context.Context, string) (system.ProcessInfo, error) {
-	return system.ProcessInfo{}, nil
-}
-
-func (p *fakeTaskProcess) Output(context.Context, string) (system.ProcessOutput, error) {
-	return system.ProcessOutput{}, nil
-}
-
-func (p *fakeTaskProcess) Wait(context.Context, string, time.Duration) (system.ProcessResult, error) {
-	return p.result, nil
-}
-
-func (p *fakeTaskProcess) Stop(context.Context, string) error { return nil }
-
-func (p *fakeTaskProcess) Kill(context.Context, string) error { return nil }
-
 type fakeTaskHandle struct {
 	request system.ProcessRequest
 	result  system.ProcessResult

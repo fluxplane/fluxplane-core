@@ -297,6 +297,35 @@ func TestProcessManagerAllowsManagedLifecycle(t *testing.T) {
 	_, _ = killHandle.Wait(ctx)
 }
 
+func TestProcessHandleRequiresAdminForControl(t *testing.T) {
+	host, err := system.NewHost(system.Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	manager := System(host, Config{}).Process()
+	execOnly := authorizedTestContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourceProcess, Name: "*"}},
+		Actions:   []policy.Action{policy.ActionProcessExec},
+	}})
+	handle, err := manager.Start(execOnly, system.ProcessRequest{Command: "sh", Args: []string{"-c", "sleep 10"}, Label: "deny-stop", Timeout: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := handle.Stop(execOnly); err == nil || !strings.Contains(err.Error(), "authorization_deny") {
+		t.Fatalf("Stop exec-only error = %v, want authorization deny", err)
+	}
+	admin := authorizedTestContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourceProcess, Name: "*"}},
+		Actions:   []policy.Action{policy.ActionProcessExec, policy.ActionProcessAdmin},
+	}})
+	if err := handle.Stop(admin); err != nil {
+		t.Fatalf("Stop admin: %v", err)
+	}
+	_, _ = handle.Wait(admin)
+}
+
 func authorizedTestContext(grants []policy.Grant) context.Context {
 	return policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: grants},

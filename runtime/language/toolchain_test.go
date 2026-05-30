@@ -3,7 +3,6 @@ package language
 import (
 	"context"
 	"testing"
-	"time"
 
 	corelanguage "github.com/fluxplane/fluxplane-core/core/language"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
@@ -69,19 +68,3 @@ func (p *fakeProcess) Ensure(ctx context.Context, req system.ProcessRequest) (sy
 func (p *fakeProcess) Group(string) system.ProcessGroup { return nil }
 
 func (p *fakeProcess) List(context.Context) ([]system.ProcessInfo, error) { return nil, nil }
-
-func (p *fakeProcess) Status(context.Context, string) (system.ProcessInfo, error) {
-	return system.ProcessInfo{}, nil
-}
-
-func (p *fakeProcess) Output(context.Context, string) (system.ProcessOutput, error) {
-	return system.ProcessOutput{}, nil
-}
-
-func (p *fakeProcess) Wait(context.Context, string, time.Duration) (system.ProcessResult, error) {
-	return p.result, nil
-}
-
-func (p *fakeProcess) Stop(context.Context, string) error { return nil }
-
-func (p *fakeProcess) Kill(context.Context, string) error { return nil }

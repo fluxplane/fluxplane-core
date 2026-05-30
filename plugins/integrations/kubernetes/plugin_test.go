@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -765,22 +764,6 @@ func (p *recordingProcess) Group(string) system.ProcessGroup { return nil }
 func (p *recordingProcess) List(context.Context) ([]system.ProcessInfo, error) {
 	return nil, errors.New("not implemented")
 }
-
-func (p *recordingProcess) Status(context.Context, string) (system.ProcessInfo, error) {
-	return system.ProcessInfo{}, errors.New("not implemented")
-}
-
-func (p *recordingProcess) Output(context.Context, string) (system.ProcessOutput, error) {
-	return system.ProcessOutput{}, errors.New("not implemented")
-}
-
-func (p *recordingProcess) Wait(context.Context, string, time.Duration) (system.ProcessResult, error) {
-	return system.ProcessResult{}, errors.New("not implemented")
-}
-
-func (p *recordingProcess) Stop(context.Context, string) error { return errors.New("not implemented") }
-
-func (p *recordingProcess) Kill(context.Context, string) error { return errors.New("not implemented") }
 
 type fakeProcessHandle struct {
 	info system.ProcessInfo

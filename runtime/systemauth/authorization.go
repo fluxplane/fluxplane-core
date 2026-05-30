@@ -3,13 +3,13 @@ package systemauth
 import (
 	"context"
 	"fmt"
-	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"net"
 	"os"
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-policy"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
@@ -231,14 +231,22 @@ func (p authorizedProcessManager) Start(ctx context.Context, req system.ProcessR
 	if err := p.exec(ctx, req.Command); err != nil {
 		return nil, err
 	}
-	return p.base.Start(ctx, req)
+	handle, err := p.base.Start(ctx, req)
+	if err != nil || handle == nil {
+		return handle, err
+	}
+	return authorizedProcessHandle{base: handle, cfg: p.cfg}, nil
 }
 
 func (p authorizedProcessManager) Ensure(ctx context.Context, req system.ProcessRequest) (system.ProcessHandle, bool, error) {
 	if err := p.exec(ctx, req.Command); err != nil {
 		return nil, false, err
 	}
-	return p.base.Ensure(ctx, req)
+	handle, created, err := p.base.Ensure(ctx, req)
+	if err != nil || handle == nil {
+		return handle, created, err
+	}
+	return authorizedProcessHandle{base: handle, cfg: p.cfg}, created, nil
 }
 
 func (p authorizedProcessManager) Group(name string) system.ProcessGroup {
@@ -330,7 +338,122 @@ func (g authorizedProcessGroup) Restart(ctx context.Context) (system.ProcessHand
 	if err := Authorize(ctx, g.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: g.name}, policy.ActionProcessAdmin); err != nil {
 		return nil, err
 	}
-	return g.base.Restart(ctx)
+	handle, err := g.base.Restart(ctx)
+	if err != nil || handle == nil {
+		return handle, err
+	}
+	return authorizedProcessHandle{base: handle, cfg: g.cfg}, nil
+}
+
+type authorizedProcessHandle struct {
+	base system.ProcessHandle
+	cfg  Config
+}
+
+func (h authorizedProcessHandle) ID() string { return h.base.ID() }
+
+func (h authorizedProcessHandle) Info() system.ProcessInfo { return h.base.Info() }
+
+func (h authorizedProcessHandle) Subscribe(ctx context.Context) <-chan system.ProcessEvent {
+	if err := h.authorize(ctx, policy.ActionProcessExec); err != nil {
+		ch := make(chan system.ProcessEvent)
+		close(ch)
+		return ch
+	}
+	return h.base.Subscribe(ctx)
+}
+
+func (h authorizedProcessHandle) Wait(ctx context.Context) (system.ProcessResult, error) {
+	if err := h.authorize(ctx, policy.ActionProcessExec); err != nil {
+		return system.ProcessResult{}, err
+	}
+	return h.base.Wait(ctx)
+}
+
+func (h authorizedProcessHandle) Stop(ctx context.Context) error {
+	if err := h.authorize(ctx, policy.ActionProcessAdmin); err != nil {
+		return err
+	}
+	return h.base.Stop(ctx)
+}
+
+func (h authorizedProcessHandle) Kill(ctx context.Context) error {
+	if err := h.authorize(ctx, policy.ActionProcessAdmin); err != nil {
+		return err
+	}
+	return h.base.Kill(ctx)
+}
+
+func (h authorizedProcessHandle) Signal(ctx context.Context, signal fpsystem.ProcessSignal) error {
+	if err := h.authorize(ctx, policy.ActionProcessAdmin); err != nil {
+		return err
+	}
+	return h.base.Signal(ctx, signal)
+}
+
+func (h authorizedProcessHandle) Interrupt(ctx context.Context) error {
+	return h.Signal(ctx, fpsystem.ProcessSignalInterrupt)
+}
+
+func (h authorizedProcessHandle) Reload(ctx context.Context) error {
+	return h.Signal(ctx, fpsystem.ProcessSignalReload)
+}
+
+func (h authorizedProcessHandle) Pause(ctx context.Context) error {
+	return h.Signal(ctx, fpsystem.ProcessSignalPause)
+}
+
+func (h authorizedProcessHandle) Resume(ctx context.Context) error {
+	return h.Signal(ctx, fpsystem.ProcessSignalResume)
+}
+
+func (h authorizedProcessHandle) Write(ctx context.Context, data []byte) (int, error) {
+	if err := h.authorize(ctx, policy.ActionProcessAdmin); err != nil {
+		return 0, err
+	}
+	return h.base.Write(ctx, data)
+}
+
+func (h authorizedProcessHandle) CloseInput(ctx context.Context) error {
+	if err := h.authorize(ctx, policy.ActionProcessAdmin); err != nil {
+		return err
+	}
+	return h.base.CloseInput(ctx)
+}
+
+func (h authorizedProcessHandle) Restart(ctx context.Context) (system.ProcessHandle, error) {
+	if err := h.authorize(ctx, policy.ActionProcessAdmin); err != nil {
+		return nil, err
+	}
+	handle, err := h.base.Restart(ctx)
+	if err != nil || handle == nil {
+		return handle, err
+	}
+	return authorizedProcessHandle{base: handle, cfg: h.cfg}, nil
+}
+
+func (h authorizedProcessHandle) Detach(ctx context.Context) error {
+	if err := h.authorize(ctx, policy.ActionProcessAdmin); err != nil {
+		return err
+	}
+	return h.base.Detach(ctx)
+}
+
+func (h authorizedProcessHandle) authorize(ctx context.Context, action policy.Action) error {
+	return Authorize(ctx, h.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: processHandleResourceName(h.base)}, action)
+}
+
+func processHandleResourceName(handle system.ProcessHandle) string {
+	if handle == nil {
+		return "*"
+	}
+	info := handle.Info()
+	for _, candidate := range []string{info.Label, info.ID, info.Command, handle.ID()} {
+		if name := strings.TrimSpace(candidate); name != "" {
+			return name
+		}
+	}
+	return "*"
 }
 
 func (g authorizedProcessGroup) Detach(ctx context.Context) error {
