@@ -41,7 +41,7 @@ type AuthConfig = atlassian.AuthConfig
 
 type Plugin struct {
 	pluginhost.Configurable[atlassian.Config]
-	system   fpsystem.System
+	network  fpsystem.Network
 	store    runtimesecret.FileStore
 	resolver runtimesecret.Resolver
 	ref      resource.PluginRef
@@ -67,7 +67,7 @@ func NewWithResolver(sys fpsystem.System, store runtimesecret.FileStore, resolve
 	if resolver == nil {
 		resolver = store
 	}
-	return Plugin{system: sys, store: store, resolver: resolver}
+	return Plugin{network: atlassian.BoundariesFromSystem(sys).Network, store: store, resolver: resolver}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -79,7 +79,7 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 	if err != nil {
 		return nil, err
 	}
-	return Plugin{system: p.system, store: p.store, resolver: p.resolver, ref: ctx.Ref, cfg: atlassian.NormalizeConfig(cfg)}, nil
+	return Plugin{network: p.network, store: p.store, resolver: p.resolver, ref: ctx.Ref, cfg: atlassian.NormalizeConfig(cfg)}, nil
 }
 
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
@@ -124,7 +124,7 @@ func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context
 	if resolver == nil {
 		resolver = p.resolver
 	}
-	session, err := atlassian.ResolveWithResolver(ctx, p.system, p.store, resolver, Name, p.ref, AtlassianProduct(), cfg)
+	session, err := atlassian.ResolveWithBoundaries(ctx, atlassian.Boundaries{Network: p.network}, p.store, resolver, Name, p.ref, AtlassianProduct(), cfg)
 	method := firstNonEmpty(session.Method, cfg.Auth.Method)
 	if err != nil {
 		reports <- p.authTestReport(method, "current_user", "failed", err.Error(), nil)
@@ -135,7 +135,7 @@ func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context
 		DisplayName  string `json:"displayName"`
 		EmailAddress string `json:"emailAddress"`
 	}
-	if _, err := atlassian.DoJSON(ctx, p.system, session, http.MethodGet, "/myself", nil, &out); err != nil {
+	if _, err := atlassian.DoJSONWithNetwork(ctx, p.network, session, http.MethodGet, "/myself", nil, &out); err != nil {
 		reports <- p.authTestReport(method, "current_user", "failed", err.Error(), nil)
 		return nil
 	}
@@ -181,7 +181,7 @@ func (p Plugin) withRef(ref resource.PluginRef) Plugin {
 }
 
 func (p Plugin) session(ctx context.Context) (atlassian.Session, error) {
-	return atlassian.ResolveWithResolver(ctx, p.system, p.store, p.resolver, Name, p.ref, AtlassianProduct(), p.cfg)
+	return atlassian.ResolveWithBoundaries(ctx, atlassian.Boundaries{Network: p.network}, p.store, p.resolver, Name, p.ref, AtlassianProduct(), p.cfg)
 }
 
 func (p Plugin) operationName(suffix string) string {
@@ -271,7 +271,7 @@ func (p Plugin) runIssueCreate(ctx operation.Context, input issueCreateInput) op
 		return operation.Failed("invalid_"+p.operationName("issue_create")+"_input", "project_key, issue_type, and summary are required", nil)
 	}
 	var data map[string]any
-	status, err := jiraCreateIssue(ctx, p.system, session, input, &data)
+	status, err := jiraCreateIssue(ctx, p.network, session, input, &data)
 	if err != nil {
 		return operation.Failed(p.operationName("issue_create")+"_failed", err.Error(), nil)
 	}
@@ -316,7 +316,7 @@ func (p Plugin) runIssueComment(ctx operation.Context, input issueCommentInput) 
 		return operation.Failed("invalid_"+p.operationName("issue_comment")+"_input", "issue_key and body are required", nil)
 	}
 	var data map[string]any
-	status, err := jiraAddComment(ctx, p.system, session, input, &data)
+	status, err := jiraAddComment(ctx, p.network, session, input, &data)
 	if err != nil {
 		return operation.Failed(p.operationName("issue_comment")+"_failed", err.Error(), nil)
 	}
@@ -358,7 +358,7 @@ func (p Plugin) runIssueSearch(ctx operation.Context, input issueSearchInput) op
 		return operation.Failed("invalid_"+p.operationName("issue_search")+"_input", "jql is required", nil)
 	}
 	var data map[string]any
-	status, err := jiraSearchIssues(ctx, p.system, session, jql, input.StartAt, input.MaxResults, &data)
+	status, err := jiraSearchIssues(ctx, p.network, session, jql, input.StartAt, input.MaxResults, &data)
 	if err != nil {
 		return operation.Failed(p.operationName("issue_search")+"_failed", err.Error(), nil)
 	}
@@ -447,14 +447,14 @@ func (a jiraAccessor) Search(ctx context.Context, req coredatasource.SearchReque
 	switch entity {
 	case IssueEntity:
 		var data issueSearchResponse
-		if _, err := jiraSearchIssues(ctx, a.plugin.system, session, jiraDatasourceJQL(req.Query), 0, limit, &data); err != nil {
+		if _, err := jiraSearchIssues(ctx, a.plugin.network, session, jiraDatasourceJQL(req.Query), 0, limit, &data); err != nil {
 			return coredatasource.SearchResult{}, err
 		}
 		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.NonEmptyRecordsFrom(issuesFromJira(data.Issues), func(issue Issue) coredatasource.Record {
 			return a.issueRecord(session, issue)
 		}), data.Total), nil
 	case ProjectEntity:
-		projects, total, err := jiraListProjects(ctx, a.plugin.system, session, 0, max(limit, 200))
+		projects, total, err := jiraListProjects(ctx, a.plugin.network, session, 0, max(limit, 200))
 		if err != nil {
 			return coredatasource.SearchResult{}, err
 		}
@@ -487,14 +487,14 @@ func (a jiraAccessor) List(ctx context.Context, req coredatasource.ListRequest) 
 	switch entity {
 	case IssueEntity:
 		var data issueSearchResponse
-		if _, err := jiraSearchIssues(ctx, a.plugin.system, session, "updated >= -30d ORDER BY updated DESC", start, limit, &data); err != nil {
+		if _, err := jiraSearchIssues(ctx, a.plugin.network, session, "updated >= -30d ORDER BY updated DESC", start, limit, &data); err != nil {
 			return coredatasource.ListResult{}, err
 		}
 		return runtimedatasource.ListResultOffset(a.spec.Name, entity, runtimedatasource.NonEmptyRecordsFrom(issuesFromJira(data.Issues), func(issue Issue) coredatasource.Record {
 			return a.issueRecord(session, issue)
 		}), data.Total, start, limit), nil
 	case ProjectEntity:
-		projects, total, err := jiraListProjects(ctx, a.plugin.system, session, start, limit)
+		projects, total, err := jiraListProjects(ctx, a.plugin.network, session, start, limit)
 		if err != nil {
 			return coredatasource.ListResult{}, err
 		}
@@ -516,13 +516,13 @@ func (a jiraAccessor) Get(ctx context.Context, req coredatasource.GetRequest) (c
 	}
 	switch req.Entity {
 	case IssueEntity:
-		issue, err := jiraGetIssue(ctx, a.plugin.system, session, req.ID)
+		issue, err := jiraGetIssue(ctx, a.plugin.network, session, req.ID)
 		if err != nil {
 			return coredatasource.Record{}, err
 		}
 		return a.issueRecord(session, issue), nil
 	case ProjectEntity:
-		project, err := jiraGetProject(ctx, a.plugin.system, session, req.ID)
+		project, err := jiraGetProject(ctx, a.plugin.network, session, req.ID)
 		if err != nil {
 			return coredatasource.Record{}, err
 		}
@@ -677,14 +677,14 @@ type jiraProject struct {
 	Self           string `json:"self"`
 }
 
-func jiraCreateIssue(ctx context.Context, sys fpsystem.System, session atlassian.Session, input issueCreateInput, out any) (int, error) {
+func jiraCreateIssue(ctx context.Context, network fpsystem.Network, session atlassian.Session, input issueCreateInput, out any) (int, error) {
 	fields := map[string]any{
 		"project":   map[string]string{"key": input.ProjectKey},
 		"issuetype": map[string]string{"name": input.IssueType},
 		"summary":   input.Summary,
 	}
 	if strings.TrimSpace(input.Description) != "" {
-		fields["description"] = jiraMarkdownToADF(ctx, sys, session, input.Description)
+		fields["description"] = jiraMarkdownToADF(ctx, network, session, input.Description)
 	}
 	if labels := cleaned(input.Labels); len(labels) > 0 {
 		fields["labels"] = labels
@@ -695,25 +695,25 @@ func jiraCreateIssue(ctx context.Context, sys fpsystem.System, session atlassian
 	if parent := strings.TrimSpace(input.Parent); parent != "" {
 		fields["parent"] = map[string]string{"key": parent}
 	}
-	return atlassian.DoJSON(ctx, sys, session, http.MethodPost, "/issue", map[string]any{"fields": fields}, out)
+	return atlassian.DoJSONWithNetwork(ctx, network, session, http.MethodPost, "/issue", map[string]any{"fields": fields}, out)
 }
 
-func jiraAddComment(ctx context.Context, sys fpsystem.System, session atlassian.Session, input issueCommentInput, out any) (int, error) {
-	body := map[string]any{"body": jiraMarkdownToADF(ctx, sys, session, input.Body)}
+func jiraAddComment(ctx context.Context, network fpsystem.Network, session atlassian.Session, input issueCommentInput, out any) (int, error) {
+	body := map[string]any{"body": jiraMarkdownToADF(ctx, network, session, input.Body)}
 	path := "/issue/" + url.PathEscape(input.IssueKey) + "/comment"
-	return atlassian.DoJSON(ctx, sys, session, http.MethodPost, path, body, out)
+	return atlassian.DoJSONWithNetwork(ctx, network, session, http.MethodPost, path, body, out)
 }
 
-func jiraMarkdownToADF(ctx context.Context, sys fpsystem.System, session atlassian.Session, text string) md2adf.Node {
-	return md2adf.Convert(jiraLinkifyIssueKeys(ctx, sys, session, text))
+func jiraMarkdownToADF(ctx context.Context, network fpsystem.Network, session atlassian.Session, text string) md2adf.Node {
+	return md2adf.Convert(jiraLinkifyIssueKeys(ctx, network, session, text))
 }
 
-func jiraLinkifyIssueKeys(ctx context.Context, sys fpsystem.System, session atlassian.Session, text string) string {
+func jiraLinkifyIssueKeys(ctx context.Context, network fpsystem.Network, session atlassian.Session, text string) string {
 	siteURL := strings.TrimRight(strings.TrimSpace(session.SiteURL), "/")
-	if siteURL == "" || strings.TrimSpace(text) == "" || sys == nil || sys.Network() == nil {
+	if siteURL == "" || strings.TrimSpace(text) == "" || network == nil {
 		return text
 	}
-	projects, _, err := jiraListProjects(ctx, sys, session, 0, 200)
+	projects, _, err := jiraListProjects(ctx, network, session, 0, 200)
 	if err != nil || len(projects) == 0 {
 		return text
 	}
@@ -732,30 +732,30 @@ func jiraLinkifyIssueKeys(ctx context.Context, sys fpsystem.System, session atla
 	})
 }
 
-func jiraSearchIssues(ctx context.Context, sys fpsystem.System, session atlassian.Session, jql string, startAt, maxResults int, out any) (int, error) {
+func jiraSearchIssues(ctx context.Context, network fpsystem.Network, session atlassian.Session, jql string, startAt, maxResults int, out any) (int, error) {
 	limit := normalizedLimit(maxResults)
 	query := url.Values{}
 	query.Set("jql", jql)
 	query.Set("startAt", strconv.Itoa(max(0, startAt)))
 	query.Set("maxResults", strconv.Itoa(limit))
 	query.Set("fields", "summary,status,issuetype,priority,assignee,reporter,created,updated,labels,description,comment,parent,project")
-	return atlassian.DoJSON(ctx, sys, session, http.MethodGet, "/search/jql?"+query.Encode(), nil, out)
+	return atlassian.DoJSONWithNetwork(ctx, network, session, http.MethodGet, "/search/jql?"+query.Encode(), nil, out)
 }
 
-func jiraGetIssue(ctx context.Context, sys fpsystem.System, session atlassian.Session, key string) (Issue, error) {
+func jiraGetIssue(ctx context.Context, network fpsystem.Network, session atlassian.Session, key string) (Issue, error) {
 	var raw jiraIssue
-	if _, err := atlassian.DoJSON(ctx, sys, session, http.MethodGet, "/issue/"+url.PathEscape(strings.TrimSpace(key))+"?expand=renderedFields,names", nil, &raw); err != nil {
+	if _, err := atlassian.DoJSONWithNetwork(ctx, network, session, http.MethodGet, "/issue/"+url.PathEscape(strings.TrimSpace(key))+"?expand=renderedFields,names", nil, &raw); err != nil {
 		return Issue{}, err
 	}
 	return issueFromJira(raw), nil
 }
 
-func jiraListProjects(ctx context.Context, sys fpsystem.System, session atlassian.Session, startAt, maxResults int) ([]Project, int, error) {
+func jiraListProjects(ctx context.Context, network fpsystem.Network, session atlassian.Session, startAt, maxResults int) ([]Project, int, error) {
 	query := url.Values{}
 	query.Set("startAt", strconv.Itoa(max(0, startAt)))
 	query.Set("maxResults", strconv.Itoa(normalizedLimit(maxResults)))
 	var data jiraProjectSearchResponse
-	if _, err := atlassian.DoJSON(ctx, sys, session, http.MethodGet, "/project/search?"+query.Encode(), nil, &data); err != nil {
+	if _, err := atlassian.DoJSONWithNetwork(ctx, network, session, http.MethodGet, "/project/search?"+query.Encode(), nil, &data); err != nil {
 		return nil, 0, err
 	}
 	projects := make([]Project, 0, len(data.Values))
@@ -765,9 +765,9 @@ func jiraListProjects(ctx context.Context, sys fpsystem.System, session atlassia
 	return projects, data.Total, nil
 }
 
-func jiraGetProject(ctx context.Context, sys fpsystem.System, session atlassian.Session, key string) (Project, error) {
+func jiraGetProject(ctx context.Context, network fpsystem.Network, session atlassian.Session, key string) (Project, error) {
 	var raw jiraProject
-	if _, err := atlassian.DoJSON(ctx, sys, session, http.MethodGet, "/project/"+url.PathEscape(strings.TrimSpace(key)), nil, &raw); err != nil {
+	if _, err := atlassian.DoJSONWithNetwork(ctx, network, session, http.MethodGet, "/project/"+url.PathEscape(strings.TrimSpace(key)), nil, &raw); err != nil {
 		return Project{}, err
 	}
 	return projectFromJira(raw), nil

@@ -39,6 +39,18 @@ const (
 	accessibleResources   = "https://api.atlassian.com/oauth/token/accessible-resources"
 )
 
+// Boundaries are the host capabilities used by Atlassian auth and API helpers.
+type Boundaries struct {
+	Network fpsystem.Network
+}
+
+func BoundariesFromSystem(sys fpsystem.System) Boundaries {
+	if sys == nil {
+		return Boundaries{}
+	}
+	return Boundaries{Network: sys.Network()}
+}
+
 type Product struct {
 	Name         string
 	DisplayName  string
@@ -113,41 +125,42 @@ func AuthMethods(pluginName string, ref resource.PluginRef, product Product, cfg
 }
 
 func Resolve(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
-	return resolve(ctx, sys, store, store, pluginName, ref, product, cfg)
+	return ResolveWithBoundaries(ctx, BoundariesFromSystem(sys), store, store, pluginName, ref, product, cfg)
 }
 
 func ResolveWithResolver(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+	return ResolveWithBoundaries(ctx, BoundariesFromSystem(sys), store, resolver, pluginName, ref, product, cfg)
+}
+
+func ResolveWithBoundaries(ctx context.Context, boundaries Boundaries, store runtimesecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	if resolver == nil {
 		resolver = store
 	}
-	return resolve(ctx, sys, store, resolver, pluginName, ref, product, cfg)
+	return resolve(ctx, boundaries, store, resolver, pluginName, ref, product, cfg)
 }
 
-func resolve(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func resolve(ctx context.Context, boundaries Boundaries, store runtimesecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	cfg = NormalizeConfig(cfg)
-	if sys == nil {
-		return Session{}, fmt.Errorf("atlassianplugin: system is nil")
-	}
 	method := cfg.Auth.Method
 	switch method {
 	case "":
 		if session, ok, err := resolveAPIToken(ctx, store, resolver, pluginName, ref, product, cfg, false); err != nil || ok {
 			return session, err
 		}
-		if session, ok, err := resolveBearerToken(ctx, sys, resolver, pluginName, ref, product, cfg, false); err != nil || ok {
+		if session, ok, err := resolveBearerToken(ctx, boundaries, resolver, pluginName, ref, product, cfg, false); err != nil || ok {
 			return session, err
 		}
-		if session, ok, err := resolveOAuth(ctx, sys, store, pluginName, ref, product, cfg); err != nil || ok {
+		if session, ok, err := resolveOAuth(ctx, boundaries, store, pluginName, ref, product, cfg); err != nil || ok {
 			return session, err
 		}
 		return Session{}, fmt.Errorf("atlassianplugin: auth token is not configured; set api token fields or one of %s", strings.Join(TokenEnvAliases(product), ", "))
 	case OAuth2Method:
-		if session, ok, err := resolveOAuth(ctx, sys, store, pluginName, ref, product, cfg); err != nil || ok || method == OAuth2Method {
+		if session, ok, err := resolveOAuth(ctx, boundaries, store, pluginName, ref, product, cfg); err != nil || ok || method == OAuth2Method {
 			return session, err
 		}
 		return Session{}, fmt.Errorf("atlassianplugin: oauth2 auth secret is not configured for instance %s", ref.InstanceName())
 	case TokenMethod, "bearer", "env":
-		return resolveTokenWithResolver(ctx, sys, resolver, pluginName, ref, product, cfg)
+		return resolveTokenWithResolver(ctx, boundaries, resolver, pluginName, ref, product, cfg)
 	case APITokenMethod, "api-token", "basic":
 		session, _, err := resolveAPIToken(ctx, store, resolver, pluginName, ref, product, cfg, true)
 		return session, err
@@ -157,7 +170,11 @@ func resolve(ctx context.Context, sys fpsystem.System, store runtimesecret.FileS
 }
 
 func DoJSON(ctx context.Context, sys fpsystem.System, session Session, method, path string, body any, out any) (int, error) {
-	if sys == nil || sys.Network() == nil {
+	return DoJSONWithNetwork(ctx, BoundariesFromSystem(sys).Network, session, method, path, body, out)
+}
+
+func DoJSONWithNetwork(ctx context.Context, network fpsystem.Network, session Session, method, path string, body any, out any) (int, error) {
+	if network == nil {
 		return 0, fmt.Errorf("atlassianplugin: network is nil")
 	}
 	u := strings.TrimRight(session.BaseURL, "/") + "/" + strings.TrimLeft(path, "/")
@@ -182,7 +199,7 @@ func DoJSON(ctx context.Context, sys fpsystem.System, session Session, method, p
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := systemkit.NewHTTPClient(sys.Network()).Do(req)
+	resp, err := systemkit.NewHTTPClient(network).Do(req)
 	if err != nil {
 		return 0, err
 	}
@@ -306,7 +323,7 @@ func SiteBaseURL(product Product, siteURL string) string {
 	return siteURL + "/" + strings.Trim(restPath, "/")
 }
 
-func resolveOAuth(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, bool, error) {
+func resolveOAuth(ctx context.Context, boundaries Boundaries, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, bool, error) {
 	stored, ok, err := store.LoadSecret(ctx, oauthSecretRef(pluginName, ref))
 	if err != nil || !ok {
 		return Session{}, false, err
@@ -316,7 +333,7 @@ func resolveOAuth(ctx context.Context, sys fpsystem.System, store runtimesecret.
 		return Session{}, false, nil
 	}
 	if needsRefresh(stored) {
-		refreshed, refreshedStored, err := refreshStored(ctx, sys, store, pluginName, ref, product, stored)
+		refreshed, refreshedStored, err := refreshStored(ctx, boundaries, store, pluginName, ref, product, stored)
 		if err != nil {
 			return Session{}, true, err
 		}
@@ -326,7 +343,7 @@ func resolveOAuth(ctx context.Context, sys fpsystem.System, store runtimesecret.
 	}
 	if session.BaseURL == "" && cfg.BaseURL == "" {
 		var err error
-		_, session, err = discoverAndStoreSite(ctx, sys, store, pluginName, ref, product, cfg, stored)
+		_, session, err = discoverAndStoreSite(ctx, boundaries, store, pluginName, ref, product, cfg, stored)
 		if err != nil {
 			return Session{}, true, err
 		}
@@ -338,12 +355,12 @@ func resolveOAuth(ctx context.Context, sys fpsystem.System, store runtimesecret.
 	return session, true, nil
 }
 
-func resolveTokenWithResolver(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
-	session, _, err := resolveBearerToken(ctx, sys, resolver, pluginName, ref, product, cfg, true)
+func resolveTokenWithResolver(ctx context.Context, boundaries Boundaries, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+	session, _, err := resolveBearerToken(ctx, boundaries, resolver, pluginName, ref, product, cfg, true)
 	return session, err
 }
 
-func resolveBearerToken(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
+func resolveBearerToken(ctx context.Context, boundaries Boundaries, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
 	if resolver == nil {
 		return Session{}, false, fmt.Errorf("atlassianplugin: secret resolver is nil")
 	}
@@ -386,7 +403,7 @@ func resolveBearerToken(ctx context.Context, sys fpsystem.System, resolver runti
 	if session.BaseURL == "" {
 		return Session{}, true, fmt.Errorf("atlassianplugin: cloud_id or base_url is required for %s token auth", product.DisplayName)
 	}
-	session = discoverTokenSiteURL(ctx, sys, product, session)
+	session = discoverTokenSiteURL(ctx, boundaries.Network, product, session)
 	return session, true, nil
 }
 
@@ -731,14 +748,14 @@ func BaseURLEnvAliases(product Product) []string {
 	return []string{prefix + "_BASE_URL", "ATLASSIAN_BASE_URL"}
 }
 
-func discoverTokenSiteURL(ctx context.Context, sys fpsystem.System, product Product, session Session) Session {
+func discoverTokenSiteURL(ctx context.Context, network fpsystem.Network, product Product, session Session) Session {
 	if strings.TrimSpace(session.SiteURL) != "" || strings.TrimSpace(session.CloudID) == "" || strings.TrimSpace(session.Token) == "" {
 		return session
 	}
-	if sys == nil || sys.Network() == nil {
+	if network == nil {
 		return session
 	}
-	sites, err := DiscoverSites(ctx, systemkit.NewHTTPClient(sys.Network()), session.Token)
+	sites, err := DiscoverSites(ctx, systemkit.NewHTTPClient(network), session.Token)
 	if err != nil {
 		return session
 	}
@@ -781,7 +798,7 @@ func needsRefresh(stored runtimesecret.StoredSecret) bool {
 	return time.Now().UTC().Add(2 * time.Minute).After(stored.ExpiresAt)
 }
 
-func refreshStored(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, stored runtimesecret.StoredSecret) (OAuthToken, runtimesecret.StoredSecret, error) {
+func refreshStored(ctx context.Context, boundaries Boundaries, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, stored runtimesecret.StoredSecret) (OAuthToken, runtimesecret.StoredSecret, error) {
 	refreshStored, ok, err := store.LoadSecret(ctx, oauthRelatedSecretRef(pluginName, ref, "refresh_token"))
 	if err != nil {
 		return OAuthToken{}, stored, err
@@ -802,7 +819,13 @@ func refreshStored(ctx context.Context, sys fpsystem.System, store runtimesecret
 	if refresh == "" || clientID == "" || clientSecret == "" {
 		return OAuthToken{}, stored, fmt.Errorf("atlassianplugin: oauth token expired and refresh credentials are unavailable")
 	}
-	token, err := RefreshToken(ctx, systemkit.NewHTTPClient(sys.Network()), clientID, clientSecret, refresh)
+	if boundaries.Network == nil {
+		return OAuthToken{}, stored, fmt.Errorf("atlassianplugin: network is nil")
+	}
+	if boundaries.Network == nil {
+		return OAuthToken{}, stored, fmt.Errorf("atlassianplugin: network is nil")
+	}
+	token, err := RefreshToken(ctx, systemkit.NewHTTPClient(boundaries.Network), clientID, clientSecret, refresh)
 	if err != nil {
 		return OAuthToken{}, stored, err
 	}
@@ -827,8 +850,14 @@ func refreshStored(ctx context.Context, sys fpsystem.System, store runtimesecret
 	return token, next, nil
 }
 
-func discoverAndStoreSite(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config, stored runtimesecret.StoredSecret) (runtimesecret.StoredSecret, Session, error) {
-	sites, err := DiscoverSites(ctx, systemkit.NewHTTPClient(sys.Network()), stored.Value)
+func discoverAndStoreSite(ctx context.Context, boundaries Boundaries, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config, stored runtimesecret.StoredSecret) (runtimesecret.StoredSecret, Session, error) {
+	if boundaries.Network == nil {
+		return stored, Session{}, fmt.Errorf("atlassianplugin: network is nil")
+	}
+	if boundaries.Network == nil {
+		return stored, Session{}, fmt.Errorf("atlassianplugin: network is nil")
+	}
+	sites, err := DiscoverSites(ctx, systemkit.NewHTTPClient(boundaries.Network), stored.Value)
 	if err != nil {
 		return stored, Session{}, err
 	}

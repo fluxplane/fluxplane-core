@@ -245,7 +245,7 @@ func TestJiraMarkdownToADFLinkifiesKnownIssueKeys(t *testing.T) {
 		BaseURL:       "https://api.atlassian.invalid/rest/api/3",
 		Authorization: "Bearer token",
 	}
-	doc := jiraMarkdownToADF(context.Background(), fakeSystem{network: network}, session, "Related to DEV-381.")
+	doc := jiraMarkdownToADF(context.Background(), network, session, "Related to DEV-381.")
 	data, err := json.Marshal(doc)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
