@@ -15,6 +15,7 @@ import (
 	coreproject "github.com/fluxplane/fluxplane-core/core/project"
 	coreworkspace "github.com/fluxplane/fluxplane-core/core/workspace"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/yuin/goldmark"
 	goldast "github.com/yuin/goldmark/ast"
 	goldtext "github.com/yuin/goldmark/text"
@@ -148,7 +149,7 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 	if maxBytes <= 0 || maxBytes > defaultMaxBytes {
 		maxBytes = defaultMaxBytes
 	}
-	entries, _, truncated, err := ws.Walk(ctx, ".", system.WalkOptions{
+	entries, truncated, err := walkWorkspace(ctx, ws, ".", fpsystem.WalkOptions{
 		Depth:      50,
 		ShowHidden: true,
 		MaxEntries: defaultMaxEntries,
@@ -157,6 +158,7 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 	if err != nil {
 		return coreproject.Inventory{}, err
 	}
+	entries = filterNamedRootEntries(entries)
 	roots := ws.Roots()
 	seenRoots := map[string]struct{}{}
 	rootKey, err := workspaceRootKey(ctx, ws, ".")
@@ -183,7 +185,7 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 			}
 			seenRoots[rootKey] = struct{}{}
 		}
-		rootEntries, _, rootTruncated, err := ws.Walk(ctx, root.Rel, system.WalkOptions{
+		rootEntries, rootTruncated, err := walkWorkspace(ctx, ws, root.Rel, fpsystem.WalkOptions{
 			Depth:      50,
 			ShowHidden: true,
 			MaxEntries: defaultMaxEntries,
@@ -203,7 +205,7 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 		if err := ctx.Err(); err != nil {
 			return coreproject.Inventory{}, err
 		}
-		rel := cleanRel(entry.Path.Rel)
+		rel := cleanRel(entry.Path)
 		if rel == "" {
 			continue
 		}
@@ -287,6 +289,20 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 	}, nil
 }
 
+func filterNamedRootEntries(entries []fpsystem.WalkEntry) []fpsystem.WalkEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := entries[:0]
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Path, "@") {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
 func workspaceRootKey(ctx context.Context, ws system.Workspace, rel string) (string, error) {
 	if strings.TrimSpace(rel) == "" {
 		rel = "."
@@ -299,6 +315,58 @@ func workspaceRootKey(ctx context.Context, ws system.Workspace, rel string) (str
 		return resolved.Abs, nil
 	}
 	return resolved.Rel, nil
+}
+
+func workspaceName(resolved system.ResolvedPath) string {
+	if strings.TrimSpace(resolved.Rel) == "" {
+		return "."
+	}
+	return resolved.Rel
+}
+
+func workspaceFileSystem(ws system.Workspace) (fpsystem.FileSystem, error) {
+	if ws == nil || ws.System() == nil || ws.System().FileSystem() == nil {
+		return nil, fmt.Errorf("project: workspace filesystem is nil")
+	}
+	return ws.System().FileSystem(), nil
+}
+
+func statWorkspacePath(ctx context.Context, ws system.Workspace, rel string) (fs.FileInfo, system.ResolvedPath, error) {
+	resolved, err := ws.ResolveExisting(ctx, rel)
+	if err != nil {
+		return nil, system.ResolvedPath{}, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return nil, system.ResolvedPath{}, err
+	}
+	info, err := fsys.Stat(workspaceName(resolved))
+	return info, resolved, err
+}
+
+func readWorkspaceFile(ctx context.Context, ws system.Workspace, rel string, maxBytes int64) ([]byte, bool, system.ResolvedPath, error) {
+	resolved, err := ws.ResolveExisting(ctx, rel)
+	if err != nil {
+		return nil, false, system.ResolvedPath{}, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return nil, false, system.ResolvedPath{}, err
+	}
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, workspaceName(resolved), maxBytes)
+	return data, truncated, resolved, err
+}
+
+func walkWorkspace(ctx context.Context, ws system.Workspace, rel string, opts fpsystem.WalkOptions) ([]fpsystem.WalkEntry, bool, error) {
+	resolved, err := ws.ResolveExisting(ctx, rel)
+	if err != nil {
+		return nil, false, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return nil, false, err
+	}
+	return fpsystem.Walk(ctx, fsys, workspaceName(resolved), opts)
 }
 
 type projectBuilder struct {
@@ -345,21 +413,21 @@ func probeRoot(ctx context.Context, ws system.Workspace, builders map[string]*pr
 		{path: ".coder.yml", add: addCoderConfig},
 	}
 	for _, probe := range probes {
-		if _, _, err := ws.Stat(ctx, probe.path); err == nil {
+		if _, _, err := statWorkspacePath(ctx, ws, probe.path); err == nil {
 			probe.add(ctx, ws, builders, "", probe.path, maxBytes)
 		}
 	}
-	if _, _, err := ws.Stat(ctx, ".git"); err == nil {
+	if _, _, err := statWorkspacePath(ctx, ws, ".git"); err == nil {
 		builderFor(builders, "").addFacet(coreproject.Facet{Kind: coreproject.FacetGitRepo, Manifest: manifest(".git", "git_repo", coreproject.ParseStatusParsed, nil, "")})
 	}
-	if _, _, err := ws.Stat(ctx, ".agents"); err == nil {
+	if _, _, err := statWorkspacePath(ctx, ws, ".agents"); err == nil {
 		addResourceDir(builders, "", ".agents", coreproject.FacetAgentsDir, "agents_dir")
 	}
-	if _, _, err := ws.Stat(ctx, ".claude"); err == nil {
+	if _, _, err := statWorkspacePath(ctx, ws, ".claude"); err == nil {
 		addResourceDir(builders, "", ".claude", coreproject.FacetClaudeDir, "claude_dir")
 		addAIConfig(builders, "", ".claude", "claude", "bundle", "")
 	}
-	if _, _, err := ws.Stat(ctx, ".github/workflows"); err == nil {
+	if _, _, err := statWorkspacePath(ctx, ws, ".github/workflows"); err == nil {
 		builderFor(builders, "").addFacet(coreproject.Facet{Kind: coreproject.FacetCI, Manifest: manifest(".github/workflows", "github_workflow", coreproject.ParseStatusUnsupported, nil, "")})
 	}
 }
@@ -387,7 +455,7 @@ func addDockerCompose(_ context.Context, _ system.Workspace, builders map[string
 }
 
 func addAppManifest(ctx context.Context, ws system.Workspace, builders map[string]*projectBuilder, dir, rel string, maxBytes int) {
-	data, truncated, _, err := ws.ReadFile(ctx, rel, int64(maxBytes))
+	data, truncated, _, err := readWorkspaceFile(ctx, ws, rel, int64(maxBytes))
 	status := coreproject.ParseStatusParsed
 	summary := map[string]string{}
 	var msg string
@@ -417,7 +485,7 @@ func addAppManifest(ctx context.Context, ws system.Workspace, builders map[strin
 }
 
 func addCoderConfig(ctx context.Context, ws system.Workspace, builders map[string]*projectBuilder, dir, rel string, maxBytes int) {
-	data, truncated, _, err := ws.ReadFile(ctx, rel, int64(maxBytes))
+	data, truncated, _, err := readWorkspaceFile(ctx, ws, rel, int64(maxBytes))
 	status := coreproject.ParseStatusParsed
 	summary := map[string]string{}
 	var msg string
@@ -470,7 +538,7 @@ func addAIConfig(builders map[string]*projectBuilder, dir, rel, vendor, kind, pa
 }
 
 func addGoMod(ctx context.Context, ws system.Workspace, builders map[string]*projectBuilder, dir, rel string, maxBytes int) {
-	data, truncated, _, err := ws.ReadFile(ctx, rel, int64(maxBytes))
+	data, truncated, _, err := readWorkspaceFile(ctx, ws, rel, int64(maxBytes))
 	summary := map[string]string{}
 	status := coreproject.ParseStatusParsed
 	var msg string
@@ -498,7 +566,7 @@ func addGoMod(ctx context.Context, ws system.Workspace, builders map[string]*pro
 }
 
 func addGoWork(ctx context.Context, ws system.Workspace, builders map[string]*projectBuilder, dir, rel string, maxBytes int) {
-	data, _, _, err := ws.ReadFile(ctx, rel, int64(maxBytes))
+	data, _, _, err := readWorkspaceFile(ctx, ws, rel, int64(maxBytes))
 	summary := map[string]string{}
 	status := coreproject.ParseStatusParsed
 	var msg string
@@ -528,7 +596,7 @@ func addGoWork(ctx context.Context, ws system.Workspace, builders map[string]*pr
 }
 
 func addPackageJSON(ctx context.Context, ws system.Workspace, builders map[string]*projectBuilder, dir, rel string, maxBytes int) {
-	data, _, _, err := ws.ReadFile(ctx, rel, int64(maxBytes))
+	data, _, _, err := readWorkspaceFile(ctx, ws, rel, int64(maxBytes))
 	summary := map[string]string{}
 	var tasks []coreproject.Task
 	status := coreproject.ParseStatusParsed
@@ -579,7 +647,7 @@ func addPackageJSON(ctx context.Context, ws system.Workspace, builders map[strin
 }
 
 func addTaskfile(ctx context.Context, ws system.Workspace, builders map[string]*projectBuilder, dir, rel string, maxBytes int) {
-	data, _, _, err := ws.ReadFile(ctx, rel, int64(maxBytes))
+	data, _, _, err := readWorkspaceFile(ctx, ws, rel, int64(maxBytes))
 	status := coreproject.ParseStatusParsed
 	var msg string
 	var tasks []coreproject.Task
@@ -599,7 +667,7 @@ func addTaskfile(ctx context.Context, ws system.Workspace, builders map[string]*
 }
 
 func addMakefile(ctx context.Context, ws system.Workspace, builders map[string]*projectBuilder, dir, rel string, maxBytes int) {
-	data, _, _, err := ws.ReadFile(ctx, rel, int64(maxBytes))
+	data, _, _, err := readWorkspaceFile(ctx, ws, rel, int64(maxBytes))
 	status := coreproject.ParseStatusParsed
 	var msg string
 	var tasks []coreproject.Task
@@ -621,7 +689,7 @@ type markdownFacet struct {
 }
 
 func readMarkdown(ctx context.Context, ws system.Workspace, dir, rel string, maxBytes int) markdownFacet {
-	data, truncated, _, err := ws.ReadFile(ctx, rel, int64(maxBytes))
+	data, truncated, _, err := readWorkspaceFile(ctx, ws, rel, int64(maxBytes))
 	doc := coreproject.DocumentOutline{Path: rel, Truncated: truncated}
 	status := coreproject.ParseStatusParsed
 	var msg string
@@ -1057,7 +1125,7 @@ func ancestorDirs(dir string) []string {
 }
 
 func hasWorkspaceFile(ctx context.Context, ws system.Workspace, rel string) bool {
-	info, _, err := ws.Stat(ctx, cleanRel(rel))
+	info, _, err := statWorkspacePath(ctx, ws, cleanRel(rel))
 	return err == nil && info != nil && !info.IsDir()
 }
 

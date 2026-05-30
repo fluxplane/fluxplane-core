@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	browser "github.com/fluxplane/fluxplane-browser"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -19,6 +18,8 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/pathpattern"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
+	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
 
 type filesystemTestEnv struct {
@@ -38,10 +39,6 @@ func runFilesystemBackends(t *testing.T, fn func(*testing.T, *filesystemTestEnv)
 			t.Fatalf("NewHost: %v", err)
 		}
 		fn(t, &filesystemTestEnv{name: "host", root: root, sys: sys, workspace: sys.Workspace(), host: true})
-	})
-	t.Run("memory", func(t *testing.T) {
-		sys := newMemorySystem()
-		fn(t, &filesystemTestEnv{name: "memory", root: sys.workspace.Root(), sys: sys, workspace: sys.workspace})
 	})
 }
 
@@ -71,14 +68,14 @@ func (e *filesystemTestEnv) Operation(t *testing.T, name string) operation.Opera
 
 func (e *filesystemTestEnv) WriteFile(t *testing.T, path string, data []byte) {
 	t.Helper()
-	if _, err := e.workspace.WriteFile(context.Background(), path, data, 0644, true); err != nil {
+	if _, err := writeWorkspaceFile(context.Background(), e.workspace, path, data, 0644, true); err != nil {
 		t.Fatalf("WriteFile(%s): %v", path, err)
 	}
 }
 
 func (e *filesystemTestEnv) ReadFile(t *testing.T, path string) []byte {
 	t.Helper()
-	data, truncated, _, err := e.workspace.ReadFile(context.Background(), path, 0)
+	data, truncated, _, err := readWorkspaceFile(context.Background(), e.workspace, path, 0)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", path, err)
 	}
@@ -90,14 +87,14 @@ func (e *filesystemTestEnv) ReadFile(t *testing.T, path string) []byte {
 
 func (e *filesystemTestEnv) Mkdir(t *testing.T, path string) {
 	t.Helper()
-	if _, err := e.workspace.MkdirAll(context.Background(), path, 0755); err != nil {
+	if _, err := mkdirWorkspace(context.Background(), e.workspace, path, 0755); err != nil {
 		t.Fatalf("MkdirAll(%s): %v", path, err)
 	}
 }
 
 func (e *filesystemTestEnv) MustNotExist(t *testing.T, path string) {
 	t.Helper()
-	_, _, err := e.workspace.Stat(context.Background(), path)
+	_, _, err := statWorkspacePath(context.Background(), e.workspace, path)
 	if err == nil {
 		t.Fatalf("Stat(%s): path exists, want not exist", path)
 	}
@@ -105,7 +102,7 @@ func (e *filesystemTestEnv) MustNotExist(t *testing.T, path string) {
 
 func (e *filesystemTestEnv) MustExist(t *testing.T, path string) {
 	t.Helper()
-	if _, _, err := e.workspace.Stat(context.Background(), path); err != nil {
+	if _, _, err := statWorkspacePath(context.Background(), e.workspace, path); err != nil {
 		t.Fatalf("Stat(%s): %v", path, err)
 	}
 }
@@ -121,18 +118,15 @@ func newMemorySystem() *memorySystem {
 func (s *memorySystem) Workspace() system.Workspace     { return s.workspace }
 func (s *memorySystem) Network() system.Network         { return memoryNetwork{} }
 func (s *memorySystem) Process() system.ProcessManager  { return nil }
-func (s *memorySystem) Browser() browser.Manager        { return nil }
-func (s *memorySystem) Clarifier() system.Clarifier     { return nil }
 func (s *memorySystem) Environment() system.Environment { return memoryEnvironment{} }
 func (memoryEnvironment) Lookup(context.Context, string) (string, bool, error) {
 	return "", false, nil
 }
-func (memoryNetwork) DoHTTP(context.Context, system.HTTPRequest) (system.HTTPResponse, error) {
-	return system.HTTPResponse{}, errors.ErrUnsupported
-}
 
 type memoryEnvironment struct{}
-type memoryNetwork struct{}
+type memoryNetwork struct {
+	fpsystemtest.UnsupportedNetwork
+}
 
 type memoryWorkspace struct {
 	mu    sync.Mutex
@@ -158,6 +152,8 @@ func newMemoryWorkspace() *memoryWorkspace {
 }
 
 func (w *memoryWorkspace) Root() string { return w.root }
+
+func (w *memoryWorkspace) System() fpsystem.System { return nil }
 
 func (w *memoryWorkspace) Roots() []system.WorkspaceRoot {
 	return []system.WorkspaceRoot{{Path: w.root, Rel: ".", Read: true, Write: true}}

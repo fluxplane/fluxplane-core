@@ -14,8 +14,7 @@ import (
 	"testing"
 	"time"
 
-	browser "github.com/fluxplane/fluxplane-browser"
-	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 func TestHostWorkspaceRejectsSymlinkEscape(t *testing.T) {
@@ -31,7 +30,7 @@ func TestHostWorkspaceRejectsSymlinkEscape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	_, _, _, err = sys.Workspace().ReadFile(context.Background(), "link/secret.txt", 1024)
+	_, _, _, err = sys.workspace.ReadFile(context.Background(), "link/secret.txt", 1024)
 	if err == nil {
 		t.Fatal("ReadFile through escaping symlink succeeded, want error")
 	}
@@ -47,7 +46,7 @@ func TestHostWorkspaceCreateRejectsSymlinkParentEscape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	_, err = sys.Workspace().WriteFile(context.Background(), "link/new.txt", []byte("x"), 0644, false)
+	_, err = sys.workspace.WriteFile(context.Background(), "link/new.txt", []byte("x"), 0644, false)
 	if err == nil {
 		t.Fatal("WriteFile through escaping symlink parent succeeded, want error")
 	}
@@ -64,7 +63,7 @@ func TestHostWorkspaceCopyFileCopiesCompleteFile(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 
-	src, dst, written, err := sys.Workspace().CopyFile(context.Background(), "src.bin", "nested/dst.bin", false)
+	src, dst, written, err := sys.workspace.CopyFile(context.Background(), "src.bin", "nested/dst.bin", false)
 	if err != nil {
 		t.Fatalf("CopyFile: %v", err)
 	}
@@ -98,7 +97,7 @@ func TestHostWorkspaceReadFileLinesPastInitialWindow(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 
-	data, firstLine, truncated, resolved, err := sys.Workspace().ReadFileLines(context.Background(), "large.txt", 5500, 5500, 1024)
+	data, firstLine, truncated, resolved, err := sys.workspace.ReadFileLines(context.Background(), "large.txt", 5500, 5500, 1024)
 	if err != nil {
 		t.Fatalf("ReadFileLines: %v", err)
 	}
@@ -123,14 +122,14 @@ func TestHostWorkspaceGlobMatchesRootLevelGlobstar(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 
-	matches, _, err := sys.Workspace().Glob(context.Background(), "**/*.md", GlobOptions{Base: ".", MaxResults: 20})
+	matches, _, err := sys.workspace.Glob(context.Background(), "**/*.md", GlobOptions{Base: ".", MaxResults: 20})
 	if err != nil {
 		t.Fatalf("Glob **/*.md: %v", err)
 	}
 	if !resolvedContains(matches, "README.md") || !resolvedContains(matches, filepath.ToSlash(filepath.Join("docs", "README.md"))) {
 		t.Fatalf("matches = %#v, want root and nested markdown files", matches)
 	}
-	matches, _, err = sys.Workspace().Glob(context.Background(), "**/eval-review.md", GlobOptions{Base: ".", MaxResults: 20})
+	matches, _, err = sys.workspace.Glob(context.Background(), "**/eval-review.md", GlobOptions{Base: ".", MaxResults: 20})
 	if err != nil {
 		t.Fatalf("Glob **/eval-review.md: %v", err)
 	}
@@ -163,7 +162,7 @@ func TestHostWorkspaceGlobMaxResultsDoesNotLimitTraversal(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 
-	matches, truncated, err := sys.Workspace().Glob(context.Background(), "apps/assistant/resources/.agents/**/reflect.yaml", GlobOptions{Base: ".", MaxResults: 1, MaxScanned: 200})
+	matches, truncated, err := sys.workspace.Glob(context.Background(), "apps/assistant/resources/.agents/**/reflect.yaml", GlobOptions{Base: ".", MaxResults: 1, MaxScanned: 200})
 	if err != nil {
 		t.Fatalf("Glob reflect.yaml: %v", err)
 	}
@@ -199,7 +198,7 @@ func TestHostWorkspaceGlobSkipsConfiguredNoisyDirs(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 
-	matches, truncated, err := sys.Workspace().Glob(context.Background(), "apps/assistant/resources/.agents/**/reflect.yaml", GlobOptions{Base: ".", MaxResults: 10, MaxScanned: 50, SkipDirs: []string{".cache"}})
+	matches, truncated, err := sys.workspace.Glob(context.Background(), "apps/assistant/resources/.agents/**/reflect.yaml", GlobOptions{Base: ".", MaxResults: 10, MaxScanned: 50, SkipDirs: []string{".cache"}})
 	if err != nil {
 		t.Fatalf("Glob reflect.yaml: %v", err)
 	}
@@ -232,7 +231,7 @@ func TestHostWorkspaceGlobMatchesBraceAlternation(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 
-	matches, _, err := sys.Workspace().Glob(context.Background(), ".agents/{designs,plans,reviews}/**/*", GlobOptions{Base: ".", MaxResults: 20})
+	matches, _, err := sys.workspace.Glob(context.Background(), ".agents/{designs,plans,reviews}/**/*", GlobOptions{Base: ".", MaxResults: 20})
 	if err != nil {
 		t.Fatalf("Glob brace pattern: %v", err)
 	}
@@ -264,7 +263,7 @@ func TestHostWorkspaceMoveFileLeavesSourceWhenDestinationWriteFails(t *testing.T
 		t.Fatalf("NewHost: %v", err)
 	}
 
-	_, _, _, err = sys.Workspace().MoveFile(context.Background(), "src.txt", "dst.txt", false)
+	_, _, _, err = sys.workspace.MoveFile(context.Background(), "src.txt", "dst.txt", false)
 	if err == nil {
 		t.Fatal("MoveFile succeeded, want overwrite error")
 	}
@@ -293,7 +292,7 @@ func TestHostWorkspaceNamedRootAllowsLogicalAndAbsolutePaths(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 
-	logical, err := sys.Workspace().WriteFile(context.Background(), "@tmp/logical.txt", []byte("logical"), 0644, false)
+	logical, err := sys.workspace.WriteFile(context.Background(), "@tmp/logical.txt", []byte("logical"), 0644, false)
 	if err != nil {
 		t.Fatalf("WriteFile logical: %v", err)
 	}
@@ -301,7 +300,7 @@ func TestHostWorkspaceNamedRootAllowsLogicalAndAbsolutePaths(t *testing.T) {
 		t.Fatalf("logical rel = %q, want @tmp/logical.txt", logical.Rel)
 	}
 	absolutePath := filepath.Join(tmp, "absolute.txt")
-	absolute, err := sys.Workspace().WriteFile(context.Background(), absolutePath, []byte("absolute"), 0644, false)
+	absolute, err := sys.workspace.WriteFile(context.Background(), absolutePath, []byte("absolute"), 0644, false)
 	if err != nil {
 		t.Fatalf("WriteFile absolute: %v", err)
 	}
@@ -315,7 +314,7 @@ func TestHostWorkspaceRejectsUnconfiguredAbsoluteTmpPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	_, err = sys.Workspace().WriteFile(context.Background(), filepath.Join(t.TempDir(), "out.txt"), []byte("x"), 0644, false)
+	_, err = sys.workspace.WriteFile(context.Background(), filepath.Join(t.TempDir(), "out.txt"), []byte("x"), 0644, false)
 	if err == nil {
 		t.Fatal("WriteFile outside workspace succeeded, want error")
 	}
@@ -339,7 +338,7 @@ func TestHostWorkspaceNamedRootRejectsSymlinkEscape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	_, err = sys.Workspace().WriteFile(context.Background(), "@tmp/link/out.txt", []byte("x"), 0644, false)
+	_, err = sys.workspace.WriteFile(context.Background(), "@tmp/link/out.txt", []byte("x"), 0644, false)
 	if err == nil {
 		t.Fatal("WriteFile through named-root symlink escape succeeded, want error")
 	}
@@ -362,14 +361,14 @@ func TestHostWorkspaceReadOnlyNamedRootRejectsWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	data, _, resolved, err := sys.Workspace().ReadFile(context.Background(), "@docs/README.md", 1024)
+	data, _, resolved, err := sys.workspace.ReadFile(context.Background(), "@docs/README.md", 1024)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
 	if string(data) != "docs" || resolved.Rel != "@docs/README.md" {
 		t.Fatalf("data=%q resolved=%#v, want docs in @docs", data, resolved)
 	}
-	_, err = sys.Workspace().WriteFile(context.Background(), "@docs/new.md", []byte("x"), 0644, false)
+	_, err = sys.workspace.WriteFile(context.Background(), "@docs/new.md", []byte("x"), 0644, false)
 	if err == nil {
 		t.Fatal("WriteFile into read-only root succeeded, want error")
 	}
@@ -719,7 +718,7 @@ func TestHostWorkspaceCreateScratchUsesConfiguredRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	scratch, err := sys.Workspace().CreateScratch(context.Background(), "fluxplane-test-*")
+	scratch, err := sys.workspace.CreateScratch(context.Background(), "fluxplane-test-*")
 	if err != nil {
 		t.Fatalf("CreateScratch: %v", err)
 	}
@@ -736,59 +735,6 @@ func TestHostWorkspaceCreateScratchUsesConfiguredRoot(t *testing.T) {
 	}
 }
 
-func TestHostNetworkDoesNotRetryNonIdempotentRequests(t *testing.T) {
-	var calls int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		http.Error(w, "retry", http.StatusServiceUnavailable)
-	}))
-	defer server.Close()
-
-	network := &HostNetwork{allowPrivate: true}
-	resp, err := network.DoHTTP(context.Background(), HTTPRequest{
-		URL:    server.URL,
-		Method: http.MethodPost,
-		Body:   "side effect",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503", resp.StatusCode)
-	}
-	if calls != 1 {
-		t.Fatalf("calls = %d, want 1", calls)
-	}
-}
-
-func TestHostNetworkRetriesIdempotentRequests(t *testing.T) {
-	var calls int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		if calls == 1 {
-			http.Error(w, "retry", http.StatusServiceUnavailable)
-			return
-		}
-		_, _ = w.Write([]byte("ok"))
-	}))
-	defer server.Close()
-
-	network := &HostNetwork{allowPrivate: true}
-	resp, err := network.DoHTTP(context.Background(), HTTPRequest{
-		URL:    server.URL,
-		Method: http.MethodGet,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	if calls != 2 {
-		t.Fatalf("calls = %d, want 2", calls)
-	}
-}
-
 func TestHostNetworkUsesRequestTLSConfig(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -800,7 +746,7 @@ func TestHostNetworkUsesRequestTLSConfig(t *testing.T) {
 		t.Fatalf("test client transport = %T, want *http.Transport", server.Client().Transport)
 	}
 	network := &HostNetwork{allowPrivate: true}
-	resp, err := network.DoHTTP(context.Background(), HTTPRequest{
+	resp, err := systemkit.DoHTTP(context.Background(), network, systemkit.HTTPRequest{
 		URL:       server.URL,
 		Method:    http.MethodGet,
 		TLSConfig: transport.TLSClientConfig,
@@ -830,16 +776,6 @@ func TestHostSettersEnvironmentResolverAndNetworkGuards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	browser := &recordingBrowser{}
-	host.SetBrowser(browser)
-	if host.Browser() != browser {
-		t.Fatal("Browser() did not return configured browser")
-	}
-	clarifier := recordingClarifier{}
-	host.SetClarifier(clarifier)
-	if host.Clarifier() == nil {
-		t.Fatal("Clarifier() returned nil after SetClarifier")
-	}
 	resolver, ok := host.Environment().(ExecutableResolver)
 	if !ok {
 		t.Fatalf("environment = %T, want ExecutableResolver", host.Environment())
@@ -851,7 +787,7 @@ func TestHostSettersEnvironmentResolverAndNetworkGuards(t *testing.T) {
 	if got := DefaultProcessEnv(); got == nil {
 		t.Fatal("DefaultProcessEnv returned nil")
 	}
-	if !AllowedHTTPMethod(http.MethodPatch) || AllowedHTTPMethod("TRACE") {
+	if !systemkit.AllowedHTTPMethod(http.MethodPatch) || systemkit.AllowedHTTPMethod("TRACE") {
 		t.Fatal("AllowedHTTPMethod returned unexpected method decisions")
 	}
 	loopback, _ := url.Parse("http://127.0.0.1")
@@ -872,436 +808,17 @@ func TestHostSettersEnvironmentResolverAndNetworkGuards(t *testing.T) {
 	}
 }
 
-func TestAuthorizedSystemEnforcesWorkspaceActions(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("docs"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	host, err := NewHost(Config{Root: root})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
-	sys := WithAuthorization(host, AuthorizationConfig{})
-	ctx := authorizedTestContext([]policy.Grant{{
-		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
-		Actions:   []policy.Action{policy.ActionWorkspaceRead},
-	}})
-
-	if _, _, _, err := sys.Workspace().ReadFile(ctx, "README.md", 1024); err != nil {
-		t.Fatalf("ReadFile denied: %v", err)
-	}
-	_, err = sys.Workspace().WriteFile(ctx, "out.txt", []byte("x"), 0644, false)
-	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
-		t.Fatalf("WriteFile error = %v, want authorization deny", err)
-	}
-}
-
-func TestAuthorizedWorkspaceAllowsFileHelperOperations(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("line1\nline2\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	host, err := NewHost(Config{
-		Root: root,
-		Workspace: WorkspaceConfig{
-			Roots: []WorkspaceRootConfig{{
-				Name:   "scratch",
-				Path:   filepath.Join(root, "scratch-root"),
-				Access: WorkspaceAccessReadWrite,
-				Create: true,
-			}},
-			ScratchRoot: "scratch",
-		},
-	})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
-	sys := WithAuthorization(host, AuthorizationConfig{})
-	ctx := authorizedTestContext([]policy.Grant{
-		{
-			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-			Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
-			Actions: []policy.Action{
-				policy.ActionWorkspaceRead,
-				policy.ActionWorkspaceWrite,
-			},
-		},
-		{
-			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-			Resources: []policy.ResourceRef{{Kind: policy.ResourceWorkspace, Name: "scratch"}},
-			Actions:   []policy.Action{policy.ActionWorkspaceWrite},
-		},
-	})
-
-	if got := sys.Workspace().Root(); got == "" {
-		t.Fatal("Root() returned empty root")
-	}
-	if roots := sys.Workspace().Roots(); len(roots) != 2 {
-		t.Fatalf("Roots() len = %d, want 2", len(roots))
-	}
-	if _, err := sys.Workspace().ResolveExisting(ctx, "README.md"); err != nil {
-		t.Fatalf("ResolveExisting: %v", err)
-	}
-	if _, err := sys.Workspace().ResolveCreate(ctx, "nested/out.txt"); err != nil {
-		t.Fatalf("ResolveCreate: %v", err)
-	}
-	if data, first, truncated, _, err := sys.Workspace().ReadFileLines(ctx, "README.md", 2, 2, 1024); err != nil || string(data) != "line2\n" || first != 2 || truncated {
-		t.Fatalf("ReadFileLines data=%q first=%d truncated=%v err=%v; want line2", data, first, truncated, err)
-	}
-	if _, _, written, err := sys.Workspace().CopyFile(ctx, "README.md", "copy.md", false); err != nil || written == 0 {
-		t.Fatalf("CopyFile written=%d err=%v, want copied file", written, err)
-	}
-	if _, _, written, err := sys.Workspace().MoveFile(ctx, "copy.md", "moved.md", false); err != nil || written == 0 {
-		t.Fatalf("MoveFile written=%d err=%v, want moved file", written, err)
-	}
-	if _, err := sys.Workspace().MkdirAll(ctx, "dir", 0755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if _, _, err := sys.Workspace().Stat(ctx, "moved.md"); err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	if entries, _, err := sys.Workspace().ReadDir(ctx, "."); err != nil || len(entries) == 0 {
-		t.Fatalf("ReadDir entries=%d err=%v, want entries", len(entries), err)
-	}
-	if entries, _, _, err := sys.Workspace().Walk(ctx, ".", WalkOptions{MaxEntries: 20}); err != nil || len(entries) == 0 {
-		t.Fatalf("Walk entries=%d err=%v, want entries", len(entries), err)
-	}
-	if matches, _, err := sys.Workspace().Glob(ctx, "*.md", GlobOptions{MaxResults: 20}); err != nil || !resolvedContains(matches, "README.md") || !resolvedContains(matches, "moved.md") {
-		t.Fatalf("Glob matches=%#v err=%v, want markdown files", matches, err)
-	}
-	if _, err := sys.Workspace().Remove(ctx, "moved.md"); err != nil {
-		t.Fatalf("Remove: %v", err)
-	}
-	scratch, err := sys.Workspace().CreateScratch(ctx, "auth-test-*")
-	if err != nil {
-		t.Fatalf("CreateScratch: %v", err)
-	}
-	if scratch.Root() == "" {
-		t.Fatal("scratch Root() returned empty root")
-	}
-	if _, err := scratch.WriteFile(ctx, "out.txt", []byte("scratch"), 0644); err != nil {
-		t.Fatalf("scratch WriteFile: %v", err)
-	}
-	if err := scratch.RemoveAll(ctx); err != nil {
-		t.Fatalf("scratch RemoveAll: %v", err)
-	}
-}
-
-func TestAuthorizedSystemAuthorizesCanonicalWorkspacePath(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "docs"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "docs", "README.md"), []byte("docs"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "secret.txt"), []byte("secret"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	host, err := NewHost(Config{Root: root})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
-	sys := WithAuthorization(host, AuthorizationConfig{})
-	ctx := authorizedTestContext([]policy.Grant{{
-		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "docs/**"}},
-		Actions:   []policy.Action{policy.ActionWorkspaceRead},
-	}})
-
-	if _, _, _, err := sys.Workspace().ReadFile(ctx, "docs/README.md", 1024); err != nil {
-		t.Fatalf("ReadFile docs/README.md denied: %v", err)
-	}
-	_, _, _, err = sys.Workspace().ReadFile(ctx, "docs/../secret.txt", 1024)
-	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
-		t.Fatalf("ReadFile traversal error = %v, want authorization deny", err)
-	}
-}
-
-func TestAuthorizedSystemEnforcesEnvironmentSecretRead(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("FLUXPLANE_SYSTEM_TEST_SECRET=secret\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	host, err := NewHost(Config{Root: root, Workspace: WorkspaceConfig{EnvFiles: []string{".env"}}})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
-	sys := WithAuthorization(host, AuthorizationConfig{})
-	denied := authorizedTestContext([]policy.Grant{{
-		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
-		Actions:   []policy.Action{policy.ActionWorkspaceRead},
-	}})
-	if _, _, err := sys.Environment().Lookup(denied, "FLUXPLANE_SYSTEM_TEST_SECRET"); err == nil || !strings.Contains(err.Error(), "authorization_deny") {
-		t.Fatalf("Lookup denied error = %v, want authorization deny", err)
-	}
-
-	allowed := authorizedTestContext([]policy.Grant{{
-		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-		Resources: []policy.ResourceRef{{Kind: policy.ResourceSecret, Name: "env/FLUXPLANE_SYSTEM_TEST_SECRET"}},
-		Actions:   []policy.Action{policy.ActionSecretRead},
-	}})
-	value, ok, err := sys.Environment().Lookup(allowed, "FLUXPLANE_SYSTEM_TEST_SECRET")
-	if err != nil || !ok || value != "secret" {
-		t.Fatalf("Lookup = %q, %v, %v; want secret, true, nil", value, ok, err)
-	}
-}
-
-func TestAuthorizedSystemEnforcesNetworkActions(t *testing.T) {
-	var calls int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		_, _ = w.Write([]byte("ok"))
-	}))
-	defer server.Close()
-	host, err := NewHost(Config{Root: t.TempDir(), AllowPrivateNetwork: true})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
-	sys := WithAuthorization(host, AuthorizationConfig{})
-	ctx := authorizedTestContext([]policy.Grant{{
-		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-		Resources: []policy.ResourceRef{{Kind: policy.ResourceNetwork, Name: "*"}},
-		Actions:   []policy.Action{policy.ActionNetworkFetch},
-	}})
-	if _, err := sys.Network().DoHTTP(ctx, HTTPRequest{URL: server.URL, Method: http.MethodPost}); err == nil || !strings.Contains(err.Error(), "authorization_deny") {
-		t.Fatalf("POST error = %v, want authorization deny", err)
-	}
-	if calls != 0 {
-		t.Fatalf("server calls = %d, want 0", calls)
-	}
-	if _, err := sys.Network().DoHTTP(ctx, HTTPRequest{URL: server.URL, Method: http.MethodGet}); err != nil {
-		t.Fatalf("GET denied: %v", err)
-	}
-}
-
-func TestBrowserURLAuthorizerEnforcesNetworkAccess(t *testing.T) {
-	authorize := BrowserURLAuthorizer(AuthorizationConfig{})
-	denied := authorizedTestContext([]policy.Grant{{
-		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
-		Actions:   []policy.Action{policy.ActionWorkspaceRead},
-	}})
-	if err := authorize(denied, "https://example.com"); err == nil || !strings.Contains(err.Error(), "authorization_deny") {
-		t.Fatalf("authorize denied error = %v, want authorization deny", err)
-	}
-
-	allowed := authorizedTestContext([]policy.Grant{{
-		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-		Resources: []policy.ResourceRef{{Kind: policy.ResourceNetwork, Name: "https://example.com"}},
-		Actions:   []policy.Action{policy.ActionNetworkFetch},
-	}})
-	if err := authorize(allowed, "https://example.com"); err != nil {
-		t.Fatalf("authorize allowed denied: %v", err)
-	}
-}
-
-func TestAuthorizedSystemReturnsConfiguredBrowser(t *testing.T) {
-	br := &recordingBrowser{}
-	sys := WithAuthorization(testSystemBoundary{browser: br}, AuthorizationConfig{})
-	ctx := authorizedTestContext([]policy.Grant{{
-		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-		Resources: []policy.ResourceRef{{Kind: policy.ResourceNetwork, Name: "*"}},
-		Actions:   []policy.Action{policy.ActionNetworkFetch},
-	}})
-	manager := sys.Browser()
-	if _, err := manager.Open(ctx, browser.OpenRequest{URL: "https://example.com"}); err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	session := browser.SessionRequest{SessionID: "browser-1", URL: "https://example.com/page"}
-	if _, err := manager.Navigate(ctx, session); err != nil {
-		t.Fatalf("Navigate: %v", err)
-	}
-	if _, err := manager.Click(ctx, browser.SelectorRequest{SessionID: "browser-1", Selector: "button"}); err != nil {
-		t.Fatalf("Click: %v", err)
-	}
-	if _, err := manager.Type(ctx, browser.TypeRequest{SessionID: "browser-1", Selector: "input", Text: "hello"}); err != nil {
-		t.Fatalf("Type: %v", err)
-	}
-	if _, err := manager.Select(ctx, browser.SelectRequest{SessionID: "browser-1", Selector: "select", Values: []string{"one"}}); err != nil {
-		t.Fatalf("Select: %v", err)
-	}
-	if _, err := manager.Read(ctx, browser.ReadRequest{SessionID: "browser-1"}); err != nil {
-		t.Fatalf("Read: %v", err)
-	}
-	if _, err := manager.Screenshot(ctx, session); err != nil {
-		t.Fatalf("Screenshot: %v", err)
-	}
-	if _, err := manager.Evaluate(ctx, browser.EvaluateRequest{SessionID: "browser-1", Script: "1+1"}); err != nil {
-		t.Fatalf("Evaluate: %v", err)
-	}
-	if _, err := manager.Wait(ctx, browser.WaitRequest{SessionID: "browser-1", Selector: "body"}); err != nil {
-		t.Fatalf("Wait: %v", err)
-	}
-	if _, err := manager.Scroll(ctx, browser.ScrollRequest{SessionID: "browser-1", Y: 10}); err != nil {
-		t.Fatalf("Scroll: %v", err)
-	}
-	if _, err := manager.Hover(ctx, browser.SelectorRequest{SessionID: "browser-1", Selector: "a"}); err != nil {
-		t.Fatalf("Hover: %v", err)
-	}
-	if _, err := manager.Back(ctx, session); err != nil {
-		t.Fatalf("Back: %v", err)
-	}
-	if _, err := manager.Forward(ctx, session); err != nil {
-		t.Fatalf("Forward: %v", err)
-	}
-	if _, err := manager.PDF(ctx, session); err != nil {
-		t.Fatalf("PDF: %v", err)
-	}
-	if err := manager.Close(ctx, session); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-func TestAuthorizedSystemEnforcesProcessExec(t *testing.T) {
-	host, err := NewHost(Config{Root: t.TempDir()})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
-	sys := WithAuthorization(host, AuthorizationConfig{})
-	ctx := authorizedTestContext([]policy.Grant{{
-		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
-		Actions:   []policy.Action{policy.ActionWorkspaceRead},
-	}})
-	_, err = sys.Process().Run(ctx, ProcessRequest{Command: "go", Args: []string{"version"}, Timeout: time.Second})
-	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
-		t.Fatalf("Run error = %v, want authorization deny", err)
-	}
-}
-
-func TestAuthorizedProcessManagerAllowsManagedLifecycle(t *testing.T) {
-	host, err := NewHost(Config{Root: t.TempDir()})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
-	sys := WithAuthorization(host, AuthorizationConfig{})
-	ctx := authorizedTestContext([]policy.Grant{{
-		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-		Resources: []policy.ResourceRef{{Kind: policy.ResourceProcess, Name: "*"}},
-		Actions:   []policy.Action{policy.ActionProcessExec, policy.ActionProcessAdmin},
-	}})
-	manager := sys.Process()
-	handle, created, err := manager.Ensure(ctx, ProcessRequest{
-		Command: "sh",
-		Args:    []string{"-c", "printf hello"},
-		Label:   "short",
-		Timeout: time.Second,
-	})
-	if err != nil {
-		t.Fatalf("Ensure: %v", err)
-	}
-	if !created {
-		t.Fatal("Ensure created = false, want new process")
-	}
-	if handle.ID() == "" || handle.Info().Label != "short" {
-		t.Fatalf("handle info = %#v, want labeled process", handle.Info())
-	}
-	if _, err := manager.List(ctx); err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if _, err := manager.Status(ctx, handle.ID()); err != nil {
-		t.Fatalf("Status: %v", err)
-	}
-	if _, err := manager.Output(ctx, handle.ID()); err != nil {
-		t.Fatalf("Output: %v", err)
-	}
-	result, err := manager.Wait(ctx, handle.ID(), time.Second)
-	if err != nil {
-		t.Fatalf("Wait: %v", err)
-	}
-	if result.Stdout != "hello" {
-		t.Fatalf("stdout = %q, want hello", result.Stdout)
-	}
-	if err := manager.Stop(ctx, handle.ID()); err != nil {
-		t.Fatalf("Stop: %v", err)
-	}
-	if err := manager.Kill(ctx, handle.ID()); err != nil {
-		t.Fatalf("Kill: %v", err)
-	}
-}
-
 type testSystemBoundary struct {
 	workspace Workspace
 	network   Network
 	process   ProcessManager
-	browser   browser.Manager
 	env       Environment
 }
 
 func (s testSystemBoundary) Workspace() Workspace     { return s.workspace }
 func (s testSystemBoundary) Network() Network         { return s.network }
 func (s testSystemBoundary) Process() ProcessManager  { return s.process }
-func (s testSystemBoundary) Browser() browser.Manager { return s.browser }
-func (s testSystemBoundary) Clarifier() Clarifier     { return nil }
 func (s testSystemBoundary) Environment() Environment { return s.env }
-
-type recordingBrowser struct {
-	openCalls int
-}
-
-type recordingClarifier struct{}
-
-func (recordingClarifier) Clarify(context.Context, ClarifyRequest) (ClarifyResult, error) {
-	return ClarifyResult{}, nil
-}
-
-func (b *recordingBrowser) Open(context.Context, browser.OpenRequest) (browser.OpenResult, error) {
-	b.openCalls++
-	return browser.OpenResult{SessionID: "browser-1", URL: "https://example.com"}, nil
-}
-func (*recordingBrowser) Navigate(context.Context, browser.SessionRequest) (browser.PageResult, error) {
-	return browser.PageResult{}, nil
-}
-func (*recordingBrowser) Click(context.Context, browser.SelectorRequest) (browser.PageResult, error) {
-	return browser.PageResult{}, nil
-}
-func (*recordingBrowser) Type(context.Context, browser.TypeRequest) (browser.PageResult, error) {
-	return browser.PageResult{}, nil
-}
-func (*recordingBrowser) Select(context.Context, browser.SelectRequest) (browser.PageResult, error) {
-	return browser.PageResult{}, nil
-}
-func (*recordingBrowser) Read(context.Context, browser.ReadRequest) (browser.ReadResult, error) {
-	return browser.ReadResult{}, nil
-}
-func (*recordingBrowser) Screenshot(context.Context, browser.SessionRequest) (browser.Artifact, error) {
-	return browser.Artifact{}, nil
-}
-func (*recordingBrowser) Evaluate(context.Context, browser.EvaluateRequest) (browser.EvaluateResult, error) {
-	return browser.EvaluateResult{}, nil
-}
-func (*recordingBrowser) Wait(context.Context, browser.WaitRequest) (browser.PageResult, error) {
-	return browser.PageResult{}, nil
-}
-func (*recordingBrowser) Scroll(context.Context, browser.ScrollRequest) (browser.PageResult, error) {
-	return browser.PageResult{}, nil
-}
-func (*recordingBrowser) Hover(context.Context, browser.SelectorRequest) (browser.PageResult, error) {
-	return browser.PageResult{}, nil
-}
-func (*recordingBrowser) Back(context.Context, browser.SessionRequest) (browser.PageResult, error) {
-	return browser.PageResult{}, nil
-}
-func (*recordingBrowser) Forward(context.Context, browser.SessionRequest) (browser.PageResult, error) {
-	return browser.PageResult{}, nil
-}
-func (*recordingBrowser) PDF(context.Context, browser.SessionRequest) (browser.Artifact, error) {
-	return browser.Artifact{}, nil
-}
-func (*recordingBrowser) Close(context.Context, browser.SessionRequest) error { return nil }
-
-func authorizedTestContext(grants []policy.Grant) context.Context {
-	return policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
-		Policy: policy.AuthorizationPolicy{Grants: grants},
-		Subjects: []policy.SubjectRef{
-			{Kind: policy.SubjectUser, ID: "timo@localhost"},
-		},
-		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
-	})
-}
 
 func resolvedContains(paths []ResolvedPath, rel string) bool {
 	for _, path := range paths {

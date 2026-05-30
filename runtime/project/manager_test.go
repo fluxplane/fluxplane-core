@@ -8,10 +8,10 @@ import (
 
 	coreproject "github.com/fluxplane/fluxplane-core/core/project"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
-	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
-func TestManagerDetectsProjectsWithMemoryAndHostWorkspaces(t *testing.T) {
+func TestManagerDetectsProjectsWithHostWorkspace(t *testing.T) {
 	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
 		writeWorkspaceFile(t, ws, "go.mod", "module example.com/root\n\ngo 1.26\n")
 		writeWorkspaceFile(t, ws, "package.json", `{"name":"root-js","scripts":{"test":"node test.js"}}`)
@@ -247,9 +247,6 @@ Setext
 
 func runManagerBackends(t *testing.T, fn func(*testing.T, system.Workspace)) {
 	t.Helper()
-	t.Run("memory", func(t *testing.T) {
-		fn(t, systemtest.NewMemory().Workspace())
-	})
 	t.Run("host", func(t *testing.T) {
 		sys, err := system.NewHost(system.Config{Root: t.TempDir()})
 		if err != nil {
@@ -261,7 +258,18 @@ func runManagerBackends(t *testing.T, fn func(*testing.T, system.Workspace)) {
 
 func writeWorkspaceFile(t *testing.T, ws system.Workspace, rel, content string) {
 	t.Helper()
-	if _, err := ws.WriteFile(context.Background(), rel, []byte(content), 0644, true); err != nil {
+	resolved, err := ws.ResolveCreate(context.Background(), rel)
+	if err != nil {
+		t.Fatalf("ResolveCreate(%s): %v", rel, err)
+	}
+	if ws.System() == nil || ws.System().FileSystem() == nil {
+		t.Fatalf("workspace filesystem is nil")
+	}
+	name := resolved.Rel
+	if name == "" {
+		name = "."
+	}
+	if err := ws.System().FileSystem().WriteFile(context.Background(), name, []byte(content), fpsystem.WriteFileOptions{Perm: 0644, Overwrite: true}); err != nil {
 		t.Fatalf("WriteFile(%s): %v", rel, err)
 	}
 }

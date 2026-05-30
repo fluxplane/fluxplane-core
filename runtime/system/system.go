@@ -2,11 +2,8 @@
 package system
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,17 +12,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
-	browser "github.com/fluxplane/fluxplane-browser"
-	"github.com/fluxplane/fluxplane-core/core/pathpattern"
-	"github.com/fluxplane/fluxplane-core/runtime/httptransport"
-	"github.com/fluxplane/fluxplane-event"
+	fpsystem "github.com/fluxplane/fluxplane-system"
+	"github.com/fluxplane/fluxplane-system/hostsystem"
+	"github.com/fluxplane/fluxplane-system/mountfs"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 // System groups the runtime boundaries that can touch the outside world.
@@ -33,8 +27,6 @@ type System interface {
 	Workspace() Workspace
 	Network() Network
 	Process() ProcessManager
-	Browser() browser.Manager
-	Clarifier() Clarifier
 	Environment() Environment
 }
 
@@ -43,8 +35,6 @@ type Config struct {
 	Root                string
 	Workspace           WorkspaceConfig
 	AllowPrivateNetwork bool
-	Browser             browser.Manager
-	Clarifier           Clarifier
 }
 
 // WorkspaceConfig configures additional workspace filesystem roots.
@@ -76,8 +66,6 @@ type Host struct {
 	workspace *HostWorkspace
 	network   *HostNetwork
 	process   *HostProcess
-	browser   browser.Manager
-	clarifier Clarifier
 	env       *WorkspaceEnvironment
 }
 
@@ -111,8 +99,6 @@ func NewHost(cfg Config) (*Host, error) {
 		workspace: workspace,
 		network:   &HostNetwork{allowPrivate: cfg.AllowPrivateNetwork},
 		process:   NewHostProcessWithEnvironment(workspace, env),
-		browser:   cfg.Browser,
-		clarifier: cfg.Clarifier,
 		env:       env,
 	}, nil
 }
@@ -126,31 +112,15 @@ func (h *Host) Network() Network { return h.network }
 // Process returns the process boundary.
 func (h *Host) Process() ProcessManager { return h.process }
 
-// Browser returns the configured browser manager, when one is available.
-func (h *Host) Browser() browser.Manager { return h.browser }
-
-// Clarifier returns the configured human-input boundary, when one is available.
-func (h *Host) Clarifier() Clarifier { return h.clarifier }
-
 // Environment returns the host environment boundary.
 func (h *Host) Environment() Environment { return h.env }
 
-// SetBrowser installs a browser manager after host construction.
-func (h *Host) SetBrowser(manager browser.Manager) { h.browser = manager }
-
-// SetClarifier installs a human input boundary after host construction.
-func (h *Host) SetClarifier(clarifier Clarifier) { h.clarifier = clarifier }
-
 // Environment is a read-only boundary for host environment variables.
-type Environment interface {
-	Lookup(context.Context, string) (string, bool, error)
-}
+type Environment = fpsystem.Environment
 
 // ExecutableResolver optionally resolves executables using an environment's
 // process PATH without exposing the PATH value itself.
-type ExecutableResolver interface {
-	ResolveExecutable(context.Context, string) (string, bool, error)
-}
+type ExecutableResolver = fpsystem.ExecutableResolver
 
 // HostEnvironment implements Environment using an explicitly allowed env set.
 type HostEnvironment struct {
@@ -174,21 +144,11 @@ func (e HostEnvironment) ResolveExecutable(ctx context.Context, name string) (st
 
 // Workspace is a root-confined filesystem boundary.
 type Workspace interface {
+	System() fpsystem.System
 	Root() string
 	Roots() []WorkspaceRoot
 	ResolveExisting(context.Context, string) (ResolvedPath, error)
 	ResolveCreate(context.Context, string) (ResolvedPath, error)
-	ReadFile(context.Context, string, int64) ([]byte, bool, ResolvedPath, error)
-	ReadFileLines(context.Context, string, int, int, int64) ([]byte, int, bool, ResolvedPath, error)
-	WriteFile(context.Context, string, []byte, os.FileMode, bool) (ResolvedPath, error)
-	CopyFile(context.Context, string, string, bool) (ResolvedPath, ResolvedPath, int64, error)
-	MoveFile(context.Context, string, string, bool) (ResolvedPath, ResolvedPath, int64, error)
-	MkdirAll(context.Context, string, os.FileMode) (ResolvedPath, error)
-	Remove(context.Context, string) (ResolvedPath, error)
-	Stat(context.Context, string) (fs.FileInfo, ResolvedPath, error)
-	ReadDir(context.Context, string) ([]fs.DirEntry, ResolvedPath, error)
-	Walk(context.Context, string, WalkOptions) ([]WalkEntry, ResolvedPath, bool, error)
-	Glob(context.Context, string, GlobOptions) ([]ResolvedPath, bool, error)
 	CreateScratch(context.Context, string) (ScratchDir, error)
 }
 
@@ -248,6 +208,9 @@ type ScratchDir interface {
 // HostWorkspace implements Workspace using the local filesystem.
 type HostWorkspace struct {
 	root        string
+	base        *hostsystem.FileSystem
+	files       *mountfs.FileSystem
+	system      fpsystem.System
 	roots       []workspaceRoot
 	scratchRoot string
 }
@@ -255,6 +218,7 @@ type HostWorkspace struct {
 type workspaceRoot struct {
 	name     string
 	root     string
+	mount    string
 	rel      string
 	read     bool
 	write    bool
@@ -263,6 +227,14 @@ type workspaceRoot struct {
 
 // Root returns the canonical workspace root.
 func (w *HostWorkspace) Root() string { return w.root }
+
+// System returns the scoped system exposed by the workspace.
+func (w *HostWorkspace) System() fpsystem.System {
+	if w == nil {
+		return nil
+	}
+	return w.system
+}
 
 // Roots returns the runtime filesystem roots exposed by the workspace. The
 // first root is the primary root; additional roots are addressable by their Rel
@@ -346,6 +318,36 @@ func newHostWorkspace(primary string, cfg WorkspaceConfig) (*HostWorkspace, erro
 			return nil, fmt.Errorf("workspace scratch_root %q is not configured", w.scratchRoot)
 		}
 	}
+	baseRoot, err := workspaceBaseRoot(w.roots)
+	if err != nil {
+		return nil, err
+	}
+	w.base = hostsystem.NewFileSystem(baseRoot)
+	mountRoots := make([]mountfs.Root, 0, len(w.roots))
+	for i := range w.roots {
+		root := &w.roots[i]
+		mountPath, err := workspaceMountPath(baseRoot, root.root)
+		if err != nil {
+			return nil, err
+		}
+		root.mount = mountPath
+		mountRoots = append(mountRoots, mountfs.Root{
+			Name:    root.name,
+			Path:    mountPath,
+			Access:  workspaceMountAccess(root.write),
+			Scratch: root.name != "" && root.name == w.scratchRoot,
+		})
+	}
+	files, err := mountfs.New(w.base, mountfs.Spec{Roots: mountRoots})
+	if err != nil {
+		return nil, err
+	}
+	w.files = files
+	scoped, err := systemkit.NewSystem().WithFileSystem(files).Build()
+	if err != nil {
+		return nil, err
+	}
+	w.system = scoped
 	return w, nil
 }
 
@@ -368,6 +370,72 @@ func workspaceAccess(access WorkspaceAccess) (bool, bool, error) {
 	default:
 		return false, false, fmt.Errorf("invalid access %q", access)
 	}
+}
+
+func workspaceMountAccess(write bool) mountfs.Access {
+	if write {
+		return mountfs.ReadWrite
+	}
+	return mountfs.ReadOnly
+}
+
+func workspaceBaseRoot(roots []workspaceRoot) (string, error) {
+	if len(roots) == 0 {
+		return "", fmt.Errorf("workspace has no roots")
+	}
+	base := filepath.Clean(roots[0].root)
+	for _, root := range roots[1:] {
+		next, err := commonPathAncestor(base, filepath.Clean(root.root))
+		if err != nil {
+			return "", err
+		}
+		base = next
+	}
+	return base, nil
+}
+
+func commonPathAncestor(a, b string) (string, error) {
+	volumeA := filepath.VolumeName(a)
+	volumeB := filepath.VolumeName(b)
+	if !strings.EqualFold(volumeA, volumeB) {
+		return "", fmt.Errorf("workspace roots must share a filesystem volume")
+	}
+	rel, err := filepath.Rel(a, b)
+	if err == nil && !pathEscapes(rel) {
+		return a, nil
+	}
+	for {
+		parent := filepath.Dir(a)
+		if parent == a {
+			if volumeA != "" {
+				return volumeA + string(os.PathSeparator), nil
+			}
+			return parent, nil
+		}
+		a = parent
+		rel, err = filepath.Rel(a, b)
+		if err == nil && !pathEscapes(rel) {
+			return a, nil
+		}
+	}
+}
+
+func workspaceMountPath(base, root string) (string, error) {
+	rel, err := filepath.Rel(base, root)
+	if err != nil {
+		return "", err
+	}
+	if pathEscapes(rel) {
+		return "", fmt.Errorf("workspace root %q escapes workspace base %q", root, base)
+	}
+	if rel == "." || rel == "" {
+		return ".", nil
+	}
+	return filepath.ToSlash(rel), nil
+}
+
+func pathEscapes(rel string) bool {
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel)
 }
 
 // ResolveExisting resolves an existing path and rejects symlink escapes.
@@ -453,28 +521,17 @@ func (w *HostWorkspace) ReadFile(ctx context.Context, raw string, maxBytes int64
 	if err != nil {
 		return nil, false, ResolvedPath{}, err
 	}
-	info, err := os.Stat(resolved.Abs)
+	fsys, name := w.filesystemName(resolved)
+	info, err := fsys.Stat(name)
 	if err != nil {
 		return nil, false, ResolvedPath{}, err
 	}
 	if info.IsDir() {
 		return nil, false, ResolvedPath{}, fmt.Errorf("path is a directory")
 	}
-	file, err := os.Open(resolved.Abs)
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, name, maxBytes)
 	if err != nil {
 		return nil, false, ResolvedPath{}, err
-	}
-	defer func() { _ = file.Close() }()
-	if maxBytes <= 0 {
-		maxBytes = info.Size()
-	}
-	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
-	if err != nil {
-		return nil, false, ResolvedPath{}, err
-	}
-	truncated := int64(len(data)) > maxBytes
-	if truncated {
-		data = data[:maxBytes]
 	}
 	return data, truncated, resolved, nil
 }
@@ -485,60 +542,16 @@ func (w *HostWorkspace) ReadFileLines(ctx context.Context, raw string, start, en
 	if err != nil {
 		return nil, 0, false, ResolvedPath{}, err
 	}
-	info, err := os.Stat(resolved.Abs)
+	fsys, name := w.filesystemName(resolved)
+	info, err := fsys.Stat(name)
 	if err != nil {
 		return nil, 0, false, ResolvedPath{}, err
 	}
 	if info.IsDir() {
 		return nil, 0, false, ResolvedPath{}, fmt.Errorf("path is a directory")
 	}
-	file, err := os.Open(resolved.Abs)
-	if err != nil {
-		return nil, 0, false, ResolvedPath{}, err
-	}
-	defer func() { _ = file.Close() }()
-	if maxBytes <= 0 {
-		maxBytes = info.Size()
-	}
-	if start <= 0 {
-		start = 1
-	}
-	if end > 0 && end < start {
-		end = start
-	}
-	reader := bufio.NewReader(file)
-	var out bytes.Buffer
-	var written int64
-	lineNo := 1
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, 0, false, ResolvedPath{}, err
-		}
-		line, err := reader.ReadString('\n')
-		if lineNo >= start && (end <= 0 || lineNo <= end) {
-			remaining := maxBytes - written
-			if remaining <= 0 {
-				return out.Bytes(), start, true, resolved, nil
-			}
-			if int64(len(line)) > remaining {
-				out.WriteString(line[:int(remaining)])
-				return out.Bytes(), start, true, resolved, nil
-			}
-			out.WriteString(line)
-			written += int64(len(line))
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, 0, false, ResolvedPath{}, err
-		}
-		if end > 0 && lineNo >= end {
-			break
-		}
-		lineNo++
-	}
-	return out.Bytes(), start, false, resolved, nil
+	data, firstLine, truncated, err := fpsystem.ReadFileLines(ctx, fsys, name, start, end, maxBytes)
+	return data, firstLine, truncated, resolved, err
 }
 
 // WriteFile writes a file, optionally refusing to overwrite existing paths.
@@ -547,15 +560,7 @@ func (w *HostWorkspace) WriteFile(ctx context.Context, raw string, data []byte, 
 	if err != nil {
 		return ResolvedPath{}, err
 	}
-	if !overwrite {
-		if _, err := os.Lstat(resolved.Abs); err == nil {
-			return ResolvedPath{}, fmt.Errorf("path already exists")
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(resolved.Abs), 0755); err != nil {
-		return ResolvedPath{}, err
-	}
-	return resolved, os.WriteFile(resolved.Abs, data, mode)
+	return resolved, w.files.WriteFile(ctx, workspaceName(resolved), data, fpsystem.WriteFileOptions{Perm: mode, Overwrite: overwrite})
 }
 
 // CopyFile copies one complete file within the workspace.
@@ -564,7 +569,7 @@ func (w *HostWorkspace) CopyFile(ctx context.Context, rawSrc, rawDst string, ove
 	if err != nil {
 		return ResolvedPath{}, ResolvedPath{}, 0, err
 	}
-	info, err := os.Stat(src.Abs)
+	info, err := w.files.Stat(workspaceName(src))
 	if err != nil {
 		return ResolvedPath{}, ResolvedPath{}, 0, err
 	}
@@ -638,11 +643,11 @@ func (w *HostWorkspace) MkdirAll(ctx context.Context, raw string, mode os.FileMo
 	if err != nil {
 		return ResolvedPath{}, err
 	}
-	return resolved, os.MkdirAll(resolved.Abs, mode)
+	return resolved, w.files.MkdirAll(ctx, workspaceName(resolved), fpsystem.MkdirOptions{Perm: mode})
 }
 
 // Remove removes a file or empty directory.
-func (w *HostWorkspace) Remove(_ context.Context, raw string) (ResolvedPath, error) {
+func (w *HostWorkspace) Remove(ctx context.Context, raw string) (ResolvedPath, error) {
 	root, candidate, err := w.candidate(raw)
 	if err != nil {
 		return ResolvedPath{}, err
@@ -658,7 +663,7 @@ func (w *HostWorkspace) Remove(_ context.Context, raw string) (ResolvedPath, err
 	if err != nil {
 		return ResolvedPath{}, err
 	}
-	return resolved, os.Remove(resolved.Abs)
+	return resolved, w.files.Remove(ctx, workspaceName(resolved))
 }
 
 // Stat stats a workspace path.
@@ -667,7 +672,8 @@ func (w *HostWorkspace) Stat(ctx context.Context, raw string) (fs.FileInfo, Reso
 	if err != nil {
 		return nil, ResolvedPath{}, err
 	}
-	info, err := os.Stat(resolved.Abs)
+	fsys, name := w.filesystemName(resolved)
+	info, err := fsys.Stat(name)
 	return info, resolved, err
 }
 
@@ -677,7 +683,8 @@ func (w *HostWorkspace) ReadDir(ctx context.Context, raw string) ([]fs.DirEntry,
 	if err != nil {
 		return nil, ResolvedPath{}, err
 	}
-	entries, err := os.ReadDir(resolved.Abs)
+	fsys, name := w.filesystemName(resolved)
+	entries, err := fsys.ReadDir(name)
 	return entries, resolved, err
 }
 
@@ -687,140 +694,77 @@ func (w *HostWorkspace) Walk(ctx context.Context, raw string, opts WalkOptions) 
 	if err != nil {
 		return nil, ResolvedPath{}, false, err
 	}
-	depth := opts.Depth
-	if depth <= 0 {
-		depth = 3
+	fsys, rootName := w.filesystemName(root)
+	systemEntries, truncated, err := fpsystem.Walk(ctx, fsys, rootName, fpsystem.WalkOptions{
+		Depth:         opts.Depth,
+		ShowHidden:    opts.ShowHidden,
+		MaxEntries:    opts.MaxEntries,
+		FilesOnly:     opts.FilesOnly,
+		SkipDirs:      opts.SkipDirs,
+		FilterPattern: opts.FilterPattern,
+	})
+	if err != nil {
+		return nil, ResolvedPath{}, false, err
 	}
-	if depth > 50 {
-		depth = 50
-	}
-	limit := opts.MaxEntries
-	if limit <= 0 || limit > 10000 {
-		limit = 1000
-	}
-	skipDirs := walkSkipDirs(opts.SkipDirs)
-	var entries []WalkEntry
-	truncated := false
-	err = filepath.WalkDir(root.Abs, func(current string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
+	entries := make([]WalkEntry, 0, len(systemEntries))
+	for _, entry := range systemEntries {
+		name := entry.Path
+		if fsys == w.base {
+			if rel, err := filepath.Rel(rootName, entry.Path); err == nil {
+				name = rel
+			}
 		}
-		if current == root.Abs {
-			return nil
-		}
-		relToRoot, err := filepath.Rel(root.Abs, current)
+		path, err := w.ResolveExisting(ctx, name)
 		if err != nil {
-			return nil
-		}
-		relToRoot = filepath.ToSlash(relToRoot)
-		level := strings.Count(relToRoot, "/") + 1
-		if level > depth {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !opts.ShowHidden && strings.HasPrefix(d.Name(), ".") {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.IsDir() && skipDirs[d.Name()] {
-			return filepath.SkipDir
-		}
-		if opts.FilesOnly && d.IsDir() {
-			return nil
-		}
-		if opts.FilterPattern != "" {
-			if !matchFilterPattern(opts.FilterPattern, relToRoot, d.IsDir()) {
-				if d.IsDir() {
-					// Walk children; they may still match.
-					return nil
-				}
-				return nil
-			}
-		}
-		if len(entries) >= limit {
-			truncated = true
-			return filepath.SkipAll
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		rel := relToRoot
-		if root.Rel != "" {
-			rel = filepath.ToSlash(filepath.Join(root.Rel, relToRoot))
-		}
-		kind := "file"
-		if d.IsDir() {
-			kind = "dir"
-		} else if d.Type()&os.ModeSymlink != 0 {
-			kind = "symlink"
+			continue
 		}
 		entries = append(entries, WalkEntry{
-			Path: ResolvedPath{Input: rel, Abs: current, Rel: rel},
-			Name: d.Name(), Kind: kind, Size: info.Size(), Mode: info.Mode().String(), ModTime: info.ModTime(), Level: level,
+			Path:    path,
+			Name:    entry.Name,
+			Kind:    entry.Kind,
+			Size:    entry.Size,
+			Mode:    entry.Mode,
+			ModTime: entry.ModTime,
+			Level:   entry.Level,
 		})
-		return nil
-	})
-	return entries, root, truncated, err
-}
-
-func walkSkipDirs(names []string) map[string]bool {
-	if len(names) == 0 {
-		return nil
 	}
-	out := make(map[string]bool, len(names))
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name != "" {
-			out[name] = true
-		}
-	}
-	return out
+	return entries, root, truncated, nil
 }
 
 // Glob returns workspace paths matching a slash-style glob under opts.Base.
 func (w *HostWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptions) ([]ResolvedPath, bool, error) {
-	compiled, err := pathpattern.Compile(pattern)
-	if err != nil {
-		return nil, false, err
-	}
 	base := opts.Base
 	if strings.TrimSpace(base) == "" {
 		base = "."
 	}
-	limit := opts.MaxResults
-	if limit <= 0 || limit > 10000 {
-		limit = 1000
-	}
-	scanLimit := opts.MaxScanned
-	if scanLimit <= 0 || scanLimit > 100000 {
-		scanLimit = 10000
-	}
-	entries, root, truncated, err := w.Walk(ctx, base, WalkOptions{Depth: 50, ShowHidden: true, MaxEntries: scanLimit, SkipDirs: opts.SkipDirs})
+	basePath, err := w.ResolveExisting(ctx, base)
 	if err != nil {
 		return nil, false, err
 	}
-	matches := make([]ResolvedPath, 0)
-	resultsTruncated := false
-	for _, entry := range entries {
-		rel := entry.Path.Rel
-		matchRel := rel
-		if root.Rel != "" && strings.HasPrefix(matchRel, root.Rel+"/") {
-			matchRel = strings.TrimPrefix(matchRel, root.Rel+"/")
-		}
-		if compiled.Match(matchRel) || compiled.Match(rel) {
-			if len(matches) < limit {
-				matches = append(matches, entry.Path)
-			} else {
-				resultsTruncated = true
+	fsys, baseName := w.filesystemName(basePath)
+	names, truncated, err := fpsystem.Glob(ctx, fsys, pattern, fpsystem.GlobOptions{
+		Base:       baseName,
+		MaxResults: opts.MaxResults,
+		MaxScanned: opts.MaxScanned,
+		SkipDirs:   opts.SkipDirs,
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	matches := make([]ResolvedPath, 0, len(names))
+	for _, name := range names {
+		if fsys == w.base {
+			if rel, err := filepath.Rel(baseName, name); err == nil {
+				name = rel
 			}
 		}
+		resolved, err := w.ResolveExisting(ctx, name)
+		if err != nil {
+			continue
+		}
+		matches = append(matches, resolved)
 	}
-	return matches, truncated || resultsTruncated, nil
+	return matches, truncated, nil
 }
 
 // CreateScratch creates an isolated temporary directory for runtime-owned work.
@@ -918,25 +862,8 @@ func (w *HostWorkspace) candidate(raw string) (workspaceRoot, string, error) {
 	if raw == "" {
 		raw = "."
 	}
-	if strings.HasPrefix(raw, "@") {
-		name, rest := splitWorkspaceRootPath(raw)
-		root, ok := w.rootByName(name)
-		if !ok {
-			return workspaceRoot{}, "", fmt.Errorf("unknown workspace root %q", name)
-		}
-		clean := filepath.Clean(filepath.FromSlash(rest))
-		if clean == "." {
-			clean = ""
-		}
-		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
-			return workspaceRoot{}, "", fmt.Errorf("path escapes workspace root")
-		}
-		path, err := filepath.Abs(filepath.Join(root.root, clean))
-		return root, path, err
-	}
-	path := raw
-	if filepath.IsAbs(path) {
-		abs, err := filepath.Abs(path)
+	if filepath.IsAbs(raw) {
+		abs, err := filepath.Abs(raw)
 		if err != nil {
 			return workspaceRoot{}, "", err
 		}
@@ -946,15 +873,47 @@ func (w *HostWorkspace) candidate(raw string) (workspaceRoot, string, error) {
 		}
 		return root, abs, nil
 	}
-	root := w.roots[0]
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(root.root, path)
+	if raw == "." {
+		root := w.roots[0]
+		return root, root.root, nil
 	}
-	path, err := filepath.Abs(path)
+
+	if w.files == nil || w.base == nil {
+		return workspaceRoot{}, "", fmt.Errorf("workspace filesystem is not initialized")
+	}
+	name, err := workspaceMountName(raw)
 	if err != nil {
 		return workspaceRoot{}, "", err
 	}
-	return root, path, nil
+	mounted, err := w.files.Resolve(name)
+	if err != nil {
+		return workspaceRoot{}, "", err
+	}
+	root, ok := w.rootByName(mounted.Root.Name)
+	if !ok {
+		return workspaceRoot{}, "", fmt.Errorf("unknown workspace root %q", mounted.Root.Name)
+	}
+	abs := filepath.Join(w.base.Root(), filepath.FromSlash(mounted.Path))
+	return root, abs, nil
+}
+
+func workspaceMountName(raw string) (string, error) {
+	if strings.HasPrefix(raw, "@") {
+		name, rest := splitWorkspaceRootPath(raw)
+		clean := filepath.Clean(filepath.FromSlash(rest))
+		if clean == "." {
+			return "@" + name, nil
+		}
+		if pathEscapes(clean) || filepath.IsAbs(clean) {
+			return "", fmt.Errorf("path escapes workspace root")
+		}
+		return "@" + name + "/" + filepath.ToSlash(clean), nil
+	}
+	clean := filepath.Clean(filepath.FromSlash(raw))
+	if pathEscapes(clean) || filepath.IsAbs(clean) {
+		return "", fmt.Errorf("path escapes workspace root")
+	}
+	return filepath.ToSlash(clean), nil
 }
 
 func splitWorkspaceRootPath(raw string) (string, string) {
@@ -1016,6 +975,35 @@ func (w *HostWorkspace) resolved(input string, root workspaceRoot, abs string) (
 	return ResolvedPath{Input: input, Abs: abs, Rel: rel}, nil
 }
 
+func workspaceName(resolved ResolvedPath) string {
+	if strings.TrimSpace(resolved.Rel) == "" {
+		return "."
+	}
+	return resolved.Rel
+}
+
+// WorkspacePathName returns the scoped filesystem name for resolved.
+func WorkspacePathName(resolved ResolvedPath) string {
+	return workspaceName(resolved)
+}
+
+// WorkspaceFileSystem returns the scoped filesystem exposed by ws.
+func WorkspaceFileSystem(ws Workspace) (fpsystem.FileSystem, error) {
+	if ws == nil || ws.System() == nil || ws.System().FileSystem() == nil {
+		return nil, fmt.Errorf("workspace filesystem is nil")
+	}
+	return ws.System().FileSystem(), nil
+}
+
+func (w *HostWorkspace) filesystemName(resolved ResolvedPath) (fpsystem.FileSystem, string) {
+	if w != nil && w.base != nil && len(w.roots) > 0 &&
+		strings.TrimSpace(resolved.Rel) == "" &&
+		filepath.Clean(resolved.Abs) == filepath.Clean(w.roots[0].root) {
+		return w.base, w.roots[0].mount
+	}
+	return w.files, workspaceName(resolved)
+}
+
 func pathWithin(root, candidate string) error {
 	rel, err := filepath.Rel(root, candidate)
 	if err != nil {
@@ -1030,118 +1018,55 @@ func pathWithin(root, candidate string) error {
 	return nil
 }
 
-// Network executes outbound HTTP requests through a host-guarded boundary.
-type Network interface {
-	DoHTTP(context.Context, HTTPRequest) (HTTPResponse, error)
-}
+// Network provides primitive network access.
+type Network = fpsystem.Network
 
-// HTTPRequest is the neutral request shape exposed to standard operations.
-type HTTPRequest struct {
-	URL       string
-	Method    string
-	Headers   map[string]string
-	Body      string
-	Timeout   time.Duration
-	MaxBytes  int
-	UserAgent string
-	TLSConfig *tls.Config
-}
-
-// HTTPResponse is the neutral response shape returned by Network.
-type HTTPResponse struct {
-	URL         string              `json:"url"`
-	FinalURL    string              `json:"final_url,omitempty"`
-	Method      string              `json:"method"`
-	Status      string              `json:"status"`
-	StatusCode  int                 `json:"status_code"`
-	Headers     map[string][]string `json:"headers,omitempty"`
-	ContentType string              `json:"content_type,omitempty"`
-	Body        []byte              `json:"-"`
-	Truncated   bool                `json:"truncated,omitempty"`
-	Duration    time.Duration       `json:"-"`
-}
-
-// HostNetwork implements Network using net/http with target guards.
+// HostNetwork implements primitive network access with target guards.
 type HostNetwork struct {
 	allowPrivate bool
 }
 
-// DoHTTP executes req after validating the target and redirects.
-func (n *HostNetwork) DoHTTP(ctx context.Context, req HTTPRequest) (HTTPResponse, error) {
-	parsed, err := url.Parse(strings.TrimSpace(req.URL))
+func (n *HostNetwork) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
 	if err != nil {
-		return HTTPResponse{}, err
+		return nil, err
 	}
-	if err := ValidatePublicURL(parsed, n.allowPrivate); err != nil {
-		return HTTPResponse{}, err
-	}
-	method := strings.ToUpper(strings.TrimSpace(req.Method))
-	if method == "" {
-		method = http.MethodGet
-	}
-	if !AllowedHTTPMethod(method) {
-		return HTTPResponse{}, fmt.Errorf("unsupported HTTP method %q", method)
-	}
-	timeout := req.Timeout
-	if timeout <= 0 || timeout > 60*time.Second {
-		timeout = 30 * time.Second
-	}
-	maxBytes := req.MaxBytes
-	if maxBytes <= 0 {
-		maxBytes = 512 * 1024
-	}
-	reqCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	httpReq, err := http.NewRequestWithContext(reqCtx, method, parsed.String(), strings.NewReader(req.Body))
+	ip, err := resolvePublicIP(ctx, host, n.allowPrivate)
 	if err != nil {
-		return HTTPResponse{}, err
+		return nil, err
 	}
-	userAgent := req.UserAgent
-	if userAgent == "" {
-		userAgent = "fluxplane/0.1"
-	}
-	httpReq.Header.Set("User-Agent", userAgent)
-	for key, value := range req.Headers {
-		httpReq.Header.Set(key, value)
-	}
-	retry := httptransport.DefaultRetryConfig()
-	retry.RetryNonIdempotent = false
-	client := &http.Client{
-		Transport: httptransport.NewDefaultTransportWithRetry(PublicNetworkTransportWithTLS(n.allowPrivate, req.TLSConfig), retry),
-		CheckRedirect: func(redirectReq *http.Request, _ []*http.Request) error {
-			return ValidatePublicURL(redirectReq.URL, n.allowPrivate)
-		},
-	}
-	start := time.Now()
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return HTTPResponse{}, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxBytes)+1))
-	if err != nil {
-		return HTTPResponse{}, err
-	}
-	truncated := len(body) > maxBytes
-	if truncated {
-		body = body[:maxBytes]
-	}
-	return HTTPResponse{
-		URL: parsed.String(), FinalURL: resp.Request.URL.String(), Method: method,
-		Status: resp.Status, StatusCode: resp.StatusCode, Headers: resp.Header,
-		ContentType: resp.Header.Get("Content-Type"), Body: body, Truncated: truncated,
-		Duration: time.Since(start),
-	}, nil
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 }
 
-// AllowedHTTPMethod reports whether method is enabled for the default network boundary.
-func AllowedHTTPMethod(method string) bool {
-	switch strings.ToUpper(method) {
-	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions:
-		return true
-	default:
-		return false
-	}
+func (n *HostNetwork) Resolver() fpsystem.Resolver {
+	return hostResolver{}
+}
+
+type hostResolver struct{}
+
+func (hostResolver) LookupHost(ctx context.Context, host string) ([]string, error) {
+	return net.DefaultResolver.LookupHost(ctx, host)
+}
+
+func (hostResolver) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+	return net.DefaultResolver.LookupIPAddr(ctx, host)
+}
+
+func (hostResolver) LookupCNAME(ctx context.Context, host string) (string, error) {
+	return net.DefaultResolver.LookupCNAME(ctx, host)
+}
+
+func (hostResolver) LookupMX(ctx context.Context, name string) ([]*net.MX, error) {
+	return net.DefaultResolver.LookupMX(ctx, name)
+}
+
+func (hostResolver) LookupSRV(ctx context.Context, service, proto, name string) (string, []*net.SRV, error) {
+	return net.DefaultResolver.LookupSRV(ctx, service, proto, name)
+}
+
+func (hostResolver) LookupTXT(ctx context.Context, name string) ([]string, error) {
+	return net.DefaultResolver.LookupTXT(ctx, name)
 }
 
 // ValidatePublicURL rejects non-HTTP and private/local targets.
@@ -1232,13 +1157,8 @@ type ProcessRunner interface {
 	Run(context.Context, ProcessRequest) (ProcessResult, error)
 }
 
-// ProcessManager is the long-running process boundary planned for shells,
-// dev servers, tests, and other streaming/background workloads.
-//
-// Implementations should expose stdout/stderr as events, support foreground
-// attach, and allow callers to list and kill background processes. The initial
-// HostProcess implementation only provides Run; this interface documents the
-// target shape so operation APIs can grow without bypassing System.
+// ProcessManager is the long-running process boundary for shells, dev servers,
+// tests, and other streaming/background workloads.
 type ProcessManager interface {
 	ProcessRunner
 	Start(context.Context, ProcessRequest) (ProcessHandle, error)
@@ -1252,101 +1172,38 @@ type ProcessManager interface {
 }
 
 // ProcessHandle identifies a running or completed managed process.
-type ProcessHandle interface {
-	ID() string
-	Info() ProcessInfo
-	Events() <-chan ProcessEvent
-	Wait(context.Context) (ProcessResult, error)
-}
+type ProcessHandle = fpsystem.ProcessHandle
 
 // ProcessInfo describes a managed process.
-type ProcessInfo struct {
-	ID        string            `json:"id"`
-	Label     string            `json:"label,omitempty"`
-	Tags      []string          `json:"tags,omitempty"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
-	Command   string            `json:"command"`
-	Args      []string          `json:"args,omitempty"`
-	Workdir   string            `json:"workdir,omitempty"`
-	StartedAt time.Time         `json:"started_at,omitempty"`
-	EndedAt   time.Time         `json:"ended_at,omitempty"`
-	Running   bool              `json:"running,omitempty"`
-	ExitCode  int               `json:"exit_code,omitempty"`
-	Error     string            `json:"error,omitempty"`
-}
+type ProcessInfo = fpsystem.ProcessInfo
 
 // ProcessEvent is emitted for streaming process output and lifecycle changes.
-type ProcessEvent struct {
-	ProcessID string    `json:"process_id"`
-	Kind      string    `json:"kind"`
-	Stream    string    `json:"stream,omitempty"`
-	Data      string    `json:"data,omitempty"`
-	Time      time.Time `json:"time,omitempty"`
-}
+type ProcessEvent = fpsystem.ProcessEvent
 
 const (
-	EventProcessStarted event.Name = "process.started"
-	EventProcessOutput  event.Name = "process.output"
-	EventProcessExited  event.Name = "process.exited"
+	ProcessEventStarted = fpsystem.ProcessEventStarted
+	ProcessEventOutput  = fpsystem.ProcessEventOutput
+	ProcessEventExited  = fpsystem.ProcessEventExited
+
+	EventProcessStarted = fpsystem.EventProcessStarted
+	EventProcessOutput  = fpsystem.EventProcessOutput
+	EventProcessExited  = fpsystem.EventProcessExited
 )
 
-// EventName returns the runtime event name.
-func (e ProcessEvent) EventName() event.Name {
-	switch e.Kind {
-	case "started":
-		return EventProcessStarted
-	case "exited":
-		return EventProcessExited
-	default:
-		return EventProcessOutput
-	}
-}
-
 // ProcessRequest describes one bounded process execution.
-type ProcessRequest struct {
-	Command   string
-	Args      []string
-	Workdir   string
-	Env       []string
-	Timeout   time.Duration
-	Detached  bool
-	MaxStdout int
-	MaxStderr int
-	Label     string
-	Tags      []string
-	Metadata  map[string]string
-}
+type ProcessRequest = fpsystem.ProcessRequest
 
 // ProcessResult is the captured process outcome.
-type ProcessResult struct {
-	Command         string        `json:"command"`
-	Args            []string      `json:"args,omitempty"`
-	Workdir         string        `json:"workdir,omitempty"`
-	Stdout          string        `json:"stdout,omitempty"`
-	Stderr          string        `json:"stderr,omitempty"`
-	ExitCode        int           `json:"exit_code"`
-	TimedOut        bool          `json:"timed_out,omitempty"`
-	StdoutTruncated bool          `json:"stdout_truncated,omitempty"`
-	StderrTruncated bool          `json:"stderr_truncated,omitempty"`
-	Duration        time.Duration `json:"-"`
-}
+type ProcessResult = fpsystem.ProcessResult
 
 // ProcessOutput is a bounded output snapshot for a managed process.
-type ProcessOutput struct {
-	ProcessID       string `json:"process_id"`
-	Stdout          string `json:"stdout,omitempty"`
-	Stderr          string `json:"stderr,omitempty"`
-	StdoutTruncated bool   `json:"stdout_truncated,omitempty"`
-	StderrTruncated bool   `json:"stderr_truncated,omitempty"`
-}
+type ProcessOutput = fpsystem.ProcessOutput
 
 // HostProcess executes direct host processes without a shell interpreter.
 type HostProcess struct {
 	workspace *HostWorkspace
 	env       *WorkspaceEnvironment
-	mu        sync.Mutex
-	nextID    atomic.Uint64
-	procs     map[string]*managedProcess
+	process   *hostsystem.Process
 }
 
 // NewHostProcess returns a host process manager.
@@ -1357,354 +1214,124 @@ func NewHostProcess(workspace *HostWorkspace) *HostProcess {
 
 // NewHostProcessWithEnvironment returns a host process manager using env.
 func NewHostProcessWithEnvironment(workspace *HostWorkspace, env *WorkspaceEnvironment) *HostProcess {
-	return &HostProcess{workspace: workspace, env: env, procs: map[string]*managedProcess{}}
+	if env == nil {
+		env, _ = newWorkspaceEnvironment(workspace)
+	}
+	return &HostProcess{
+		workspace: workspace,
+		env:       env,
+		process:   hostsystem.NewProcess(workspace.Root(), workspaceProcessEnvironment{}, nil),
+	}
 }
 
 // Run executes one direct process and waits for completion.
 func (p *HostProcess) Run(ctx context.Context, req ProcessRequest) (ProcessResult, error) {
-	handle, err := p.Start(ctx, req)
+	preparedCtx, prepared, err := p.prepare(ctx, req)
 	if err != nil {
 		return ProcessResult{}, err
 	}
-	return handle.Wait(ctx)
+	return p.process.Run(preparedCtx, prepared)
 }
 
 // Start launches one direct process under management.
 func (p *HostProcess) Start(ctx context.Context, req ProcessRequest) (ProcessHandle, error) {
-	command := strings.TrimSpace(req.Command)
-	if command == "" {
-		return nil, fmt.Errorf("command is empty")
+	preparedCtx, prepared, err := p.prepare(ctx, req)
+	if err != nil {
+		return nil, err
 	}
-	if strings.ContainsAny(command, "\n\r;&|<>$`\\") {
-		return nil, fmt.Errorf("shell syntax is not supported")
+	return p.process.Start(preparedCtx, prepared)
+}
+
+// Ensure returns a running process for req.Label or starts a new one.
+func (p *HostProcess) Ensure(ctx context.Context, req ProcessRequest) (ProcessHandle, bool, error) {
+	preparedCtx, prepared, err := p.prepare(ctx, req)
+	if err != nil {
+		return nil, false, err
 	}
-	baseCtx := processContext(ctx, req.Detached)
-	var runCtx context.Context
-	var cancel context.CancelFunc
-	if req.Timeout > 0 {
-		runCtx, cancel = context.WithTimeout(baseCtx, req.Timeout)
-	} else {
-		runCtx, cancel = context.WithCancel(baseCtx)
+	return p.process.Ensure(preparedCtx, prepared)
+}
+
+// List returns known managed processes.
+func (p *HostProcess) List(context.Context) ([]ProcessInfo, error) {
+	return p.process.List(context.Background())
+}
+
+// Status returns one managed process info.
+func (p *HostProcess) Status(ctx context.Context, id string) (ProcessInfo, error) {
+	return p.process.Status(ctx, id)
+}
+
+// Output returns a bounded output snapshot for one managed process.
+func (p *HostProcess) Output(ctx context.Context, id string) (ProcessOutput, error) {
+	return p.process.Output(ctx, id)
+}
+
+// Wait waits for one managed process to exit.
+func (p *HostProcess) Wait(ctx context.Context, id string, timeout time.Duration) (ProcessResult, error) {
+	return p.process.Wait(ctx, id, timeout)
+}
+
+// Stop gracefully terminates a managed process.
+func (p *HostProcess) Stop(ctx context.Context, id string) error {
+	return p.process.Stop(ctx, id)
+}
+
+// Kill terminates a managed process.
+func (p *HostProcess) Kill(ctx context.Context, id string) error {
+	return p.process.Kill(ctx, id)
+}
+
+func (p *HostProcess) prepare(ctx context.Context, req ProcessRequest) (context.Context, ProcessRequest, error) {
+	if p == nil || p.workspace == nil {
+		return ctx, req, fmt.Errorf("host process workspace is nil")
 	}
 	workdir := p.workspace.Root()
 	processRoot := p.workspace.roots[0]
 	if strings.TrimSpace(req.Workdir) != "" {
 		resolved, err := p.workspace.ResolveProcessWorkdir(req.Workdir)
 		if err != nil {
-			cancel()
-			return nil, err
+			return ctx, req, err
 		}
 		info, err := os.Stat(resolved.Abs)
 		if err != nil {
-			cancel()
-			return nil, err
+			return ctx, req, err
 		}
 		if !info.IsDir() {
-			cancel()
-			return nil, fmt.Errorf("workdir is not a directory")
+			return ctx, req, fmt.Errorf("workdir is not a directory")
 		}
 		workdir = resolved.Abs
 		if root, ok := p.workspace.rootForAbs(workdir); ok {
 			processRoot = root
 		}
 	}
-	cmd := exec.CommandContext(runCtx, command, req.Args...)
-	cmd.Dir = workdir
 	env, err := p.env.processEnv(processRoot, req.Env)
 	if err != nil {
-		cancel()
-		return nil, err
+		return ctx, req, err
 	}
-	cmd.Env = env
-	configureCommandProcess(cmd)
-	start := time.Now()
-	id := fmt.Sprintf("proc-%d", p.nextID.Add(1))
-	mp := &managedProcess{
-		manager: p, id: id, cmd: cmd, cancel: cancel,
-		events: make(chan ProcessEvent, 128), done: make(chan struct{}), started: make(chan struct{}),
-		stdout: cappedBuffer{max: positiveOr(req.MaxStdout, 64*1024)},
-		stderr: cappedBuffer{max: positiveOr(req.MaxStderr, 64*1024)},
-		info: ProcessInfo{
-			ID: id, Label: strings.TrimSpace(req.Label), Tags: trimStrings(req.Tags), Metadata: cloneStringMap(req.Metadata),
-			Command: command, Args: append([]string(nil), req.Args...), Workdir: workdir, StartedAt: start, Running: true,
-		},
-	}
-	cmd.Stdout = processOutputWriter{process: mp, stream: "stdout"}
-	cmd.Stderr = processOutputWriter{process: mp, stream: "stderr"}
-	if err := cmd.Start(); err != nil {
-		cancel()
-		return nil, err
-	}
-	p.mu.Lock()
-	p.procs[id] = mp
-	p.mu.Unlock()
-	mp.emit(ProcessEvent{ProcessID: id, Kind: "started", Time: start})
-	close(mp.started)
-	go mp.wait(runCtx, start)
-	return mp, nil
+	req.Workdir = workdir
+	return context.WithValue(ctxOrBackground(ctx), workspaceProcessEnvKey{}, env), req, nil
 }
 
-func processContext(ctx context.Context, detached bool) context.Context {
-	if detached || ctx == nil {
+type workspaceProcessEnvKey struct{}
+
+type workspaceProcessEnvironment struct{}
+
+func (workspaceProcessEnvironment) Lookup(context.Context, string) (string, bool, error) {
+	return "", false, nil
+}
+
+func (workspaceProcessEnvironment) ProcessEnv(ctx context.Context, overrides []string) ([]string, error) {
+	if env, ok := ctx.Value(workspaceProcessEnvKey{}).([]string); ok {
+		return append([]string(nil), env...), nil
+	}
+	return hostsystem.Environment{}.ProcessEnv(ctx, overrides)
+}
+
+func ctxOrBackground(ctx context.Context) context.Context {
+	if ctx == nil {
 		return context.Background()
 	}
 	return ctx
-}
-
-// Ensure returns a running process for req.Label or starts a new one.
-func (p *HostProcess) Ensure(ctx context.Context, req ProcessRequest) (ProcessHandle, bool, error) {
-	label := strings.TrimSpace(req.Label)
-	if label != "" {
-		p.mu.Lock()
-		for _, proc := range p.procs {
-			info := proc.Info()
-			if info.Label == label && info.Running {
-				p.mu.Unlock()
-				return proc, false, nil
-			}
-		}
-		p.mu.Unlock()
-	}
-	handle, err := p.Start(ctx, req)
-	return handle, true, err
-}
-
-// List returns known managed processes.
-func (p *HostProcess) List(context.Context) ([]ProcessInfo, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	out := make([]ProcessInfo, 0, len(p.procs))
-	for _, proc := range p.procs {
-		out = append(out, proc.Info())
-	}
-	return out, nil
-}
-
-// Status returns one managed process info.
-func (p *HostProcess) Status(_ context.Context, id string) (ProcessInfo, error) {
-	proc, err := p.lookup(id)
-	if err != nil {
-		return ProcessInfo{}, err
-	}
-	return proc.Info(), nil
-}
-
-// Output returns a bounded output snapshot for one managed process.
-func (p *HostProcess) Output(_ context.Context, id string) (ProcessOutput, error) {
-	proc, err := p.lookup(id)
-	if err != nil {
-		return ProcessOutput{}, err
-	}
-	return proc.Output(), nil
-}
-
-// Wait waits for one managed process to exit.
-func (p *HostProcess) Wait(ctx context.Context, id string, timeout time.Duration) (ProcessResult, error) {
-	proc, err := p.lookup(id)
-	if err != nil {
-		return ProcessResult{}, err
-	}
-	waitCtx := ctx
-	if waitCtx == nil {
-		waitCtx = context.Background()
-	}
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		waitCtx, cancel = context.WithTimeout(waitCtx, timeout)
-		defer cancel()
-	}
-	return proc.Wait(waitCtx)
-}
-
-// Stop gracefully terminates a managed process.
-func (p *HostProcess) Stop(_ context.Context, id string) error {
-	proc, err := p.lookup(id)
-	if err != nil {
-		return err
-	}
-	proc.cancel()
-	terminateCommandProcess(proc.cmd)
-	return nil
-}
-
-// Kill terminates a managed process.
-func (p *HostProcess) Kill(_ context.Context, id string) error {
-	proc, err := p.lookup(id)
-	if err != nil {
-		return err
-	}
-	proc.cancel()
-	killCommandProcess(proc.cmd)
-	return nil
-}
-
-func (p *HostProcess) lookup(id string) (*managedProcess, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	proc, ok := p.procs[id]
-	if ok {
-		return proc, nil
-	}
-	for _, candidate := range p.procs {
-		info := candidate.Info()
-		if info.Label == id {
-			return candidate, nil
-		}
-	}
-	return nil, fmt.Errorf("process %q not found", id)
-}
-
-type managedProcess struct {
-	manager *HostProcess
-	id      string
-	cmd     *exec.Cmd
-	cancel  context.CancelFunc
-	infoMu  sync.Mutex
-	info    ProcessInfo
-	stdout  cappedBuffer
-	stderr  cappedBuffer
-	events  chan ProcessEvent
-	done    chan struct{}
-	started chan struct{}
-	result  ProcessResult
-	err     error
-}
-
-func (p *managedProcess) ID() string { return p.id }
-
-func (p *managedProcess) Info() ProcessInfo {
-	p.infoMu.Lock()
-	defer p.infoMu.Unlock()
-	info := p.info
-	info.Args = append([]string(nil), p.info.Args...)
-	info.Tags = append([]string(nil), p.info.Tags...)
-	info.Metadata = cloneStringMap(p.info.Metadata)
-	return info
-}
-
-func (p *managedProcess) Events() <-chan ProcessEvent { return p.events }
-
-func (p *managedProcess) Wait(ctx context.Context) (ProcessResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	select {
-	case <-p.done:
-		return p.result, p.err
-	case <-ctx.Done():
-		return ProcessResult{}, ctx.Err()
-	}
-}
-
-func (p *managedProcess) Output() ProcessOutput {
-	p.stdout.mu.Lock()
-	stdout := p.stdout.String()
-	stdoutTruncated := p.stdout.truncated
-	p.stdout.mu.Unlock()
-	p.stderr.mu.Lock()
-	stderr := p.stderr.String()
-	stderrTruncated := p.stderr.truncated
-	p.stderr.mu.Unlock()
-	return ProcessOutput{ProcessID: p.id, Stdout: stdout, Stderr: stderr, StdoutTruncated: stdoutTruncated, StderrTruncated: stderrTruncated}
-}
-
-func (p *managedProcess) wait(ctx context.Context, start time.Time) {
-	err := p.cmd.Wait()
-	duration := time.Since(start)
-	timedOut := ctx.Err() != nil
-	if timedOut {
-		killCommandProcess(p.cmd)
-	}
-	exitCode := 0
-	if err != nil {
-		if exit, ok := err.(*exec.ExitError); ok {
-			exitCode = exit.ExitCode()
-		} else if timedOut {
-			exitCode = -1
-		}
-	}
-	out := p.Output()
-	p.result = ProcessResult{
-		Command: p.info.Command, Args: append([]string(nil), p.info.Args...), Workdir: p.info.Workdir,
-		Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: exitCode, TimedOut: timedOut,
-		StdoutTruncated: out.StdoutTruncated, StderrTruncated: out.StderrTruncated, Duration: duration,
-	}
-	p.err = err
-	if timedOut {
-		p.err = ctx.Err()
-	}
-	ended := time.Now()
-	p.infoMu.Lock()
-	p.info.Running = false
-	p.info.EndedAt = ended
-	p.info.ExitCode = exitCode
-	if p.err != nil && !errors.Is(p.err, context.Canceled) {
-		p.info.Error = p.err.Error()
-	}
-	p.infoMu.Unlock()
-	p.emit(ProcessEvent{ProcessID: p.id, Kind: "exited", Time: ended, Data: fmt.Sprintf("%d", exitCode)})
-	close(p.done)
-	close(p.events)
-}
-
-type processOutputWriter struct {
-	process *managedProcess
-	stream  string
-}
-
-func (w processOutputWriter) Write(data []byte) (int, error) {
-	if len(data) == 0 {
-		return 0, nil
-	}
-	if w.stream == "stderr" {
-		_, _ = w.process.stderr.Write(data)
-	} else {
-		_, _ = w.process.stdout.Write(data)
-	}
-	<-w.process.started
-	w.process.emit(ProcessEvent{ProcessID: w.process.id, Kind: "output", Stream: w.stream, Data: string(data), Time: time.Now()})
-	return len(data), nil
-}
-
-func (p *managedProcess) emit(event ProcessEvent) {
-	select {
-	case p.events <- event:
-	default:
-	}
-}
-
-type cappedBuffer struct {
-	bytes.Buffer
-	mu        sync.Mutex
-	max       int
-	truncated bool
-}
-
-func (b *cappedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.max <= 0 {
-		return len(p), nil
-	}
-	remaining := b.max - b.Len()
-	if remaining <= 0 {
-		b.truncated = true
-		return len(p), nil
-	}
-	if len(p) > remaining {
-		_, _ = b.Buffer.Write(p[:remaining])
-		b.truncated = true
-		return len(p), nil
-	}
-	_, _ = b.Buffer.Write(p)
-	return len(p), nil
-}
-
-func positiveOr(value, fallback int) int {
-	if value > 0 {
-		return value
-	}
-	return fallback
 }
 
 // DefaultProcessEnv returns a small environment for host process execution.
@@ -1716,118 +1343,6 @@ func DefaultProcessEnv() []string {
 		}
 	}
 	return env
-}
-
-// BrowserManager owns browser session lifecycle and automation IO.
-type BrowserManager interface {
-	Open(context.Context, BrowserOpenRequest) (BrowserOpenResult, error)
-	Navigate(context.Context, BrowserSessionRequest) (BrowserPageResult, error)
-	Click(context.Context, BrowserSelectorRequest) (BrowserPageResult, error)
-	Type(context.Context, BrowserTypeRequest) (BrowserPageResult, error)
-	Select(context.Context, BrowserSelectRequest) (BrowserPageResult, error)
-	Read(context.Context, BrowserReadRequest) (BrowserReadResult, error)
-	Screenshot(context.Context, BrowserSessionRequest) (BrowserArtifact, error)
-	Evaluate(context.Context, BrowserEvaluateRequest) (BrowserEvaluateResult, error)
-	Wait(context.Context, BrowserWaitRequest) (BrowserPageResult, error)
-	Scroll(context.Context, BrowserScrollRequest) (BrowserPageResult, error)
-	Hover(context.Context, BrowserSelectorRequest) (BrowserPageResult, error)
-	Back(context.Context, BrowserSessionRequest) (BrowserPageResult, error)
-	Forward(context.Context, BrowserSessionRequest) (BrowserPageResult, error)
-	PDF(context.Context, BrowserSessionRequest) (BrowserArtifact, error)
-	Close(context.Context, BrowserSessionRequest) error
-}
-
-type BrowserOpenRequest struct {
-	URL     string
-	Width   int
-	Height  int
-	Timeout time.Duration
-}
-
-type BrowserSessionRequest struct {
-	SessionID string
-	URL       string
-	Timeout   time.Duration
-}
-
-type BrowserSelectorRequest struct {
-	SessionID string
-	Selector  string
-	Timeout   time.Duration
-}
-
-type BrowserTypeRequest struct {
-	SessionID string
-	Selector  string
-	Text      string
-	Submit    bool
-	Timeout   time.Duration
-}
-
-type BrowserSelectRequest struct {
-	SessionID string
-	Selector  string
-	Values    []string
-	Timeout   time.Duration
-}
-
-type BrowserReadRequest struct {
-	SessionID string
-	Selector  string
-	Timeout   time.Duration
-}
-
-type BrowserEvaluateRequest struct {
-	SessionID string
-	Script    string
-	Timeout   time.Duration
-}
-
-type BrowserWaitRequest struct {
-	SessionID string
-	Selector  string
-	Duration  time.Duration
-	Timeout   time.Duration
-}
-
-type BrowserScrollRequest struct {
-	SessionID string
-	X         int
-	Y         int
-	Timeout   time.Duration
-}
-
-type BrowserOpenResult struct {
-	SessionID string `json:"session_id"`
-	URL       string `json:"url,omitempty"`
-	Title     string `json:"title,omitempty"`
-}
-
-type BrowserPageResult struct {
-	SessionID string `json:"session_id"`
-	URL       string `json:"url,omitempty"`
-	Title     string `json:"title,omitempty"`
-}
-
-type BrowserReadResult struct {
-	SessionID string `json:"session_id"`
-	URL       string `json:"url,omitempty"`
-	Title     string `json:"title,omitempty"`
-	Text      string `json:"text,omitempty"`
-	HTML      string `json:"html,omitempty"`
-}
-
-type BrowserArtifact struct {
-	SessionID   string `json:"session_id"`
-	Path        string `json:"path,omitempty"`
-	MediaType   string `json:"media_type,omitempty"`
-	Bytes       int    `json:"bytes,omitempty"`
-	Description string `json:"description,omitempty"`
-}
-
-type BrowserEvaluateResult struct {
-	SessionID string `json:"session_id"`
-	Value     any    `json:"value,omitempty"`
 }
 
 // matchFilterPattern reports whether relPath (slash-delimited, workspace-relative)
@@ -1850,19 +1365,4 @@ func matchFilterPattern(pattern, relPath string, isDir bool) bool {
 		}
 	}
 	return false
-}
-
-// Clarifier collects human input through a channel or terminal adapter.
-type Clarifier interface {
-	Clarify(context.Context, ClarifyRequest) (ClarifyResult, error)
-}
-
-type ClarifyRequest struct {
-	Prompt   string          `json:"prompt"`
-	Schema   json.RawMessage `json:"schema,omitempty"`
-	Defaults map[string]any  `json:"defaults,omitempty"`
-}
-
-type ClarifyResult struct {
-	Answer any `json:"answer,omitempty"`
 }

@@ -4,16 +4,18 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	browser "github.com/fluxplane/fluxplane-browser"
 	"strings"
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/policy"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-core/runtime/systemauth"
+	"github.com/fluxplane/fluxplane-system/systemkit"
+	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
 
 func TestPollinationsGenerateUsesImageEndpoint(t *testing.T) {
-	sys := newProviderTestSystem(t, map[string]string{}, system.HTTPResponse{
+	sys := newProviderTestSystem(t, map[string]string{}, systemkit.HTTPResponse{
 		Status:      "200 OK",
 		StatusCode:  200,
 		ContentType: "image/png",
@@ -42,8 +44,8 @@ func TestPollinationsGenerateUsesImageEndpoint(t *testing.T) {
 }
 
 func TestProviderInfoUsesAuthorizationContextForEnvSecrets(t *testing.T) {
-	base := newProviderTestSystem(t, map[string]string{"OPENAI_API_KEY": "secret"}, system.HTTPResponse{})
-	sys := system.WithAuthorization(base, system.AuthorizationConfig{})
+	base := newProviderTestSystem(t, map[string]string{"OPENAI_API_KEY": "secret"}, systemkit.HTTPResponse{})
+	sys := systemauth.System(base, systemauth.Config{})
 	ctx := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
 		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
 			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
@@ -62,7 +64,7 @@ func TestProviderInfoUsesAuthorizationContextForEnvSecrets(t *testing.T) {
 
 func TestOpenAIImageGenerateUsesConfiguredAPI(t *testing.T) {
 	image := base64.StdEncoding.EncodeToString([]byte{0x89, 0x50, 0x4e, 0x47})
-	sys := newProviderTestSystem(t, map[string]string{"OPENAI_API_KEY": "sk-test"}, system.HTTPResponse{
+	sys := newProviderTestSystem(t, map[string]string{"OPENAI_API_KEY": "sk-test"}, systemkit.HTTPResponse{
 		Status:     "200 OK",
 		StatusCode: 200,
 		Body:       []byte(`{"data":[{"b64_json":"` + image + `"}]}`),
@@ -95,7 +97,7 @@ func TestOpenAIImageGenerateUsesConfiguredAPI(t *testing.T) {
 
 func TestOpenAIImageGenerateRequestsB64ForDALLE(t *testing.T) {
 	image := base64.StdEncoding.EncodeToString([]byte{0x89, 0x50, 0x4e, 0x47})
-	sys := newProviderTestSystem(t, map[string]string{"OPENAI_API_KEY": "sk-test"}, system.HTTPResponse{
+	sys := newProviderTestSystem(t, map[string]string{"OPENAI_API_KEY": "sk-test"}, systemkit.HTTPResponse{
 		Status:     "200 OK",
 		StatusCode: 200,
 		Body:       []byte(`{"data":[{"b64_json":"` + image + `"}]}`),
@@ -112,8 +114,8 @@ func TestOpenAIImageGenerateRequestsB64ForDALLE(t *testing.T) {
 }
 
 func TestOpenAIImageGenerateDownloadsURLResponse(t *testing.T) {
-	sys := newProviderTestSystem(t, map[string]string{"OPENAI_API_KEY": "sk-test"}, system.HTTPResponse{})
-	sys.network.responses = []system.HTTPResponse{
+	sys := newProviderTestSystem(t, map[string]string{"OPENAI_API_KEY": "sk-test"}, systemkit.HTTPResponse{})
+	sys.network.responses = []systemkit.HTTPResponse{
 		{
 			Status:     "200 OK",
 			StatusCode: 200,
@@ -141,7 +143,7 @@ func TestOpenAIImageGenerateDownloadsURLResponse(t *testing.T) {
 
 func TestOpenRouterImageGenerateUsesChatCompletions(t *testing.T) {
 	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte{0x89, 0x50, 0x4e, 0x47})
-	sys := newProviderTestSystem(t, map[string]string{"OPENROUTER_API_KEY": "or-test"}, system.HTTPResponse{
+	sys := newProviderTestSystem(t, map[string]string{"OPENROUTER_API_KEY": "or-test"}, systemkit.HTTPResponse{
 		Status:     "200 OK",
 		StatusCode: 200,
 		Body:       []byte(`{"choices":[{"message":{"images":[{"image_url":{"url":"` + dataURL + `"}}]}}]}`),
@@ -165,7 +167,7 @@ func TestOpenRouterImageGenerateUsesChatCompletions(t *testing.T) {
 }
 
 func TestAnthropicUnderstandUsesMessagesAPI(t *testing.T) {
-	sys := newProviderTestSystem(t, map[string]string{"ANTHROPIC_API_KEY": "ant-test"}, system.HTTPResponse{
+	sys := newProviderTestSystem(t, map[string]string{"ANTHROPIC_API_KEY": "ant-test"}, systemkit.HTTPResponse{
 		Status:     "200 OK",
 		StatusCode: 200,
 		Body:       []byte(`{"content":[{"type":"text","text":"a small png"}]}`),
@@ -195,7 +197,7 @@ func TestAnthropicUnderstandUsesMessagesAPI(t *testing.T) {
 }
 
 func TestOpenRouterUnderstandUsesVisionChatCompletions(t *testing.T) {
-	sys := newProviderTestSystem(t, map[string]string{"OPENROUTER_API_KEY": "or-test"}, system.HTTPResponse{
+	sys := newProviderTestSystem(t, map[string]string{"OPENROUTER_API_KEY": "or-test"}, systemkit.HTTPResponse{
 		Status:     "200 OK",
 		StatusCode: 200,
 		Body:       []byte(`{"choices":[{"message":{"content":"a screenshot"}}]}`),
@@ -221,16 +223,16 @@ func TestOpenRouterUnderstandUsesVisionChatCompletions(t *testing.T) {
 	}
 }
 
-func decodeJSONBody(t *testing.T, raw string) map[string]any {
+func decodeJSONBody(t *testing.T, raw []byte) map[string]any {
 	t.Helper()
 	var body map[string]any
-	if err := json.Unmarshal([]byte(raw), &body); err != nil {
+	if err := json.Unmarshal(raw, &body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
 	return body
 }
 
-func newProviderTestSystem(t *testing.T, env map[string]string, response system.HTTPResponse) providerTestSystem {
+func newProviderTestSystem(t *testing.T, env map[string]string, response systemkit.HTTPResponse) providerTestSystem {
 	t.Helper()
 	host, err := system.NewHost(system.Config{Root: t.TempDir()})
 	if err != nil {
@@ -252,18 +254,17 @@ type providerTestSystem struct {
 func (s providerTestSystem) Workspace() system.Workspace     { return s.workspace }
 func (s providerTestSystem) Network() system.Network         { return s.network }
 func (s providerTestSystem) Process() system.ProcessManager  { return nil }
-func (s providerTestSystem) Browser() browser.Manager        { return nil }
-func (s providerTestSystem) Clarifier() system.Clarifier     { return nil }
 func (s providerTestSystem) Environment() system.Environment { return s.env }
 
 type recordingNetwork struct {
-	requests  []system.HTTPRequest
-	response  system.HTTPResponse
-	responses []system.HTTPResponse
+	fpsystemtest.UnsupportedNetwork
+	requests  []systemkit.HTTPRequest
+	response  systemkit.HTTPResponse
+	responses []systemkit.HTTPResponse
 	err       error
 }
 
-func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+func (n *recordingNetwork) DoHTTP(_ context.Context, req systemkit.HTTPRequest) (systemkit.HTTPResponse, error) {
 	n.requests = append(n.requests, req)
 	if len(n.responses) > 0 {
 		resp := n.responses[0]
@@ -273,9 +274,9 @@ func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (sy
 	return n.response, n.err
 }
 
-func (n *recordingNetwork) lastRequest() system.HTTPRequest {
+func (n *recordingNetwork) lastRequest() systemkit.HTTPRequest {
 	if len(n.requests) == 0 {
-		return system.HTTPRequest{}
+		return systemkit.HTTPRequest{}
 	}
 	return n.requests[len(n.requests)-1]
 }

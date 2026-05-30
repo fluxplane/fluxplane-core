@@ -37,6 +37,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-event"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 func TestAttachLocalRuntimeConfiguresLocalOpener(t *testing.T) {
@@ -298,8 +299,15 @@ func TestLaunchPassesWorkspaceConfigToSystem(t *testing.T) {
 	}
 	defer runtime.Close()
 
-	resolved, err := runtime.System.Workspace().WriteFile(context.Background(), "@tmp/out.txt", []byte("x"), 0644, false)
+	resolved, err := runtime.System.Workspace().ResolveCreate(context.Background(), "@tmp/out.txt")
 	if err != nil {
+		t.Fatalf("ResolveCreate: %v", err)
+	}
+	fsys, err := system.WorkspaceFileSystem(runtime.System.Workspace())
+	if err != nil {
+		t.Fatalf("WorkspaceFileSystem: %v", err)
+	}
+	if err := fsys.WriteFile(context.Background(), system.WorkspacePathName(resolved), []byte("x"), fpsystem.WriteFileOptions{Perm: 0644}); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	if resolved.Rel != "@tmp/out.txt" {

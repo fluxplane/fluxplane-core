@@ -786,7 +786,7 @@ func (p Plugin) collectPackages(ctx context.Context, rawPath string, limit int, 
 	}
 	builders := map[string]*pkgBuilder{}
 	for _, rel := range files {
-		data, truncated, _, err := p.system.Workspace().ReadFile(ctx, rel, int64(readLimit))
+		data, truncated, _, err := readWorkspaceFile(ctx, p.system.Workspace(), rel, int64(readLimit))
 		if err != nil {
 			return nil, err
 		}
@@ -854,7 +854,7 @@ func (p Plugin) collectPackages(ctx context.Context, rawPath string, limit int, 
 func (p Plugin) goFilesForPath(ctx context.Context, rawPath string) ([]string, error) {
 	rel := cleanRel(rawPath)
 	if rel != "" {
-		if info, _, err := p.system.Workspace().Stat(ctx, rel); err == nil && !info.IsDir() {
+		if info, _, err := statWorkspacePath(ctx, p.system.Workspace(), rel); err == nil && !info.IsDir() {
 			if strings.HasSuffix(rel, ".go") {
 				if isVendoredPath(rel) {
 					return nil, nil
@@ -868,7 +868,7 @@ func (p Plugin) goFilesForPath(ctx context.Context, rawPath string) ([]string, e
 	if root == "" {
 		root = "."
 	}
-	entries, _, _, err := p.system.Workspace().Walk(ctx, root, system.WalkOptions{Depth: 50, ShowHidden: false, MaxEntries: 10000, FilesOnly: true, SkipDirs: noisyDirs()})
+	entries, _, _, err := walkWorkspace(ctx, p.system.Workspace(), root, system.WalkOptions{Depth: 50, ShowHidden: false, MaxEntries: 10000, FilesOnly: true, SkipDirs: noisyDirs()})
 	if err != nil {
 		return nil, err
 	}
@@ -892,7 +892,7 @@ func isVendoredPath(rel string) bool {
 }
 
 func (p Plugin) parseFileSymbols(ctx context.Context, rel string, includeDocs bool, docLimit int) ([]language.Symbol, error) {
-	data, truncated, _, err := p.system.Workspace().ReadFile(ctx, rel, int64(defaultSourceBytes))
+	data, truncated, _, err := readWorkspaceFile(ctx, p.system.Workspace(), rel, int64(defaultSourceBytes))
 	if err != nil {
 		return nil, err
 	}

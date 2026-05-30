@@ -2,10 +2,12 @@ package workspace
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	coreworkspace "github.com/fluxplane/fluxplane-core/core/workspace"
-	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 func TestParseDeclarationsObject(t *testing.T) {
@@ -57,11 +59,8 @@ func TestDeclarationsUseWorkspaceShape(t *testing.T) {
 }
 
 func TestDeclarationLoaderDefaultsDeclarationsDurable(t *testing.T) {
-	sys := systemtest.NewMemory()
-	_, err := sys.Workspace().WriteFile(context.Background(), ".agents/workspaces.json", []byte(`[{"id":"workspace:configured:child","roots":[{"path":"/memory-workspace"}]}]`), 0644, true)
-	if err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	sys := newTestSystem(t)
+	writeWorkspaceDeclaration(t, sys, `[{"id":"workspace:configured:child","roots":[{"path":"`+sys.Workspace().Root()+`"}]}]`)
 	decls, warnings, err := NewDeclarationLoader().Load(context.Background(), sys.Workspace(), 0)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -75,11 +74,8 @@ func TestDeclarationLoaderDefaultsDeclarationsDurable(t *testing.T) {
 }
 
 func TestDeclarationLoaderWarnsOnInvalidDeclaration(t *testing.T) {
-	sys := systemtest.NewMemory()
-	_, err := sys.Workspace().WriteFile(context.Background(), ".agents/workspaces.json", []byte(`[{"id":"workspace:bad","roots":[{}]}]`), 0644, true)
-	if err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	sys := newTestSystem(t)
+	writeWorkspaceDeclaration(t, sys, `[{"id":"workspace:bad","roots":[{}]}]`)
 	decls, warnings, err := NewDeclarationLoader().Load(context.Background(), sys.Workspace(), 0)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -89,5 +85,25 @@ func TestDeclarationLoaderWarnsOnInvalidDeclaration(t *testing.T) {
 	}
 	if len(warnings) != 1 || warnings[0].Code != WarningInvalidDeclaration {
 		t.Fatalf("warnings = %#v, want invalid declaration", warnings)
+	}
+}
+
+func newTestSystem(t *testing.T) *system.Host {
+	t.Helper()
+	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	return sys
+}
+
+func writeWorkspaceDeclaration(t *testing.T, sys *system.Host, data string) {
+	t.Helper()
+	dir := filepath.Join(sys.Workspace().Root(), ".agents")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "workspaces.json"), []byte(data), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
@@ -93,7 +95,7 @@ func readRemote(ctx context.Context, sys system.System, location *url.URL) ([]by
 	if sys == nil || sys.Network() == nil {
 		return nil, fmt.Errorf("network system is nil")
 	}
-	client := system.NewHTTPClient(sys.Network(), system.WithHTTPClientMaxBytes(maxSpecBytes))
+	client := systemkit.NewHTTPClient(sys.Network(), systemkit.WithHTTPClientMaxBytes(maxSpecBytes))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location.String(), nil)
 	if err != nil {
 		return nil, err
@@ -129,7 +131,15 @@ func readWorkspaceFile(ctx context.Context, sys system.System, raw string) ([]by
 		}
 		raw = u.Path
 	}
-	data, truncated, resolved, err := sys.Workspace().ReadFile(ctx, raw, maxSpecBytes)
+	resolved, err := sys.Workspace().ResolveExisting(ctx, raw)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("read %s: %w", raw, err)
+	}
+	fsys, err := system.WorkspaceFileSystem(sys.Workspace())
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("read %s: %w", raw, err)
+	}
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, system.WorkspacePathName(resolved), maxSpecBytes)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("read %s: %w", raw, err)
 	}

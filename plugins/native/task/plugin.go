@@ -30,6 +30,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 	"github.com/fluxplane/fluxplane-event"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 const (
@@ -1023,7 +1024,15 @@ func readArtifactRef(ctx operation.Context, sys system.System, scoped coretask.S
 	if sys == nil || sys.Workspace() == nil {
 		return operation.Failed("task_artifact_reader_missing", "task_read_artifact requires a runtime system for ref reads", map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
 	}
-	data, truncated, resolved, err := sys.Workspace().ReadFile(ctx, ref, maxBytes)
+	resolved, err := sys.Workspace().ResolveExisting(ctx, ref)
+	if err != nil {
+		return operation.Failed("task_artifact_ref_read_failed", err.Error(), map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
+	}
+	fsys, err := system.WorkspaceFileSystem(sys.Workspace())
+	if err != nil {
+		return operation.Failed("task_artifact_ref_read_failed", err.Error(), map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
+	}
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, system.WorkspacePathName(resolved), maxBytes)
 	if err != nil {
 		return operation.Failed("task_artifact_ref_read_failed", err.Error(), map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
 	}

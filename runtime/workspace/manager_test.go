@@ -5,25 +5,24 @@ import (
 	"testing"
 
 	coreworkspace "github.com/fluxplane/fluxplane-core/core/workspace"
-	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 )
 
 func TestManagerResolveSystemWorkspaceFallsBackToLocalRoot(t *testing.T) {
-	sys := systemtest.NewMemory()
+	sys := newTestSystem(t)
 	result, err := NewManager().ResolveSystemWorkspace(context.Background(), sys.Workspace(), "")
 	if err != nil {
 		t.Fatalf("ResolveSystemWorkspace: %v", err)
 	}
-	want := coreworkspace.ID("workspace:local:/memory-workspace")
+	want := coreworkspace.ID("workspace:local:" + sys.Workspace().Root())
 	if result.Selection.Active != want {
 		t.Fatalf("active = %q, want %q", result.Selection.Active, want)
 	}
 }
 
 func TestManagerResolveSystemWorkspaceUsesDeclarations(t *testing.T) {
-	sys := systemtest.NewMemory()
+	sys := newTestSystem(t)
 	parent := coreworkspace.Workspace{ID: "workspace:configured:parent", Members: []coreworkspace.ID{"workspace:configured:child"}}
-	child := coreworkspace.Workspace{ID: "workspace:configured:child", ParentID: parent.ID, Roots: []coreworkspace.Root{{Path: "/memory-workspace"}}}
+	child := coreworkspace.Workspace{ID: "workspace:configured:child", ParentID: parent.ID, Roots: []coreworkspace.Root{{Path: sys.Workspace().Root()}}}
 
 	result, err := NewManager(WithDeclarations(parent, child)).ResolveSystemWorkspace(context.Background(), sys.Workspace(), "")
 	if err != nil {
@@ -37,24 +36,21 @@ func TestManagerResolveSystemWorkspaceUsesDeclarations(t *testing.T) {
 	}
 }
 func TestManagerResolveSystemWorkspaceLoadsDeclarationsLazily(t *testing.T) {
-	sys := systemtest.NewMemory()
+	sys := newTestSystem(t)
 	manager := NewManager()
 	initial, err := manager.ResolveSystemWorkspace(context.Background(), sys.Workspace(), "")
 	if err != nil {
 		t.Fatalf("initial ResolveSystemWorkspace: %v", err)
 	}
-	if initial.Selection.Active != "workspace:local:/memory-workspace" {
+	if initial.Selection.Active != coreworkspace.ID("workspace:local:"+sys.Workspace().Root()) {
 		t.Fatalf("initial active = %q, want local fallback", initial.Selection.Active)
 	}
-	_, err = sys.Workspace().WriteFile(context.Background(), ".agents/workspaces.json", []byte(`{
+	writeWorkspaceDeclaration(t, sys, `{
 		"workspaces": [
 			{"id":"workspace:configured:parent","members":["workspace:configured:child"]},
-			{"id":"workspace:configured:child","parent_id":"workspace:configured:parent","roots":[{"path":"/memory-workspace"}]}
+			{"id":"workspace:configured:child","parent_id":"workspace:configured:parent","roots":[{"path":"`+sys.Workspace().Root()+`"}]}
 		]
-	}`), 0644, true)
-	if err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	}`)
 
 	result, err := manager.ResolveSystemWorkspace(context.Background(), sys.Workspace(), "")
 	if err != nil {
@@ -69,16 +65,13 @@ func TestManagerResolveSystemWorkspaceLoadsDeclarationsLazily(t *testing.T) {
 }
 
 func TestManagerResolveSystemWorkspaceInvalidDeclarationWarnsAndFallsBack(t *testing.T) {
-	sys := systemtest.NewMemory()
-	_, err := sys.Workspace().WriteFile(context.Background(), ".agents/workspaces.json", []byte(`{"workspaces":[{"id":"workspace:bad","roots":[{}]}]}`), 0644, true)
-	if err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	sys := newTestSystem(t)
+	writeWorkspaceDeclaration(t, sys, `{"workspaces":[{"id":"workspace:bad","roots":[{}]}]}`)
 	result, err := NewManager().ResolveSystemWorkspace(context.Background(), sys.Workspace(), "")
 	if err != nil {
 		t.Fatalf("ResolveSystemWorkspace: %v", err)
 	}
-	if result.Selection.Active != "workspace:local:/memory-workspace" {
+	if result.Selection.Active != coreworkspace.ID("workspace:local:"+sys.Workspace().Root()) {
 		t.Fatalf("active = %q, want local fallback", result.Selection.Active)
 	}
 	if len(result.Warnings) == 0 || result.Warnings[0].Code != WarningInvalidDeclaration {

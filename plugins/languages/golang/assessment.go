@@ -110,7 +110,7 @@ func (p Plugin) assessmentRules(ctx context.Context, rulesPath string) (*codegat
 	if rel == "" {
 		rel = defaultAssessmentRulesPath
 	}
-	data, truncated, _, err := p.system.Workspace().ReadFile(ctx, rel, 0)
+	data, truncated, _, err := readWorkspaceFile(ctx, p.system.Workspace(), rel, 0)
 	if err != nil {
 		if rulesPath == "" {
 			return nil, nil
@@ -587,7 +587,7 @@ func (s workspaceAssessmentSource) ListFiles(ctx context.Context, scope codegate
 	if root == "" {
 		root = "."
 	}
-	entries, _, truncated, err := s.workspace.Walk(ctx, root, system.WalkOptions{
+	entries, _, truncated, err := walkWorkspace(ctx, s.workspace, root, system.WalkOptions{
 		Depth:      50,
 		MaxEntries: 20000,
 		FilesOnly:  true,
@@ -622,7 +622,7 @@ func (s workspaceAssessmentSource) ReadFile(ctx context.Context, filePath string
 	if rel == "" {
 		return nil, fmt.Errorf("file path is empty")
 	}
-	data, truncated, _, err := s.workspace.ReadFile(ctx, rel, 0)
+	data, truncated, _, err := readWorkspaceFile(ctx, s.workspace, rel, 0)
 	if err != nil {
 		return nil, err
 	}

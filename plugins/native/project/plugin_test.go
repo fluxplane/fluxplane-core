@@ -15,6 +15,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 	coreevent "github.com/fluxplane/fluxplane-event"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
@@ -383,7 +384,15 @@ func sameStrings(got, want []string) bool {
 
 func writeProjectFile(t *testing.T, ws system.Workspace, rel, content string) {
 	t.Helper()
-	if _, err := ws.WriteFile(context.Background(), rel, []byte(content), 0644, true); err != nil {
+	resolved, err := ws.ResolveCreate(context.Background(), rel)
+	if err != nil {
+		t.Fatalf("ResolveCreate(%s): %v", rel, err)
+	}
+	fsys, err := system.WorkspaceFileSystem(ws)
+	if err != nil {
+		t.Fatalf("WorkspaceFileSystem(%s): %v", rel, err)
+	}
+	if err := fsys.WriteFile(context.Background(), system.WorkspacePathName(resolved), []byte(content), fpsystem.WriteFileOptions{Perm: 0644, Overwrite: true}); err != nil {
 		t.Fatalf("WriteFile(%s): %v", rel, err)
 	}
 }

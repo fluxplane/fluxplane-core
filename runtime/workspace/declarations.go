@@ -10,6 +10,7 @@ import (
 
 	coreworkspace "github.com/fluxplane/fluxplane-core/core/workspace"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 // DeclarationLoader loads workspace declarations from a runtime workspace.
@@ -31,7 +32,22 @@ func (DeclarationLoader) Load(ctx context.Context, ws system.Workspace, maxBytes
 	var declarations []coreworkspace.Workspace
 	var warnings []Warning
 	for _, rel := range paths {
-		data, truncated, _, err := ws.ReadFile(ctx, rel, maxBytes)
+		resolved, err := ws.ResolveExisting(ctx, rel)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return declarations, warnings, ctxErr
+			}
+			warnings = append(warnings, Warning{Code: WarningDeclarationReadFailed, Message: rel + ": " + err.Error()})
+			continue
+		}
+		if ws.System() == nil || ws.System().FileSystem() == nil {
+			warnings = append(warnings, Warning{Code: WarningDeclarationReadFailed, Message: rel + ": workspace filesystem is nil"})
+			continue
+		}
+		data, truncated, err := fpsystem.ReadFileLimit(ctx, ws.System().FileSystem(), workspaceName(resolved), maxBytes)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue
@@ -63,6 +79,13 @@ func (DeclarationLoader) Load(ctx context.Context, ws system.Workspace, maxBytes
 		}
 	}
 	return declarations, warnings, nil
+}
+
+func workspaceName(resolved system.ResolvedPath) string {
+	if strings.TrimSpace(resolved.Rel) == "" {
+		return "."
+	}
+	return resolved.Rel
 }
 
 // ParseDeclarations parses JSON workspace declarations.

@@ -167,6 +167,8 @@ github.com/fluxplane/fluxplane-browser v0.1.0 h1:ku0kVz4uV76zTXN/lXp+yLXOku0RHsP
 github.com/fluxplane/fluxplane-browser v0.1.0/go.mod h1:+OEbViZMUFrL+tdZ+zgoLTHfY15tLJybFLhtMOW+iTw=
 github.com/fluxplane/fluxplane-event v0.1.0 h1:0SAx3OpuixskvESUzaCx97kZz2wqodrDmukrCN2wX0Y=
 github.com/fluxplane/fluxplane-event v0.1.0/go.mod h1:CYcx/cf6JBZ4nuo/1SBDVEQk+hz55yXlaU3paegSS+o=
+github.com/fluxplane/fluxplane-system v0.1.0 h1:U9/4xgB14MTojtUsOFHQIUChoy9Fo+8R9iN+xyW1isM=
+github.com/fluxplane/fluxplane-system v0.1.0/go.mod h1:paI37cT4iQtEFvSERbN5WTau00VL2MgpwqyiH87Q2r8=
 github.com/fluxplane/fluxplane-system v0.1.1 h1:8u0VMUZn2Qi1XeDHlP+pyAQ28io61J4dgYD7SW87IYg=
 github.com/fluxplane/fluxplane-system v0.1.1/go.mod h1:paI37cT4iQtEFvSERbN5WTau00VL2MgpwqyiH87Q2r8=
 github.com/fxamacker/cbor/v2 v2.9.2 h1:X4Ksno9+x3cz0TZv69ec1hxP/+tymuR8PXQJyDwfh78=

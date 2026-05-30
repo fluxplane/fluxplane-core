@@ -112,7 +112,7 @@ func (p Plugin) directImportFiles(ctx context.Context, req golang.ImportQuery, i
 	if rel == "" {
 		rel = "."
 	}
-	if info, _, err := p.system.Workspace().Stat(ctx, rel); err == nil && !info.IsDir() {
+	if info, _, err := statWorkspacePath(ctx, p.system.Workspace(), rel); err == nil && !info.IsDir() {
 		if !strings.HasSuffix(rel, ".go") {
 			return nil, fmt.Errorf("path is not a Go file")
 		}
@@ -169,7 +169,7 @@ func (p Plugin) hasGoMod(ctx context.Context, dir string) bool {
 	if dir != "" {
 		modPath = path.Join(dir, "go.mod")
 	}
-	info, _, err := p.system.Workspace().Stat(ctx, modPath)
+	info, _, err := statWorkspacePath(ctx, p.system.Workspace(), modPath)
 	return err == nil && !info.IsDir()
 }
 
@@ -188,7 +188,7 @@ func (p Plugin) reverseImportFiles(ctx context.Context, req golang.ImportQuery, 
 				root = "."
 			}
 		}
-	} else if info, _, err := p.system.Workspace().Stat(ctx, root); err == nil && !info.IsDir() {
+	} else if info, _, err := statWorkspacePath(ctx, p.system.Workspace(), root); err == nil && !info.IsDir() {
 		root = pathDir(root)
 	}
 	files, err := p.goFilesForPath(ctx, root)
@@ -271,7 +271,7 @@ func (p Plugin) collectReverseImports(ctx context.Context, files []string, targe
 }
 
 func (p Plugin) parseImportFile(ctx context.Context, rel string, readLimit int, modulePath string) (parsedImportFile, error) {
-	data, truncated, _, err := p.system.Workspace().ReadFile(ctx, rel, int64(readLimit))
+	data, truncated, _, err := readWorkspaceFile(ctx, p.system.Workspace(), rel, int64(readLimit))
 	if err != nil {
 		return parsedImportFile{}, err
 	}
@@ -314,7 +314,7 @@ func (p Plugin) deriveImportPath(ctx context.Context, rel string) string {
 	if rel == "" {
 		return ""
 	}
-	if info, _, err := p.system.Workspace().Stat(ctx, rel); err == nil && !info.IsDir() {
+	if info, _, err := statWorkspacePath(ctx, p.system.Workspace(), rel); err == nil && !info.IsDir() {
 		rel = pathDir(rel)
 	}
 	moduleDir, modulePath := p.nearestModule(ctx, rel)
@@ -347,7 +347,7 @@ func (p Plugin) nearestModule(ctx context.Context, rel string) (string, string) 
 		if rel != "" {
 			modPath = path.Join(rel, "go.mod")
 		}
-		data, truncated, _, err := p.system.Workspace().ReadFile(ctx, modPath, int64(maxBytes(0)))
+		data, truncated, _, err := readWorkspaceFile(ctx, p.system.Workspace(), modPath, int64(maxBytes(0)))
 		if err == nil && !truncated {
 			if file, parseErr := modfile.Parse(modPath, data, nil); parseErr == nil && file.Module != nil {
 				return rel, file.Module.Mod.Path

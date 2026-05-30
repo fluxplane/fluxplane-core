@@ -21,6 +21,7 @@ import (
 	runtimeproject "github.com/fluxplane/fluxplane-core/runtime/project"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 const (
@@ -515,7 +516,15 @@ func (p Plugin) files(manager *runtimeproject.Manager) operationruntime.TypedRes
 		if max <= 0 || max > defaultMaxFiles {
 			max = defaultMaxFiles
 		}
-		entries, _, truncated, err := p.system.Workspace().Walk(ctx, root, system.WalkOptions{Depth: depth, ShowHidden: true, MaxEntries: max, SkipDirs: noisyDirs()})
+		resolved, err := p.system.Workspace().ResolveExisting(ctx, root)
+		if err != nil {
+			return operation.Failed("project_files_failed", err.Error(), nil)
+		}
+		fsys, err := system.WorkspaceFileSystem(p.system.Workspace())
+		if err != nil {
+			return operation.Failed("project_files_failed", err.Error(), nil)
+		}
+		entries, truncated, err := fpsystem.Walk(ctx, fsys, system.WorkspacePathName(resolved), fpsystem.WalkOptions{Depth: depth, ShowHidden: true, MaxEntries: max, SkipDirs: noisyDirs()})
 		if err != nil {
 			return operation.Failed("project_files_failed", err.Error(), nil)
 		}
@@ -525,11 +534,11 @@ func (p Plugin) files(manager *runtimeproject.Manager) operationruntime.TypedRes
 			if entry.Kind == "dir" {
 				continue
 			}
-			if req.FacetKind != "" && !fileMatchesFacet(entry.Path.Rel, req.FacetKind) {
+			if req.FacetKind != "" && !fileMatchesFacet(entry.Path, req.FacetKind) {
 				continue
 			}
-			files = append(files, coreproject.FileRef{Path: entry.Path.Rel, Kind: entry.Kind, Size: entry.Size})
-			lines = append(lines, "- "+entry.Path.Rel)
+			files = append(files, coreproject.FileRef{Path: entry.Path, Kind: entry.Kind, Size: entry.Size})
+			lines = append(lines, "- "+entry.Path)
 		}
 		data := map[string]any{"project": compactProject(project), "files": files, "rebuilt": rebuilt, "truncated": truncated}
 		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: data})

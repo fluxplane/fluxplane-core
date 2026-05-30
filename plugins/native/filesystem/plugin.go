@@ -3,6 +3,7 @@ package filesystem
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 const (
@@ -220,7 +222,7 @@ func (p Plugin) dirCreate(ws system.Workspace) operation.Handler {
 		if err := decode(input, &req); err != nil || strings.TrimSpace(req.Path) == "" {
 			return operation.Failed("invalid_dir_create_input", "path is required", nil)
 		}
-		resolved, err := ws.MkdirAll(ctx, req.Path, 0755)
+		resolved, err := mkdirWorkspace(ctx, ws, req.Path, 0755)
 		if err != nil {
 			return operation.Failed("dir_create_failed", err.Error(), nil)
 		}
@@ -242,7 +244,7 @@ func (p Plugin) dirList(ws system.Workspace) operation.Handler {
 		if err := decode(input, &req); err != nil || strings.TrimSpace(req.Path) == "" {
 			return operation.Failed("invalid_dir_list_input", "path is required", nil)
 		}
-		entries, resolved, err := ws.ReadDir(ctx, req.Path)
+		entries, resolved, err := readWorkspaceDir(ctx, ws, req.Path)
 		if err != nil {
 			return operation.Failed("dir_list_failed", err.Error(), nil)
 		}
@@ -295,7 +297,7 @@ func (p Plugin) dirTree(ws system.Workspace) operation.Handler {
 		if maxEntries <= 0 {
 			maxEntries = 1000
 		}
-		walk, root, truncated, err := ws.Walk(ctx, req.Path, system.WalkOptions{Depth: depth, ShowHidden: req.ShowHidden, MaxEntries: maxEntries})
+		walk, root, truncated, err := walkWorkspace(ctx, ws, req.Path, fpsystem.WalkOptions{Depth: depth, ShowHidden: req.ShowHidden, MaxEntries: maxEntries})
 		if err != nil {
 			return operation.Failed("dir_tree_failed", err.Error(), nil)
 		}
@@ -339,7 +341,7 @@ func (p Plugin) fileRead(ws system.Workspace) operation.Handler {
 			if err != nil {
 				return operation.Failed("invalid_file_read_pattern", err.Error(), nil)
 			}
-			data, _, resolved, err := ws.ReadFile(ctx, req.Path, maxBytes)
+			data, _, resolved, err := readWorkspaceFile(ctx, ws, req.Path, maxBytes)
 			if err != nil {
 				return operation.Failed("file_read_failed", err.Error(), nil)
 			}
@@ -352,7 +354,7 @@ func (p Plugin) fileRead(ws system.Workspace) operation.Handler {
 			return operation.OK(operation.Rendered{Text: text, Data: map[string]any{"path": resolved.Rel}})
 		}
 		if req.StartLine > 0 || req.EndLine > 0 {
-			data, firstLine, truncated, resolved, err := ws.ReadFileLines(ctx, req.Path, req.StartLine, req.EndLine, maxBytes)
+			data, firstLine, truncated, resolved, err := readWorkspaceFileLines(ctx, ws, req.Path, req.StartLine, req.EndLine, maxBytes)
 			if err != nil {
 				return operation.Failed("file_read_failed", err.Error(), nil)
 			}
@@ -361,7 +363,7 @@ func (p Plugin) fileRead(ws system.Workspace) operation.Handler {
 			recordUsage(ctx, FileReadOp, resolved.Rel, usage.DirectionRead, float64(len(data)))
 			return operation.OK(operation.Rendered{Text: text, Data: map[string]any{"path": resolved.Rel, "content": content, "truncated": truncated}})
 		}
-		data, truncated, resolved, err := ws.ReadFile(ctx, req.Path, maxBytes)
+		data, truncated, resolved, err := readWorkspaceFile(ctx, ws, req.Path, maxBytes)
 		if err != nil {
 			return operation.Failed("file_read_failed", err.Error(), nil)
 		}
@@ -386,7 +388,7 @@ func (p Plugin) fileCreate(ws system.Workspace) operation.Handler {
 		if len(req.Content) > maxWriteBytes {
 			return operation.Rejected("file_create_too_large", "content exceeds write limit", map[string]any{"max_bytes": maxWriteBytes})
 		}
-		resolved, err := ws.WriteFile(ctx, req.Path, []byte(req.Content), 0644, req.Overwrite)
+		resolved, err := writeWorkspaceFile(ctx, ws, req.Path, []byte(req.Content), 0644, req.Overwrite)
 		if err != nil {
 			return operation.Failed("file_create_failed", err.Error(), nil)
 		}
@@ -481,7 +483,7 @@ func (p Plugin) fileEdit(ws system.Workspace) operation.Handler {
 		default:
 			return operation.Failed("invalid_file_edit_input", "diff_mode must be full, atomic, or none", map[string]any{"diff_mode": req.DiffMode})
 		}
-		fileData, truncated, resolved, err := ws.ReadFile(ctx, req.Path, maxWriteBytes)
+		fileData, truncated, resolved, err := readWorkspaceFile(ctx, ws, req.Path, maxWriteBytes)
 		if err != nil {
 			return operation.Failed("file_edit_failed", err.Error(), nil)
 		}
@@ -515,7 +517,7 @@ func (p Plugin) fileEdit(ws system.Workspace) operation.Handler {
 			fragments[i].Applied = true
 		}
 		if !req.DryRun {
-			if _, err := ws.WriteFile(ctx, req.Path, []byte(after), 0644, true); err != nil {
+			if _, err := writeWorkspaceFile(ctx, ws, req.Path, []byte(after), 0644, true); err != nil {
 				return operation.Failed("file_edit_failed", err.Error(), nil)
 			}
 			recordUsage(ctx, FileEditOp, resolved.Rel, usage.DirectionWrite, float64(len(after)))
@@ -563,7 +565,7 @@ func (p Plugin) fileDelete(ws system.Workspace) operation.Handler {
 		if err := decode(input, &req); err != nil || strings.TrimSpace(req.Path) == "" {
 			return operation.Failed("invalid_file_delete_input", "path is required", nil)
 		}
-		resolved, err := ws.Remove(ctx, req.Path)
+		resolved, err := removeWorkspacePath(ctx, ws, req.Path)
 		if err != nil {
 			return operation.Failed("file_delete_failed", err.Error(), nil)
 		}
@@ -579,7 +581,7 @@ func (p Plugin) fileStat(ws system.Workspace) operation.Handler {
 		if err := decode(input, &req); err != nil || strings.TrimSpace(req.Path) == "" {
 			return operation.Failed("invalid_file_stat_input", "path is required", nil)
 		}
-		info, resolved, err := ws.Stat(ctx, req.Path)
+		info, resolved, err := statWorkspacePath(ctx, ws, req.Path)
 		if err != nil {
 			return operation.Failed("file_stat_failed", err.Error(), nil)
 		}
@@ -602,7 +604,7 @@ func (p Plugin) fileCopy(ws system.Workspace) operation.Handler {
 		if err := decode(input, &req); err != nil || req.Src == "" || req.Dst == "" {
 			return operation.Failed("invalid_file_copy_input", "src and dst are required", nil)
 		}
-		src, dst, bytes, err := ws.CopyFile(ctx, req.Src, req.Dst, req.Overwrite)
+		src, dst, bytes, err := copyWorkspaceFile(ctx, ws, req.Src, req.Dst, req.Overwrite)
 		if err != nil {
 			return operation.Failed("file_copy_failed", err.Error(), nil)
 		}
@@ -619,7 +621,7 @@ func (p Plugin) fileMove(ws system.Workspace) operation.Handler {
 		if err := decode(input, &req); err != nil || req.Src == "" || req.Dst == "" {
 			return operation.Failed("invalid_file_move_input", "src and dst are required", nil)
 		}
-		src, dst, bytes, err := ws.MoveFile(ctx, req.Src, req.Dst, req.Overwrite)
+		src, dst, bytes, err := moveWorkspaceFile(ctx, ws, req.Src, req.Dst, req.Overwrite)
 		if err != nil {
 			return operation.Failed("file_move_failed", err.Error(), nil)
 		}
@@ -655,7 +657,7 @@ func (p Plugin) glob(ws system.Workspace) operation.Handler {
 		if scanLimit <= 0 || scanLimit > 100000 {
 			scanLimit = 10000
 		}
-		paths, truncated, err := ws.Glob(ctx, req.Pattern, system.GlobOptions{Base: base, MaxResults: limit, MaxScanned: scanLimit, SkipDirs: globSkipDirs()})
+		paths, truncated, err := globWorkspace(ctx, ws, req.Pattern, fpsystem.GlobOptions{Base: base, MaxResults: limit, MaxScanned: scanLimit, SkipDirs: globSkipDirs()})
 		if err != nil {
 			return operation.Failed("glob_failed", err.Error(), nil)
 		}
@@ -728,13 +730,13 @@ func (p Plugin) grep(ws system.Workspace) operation.Handler {
 				return operation.Failed("grep_failed", err.Error(), nil)
 			}
 			walk := []system.ResolvedPath{resolved}
-			info, _, err := ws.Stat(ctx, raw)
+			info, _, err := statWorkspacePath(ctx, ws, raw)
 			if err != nil {
 				return operation.Failed("grep_failed", err.Error(), nil)
 			}
 			if info.IsDir() {
 				walk = nil
-				entries, _, _, err := ws.Walk(ctx, raw, system.WalkOptions{Depth: 50, MaxEntries: limit, FilesOnly: true})
+				entries, _, _, err := walkWorkspace(ctx, ws, raw, fpsystem.WalkOptions{Depth: 50, MaxEntries: limit, FilesOnly: true})
 				if err != nil {
 					return operation.Failed("grep_failed", err.Error(), nil)
 				}
@@ -746,7 +748,7 @@ func (p Plugin) grep(ws system.Workspace) operation.Handler {
 				if len(matches) >= limit {
 					break
 				}
-				data, _, _, err := ws.ReadFile(ctx, file.Rel, maxReadBytes)
+				data, _, _, err := readWorkspaceFile(ctx, ws, file.Rel, maxReadBytes)
 				if err != nil || looksBinary(data) {
 					continue
 				}
@@ -784,6 +786,249 @@ func decode(input any, out any) error {
 		return err
 	}
 	return json.Unmarshal(data, out)
+}
+
+func workspaceFileSystem(ws system.Workspace) (fpsystem.FileSystem, error) {
+	if ws == nil || ws.System() == nil || ws.System().FileSystem() == nil {
+		return nil, fmt.Errorf("workspace filesystem is nil")
+	}
+	return ws.System().FileSystem(), nil
+}
+
+func workspaceName(resolved system.ResolvedPath) string {
+	if strings.TrimSpace(resolved.Rel) == "" {
+		return "."
+	}
+	return resolved.Rel
+}
+
+func readWorkspaceFile(ctx context.Context, ws system.Workspace, raw string, maxBytes int64) ([]byte, bool, system.ResolvedPath, error) {
+	resolved, err := ws.ResolveExisting(ctx, raw)
+	if err != nil {
+		return nil, false, system.ResolvedPath{}, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return nil, false, system.ResolvedPath{}, err
+	}
+	info, err := fsys.Stat(workspaceName(resolved))
+	if err != nil {
+		return nil, false, system.ResolvedPath{}, err
+	}
+	if info.IsDir() {
+		return nil, false, system.ResolvedPath{}, fmt.Errorf("path is a directory")
+	}
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, workspaceName(resolved), maxBytes)
+	return data, truncated, resolved, err
+}
+
+func readWorkspaceFileLines(ctx context.Context, ws system.Workspace, raw string, start, end int, maxBytes int64) ([]byte, int, bool, system.ResolvedPath, error) {
+	resolved, err := ws.ResolveExisting(ctx, raw)
+	if err != nil {
+		return nil, 0, false, system.ResolvedPath{}, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return nil, 0, false, system.ResolvedPath{}, err
+	}
+	info, err := fsys.Stat(workspaceName(resolved))
+	if err != nil {
+		return nil, 0, false, system.ResolvedPath{}, err
+	}
+	if info.IsDir() {
+		return nil, 0, false, system.ResolvedPath{}, fmt.Errorf("path is a directory")
+	}
+	data, firstLine, truncated, err := fpsystem.ReadFileLines(ctx, fsys, workspaceName(resolved), start, end, maxBytes)
+	return data, firstLine, truncated, resolved, err
+}
+
+func writeWorkspaceFile(ctx context.Context, ws system.Workspace, raw string, data []byte, perm fs.FileMode, overwrite bool) (system.ResolvedPath, error) {
+	resolved, err := ws.ResolveCreate(ctx, raw)
+	if err != nil {
+		return system.ResolvedPath{}, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return system.ResolvedPath{}, err
+	}
+	return resolved, fsys.WriteFile(ctx, workspaceName(resolved), data, fpsystem.WriteFileOptions{Perm: perm, Overwrite: overwrite})
+}
+
+func mkdirWorkspace(ctx context.Context, ws system.Workspace, raw string, perm fs.FileMode) (system.ResolvedPath, error) {
+	resolved, err := ws.ResolveCreate(ctx, raw)
+	if err != nil {
+		return system.ResolvedPath{}, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return system.ResolvedPath{}, err
+	}
+	return resolved, fsys.MkdirAll(ctx, workspaceName(resolved), fpsystem.MkdirOptions{Perm: perm})
+}
+
+func removeWorkspacePath(ctx context.Context, ws system.Workspace, raw string) (system.ResolvedPath, error) {
+	resolved, err := ws.ResolveExisting(ctx, raw)
+	if err != nil {
+		return system.ResolvedPath{}, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return system.ResolvedPath{}, err
+	}
+	return resolved, fsys.Remove(ctx, workspaceName(resolved))
+}
+
+func statWorkspacePath(ctx context.Context, ws system.Workspace, raw string) (fs.FileInfo, system.ResolvedPath, error) {
+	resolved, err := ws.ResolveExisting(ctx, raw)
+	if err != nil {
+		return nil, system.ResolvedPath{}, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return nil, system.ResolvedPath{}, err
+	}
+	info, err := fsys.Stat(workspaceName(resolved))
+	return info, resolved, err
+}
+
+func readWorkspaceDir(ctx context.Context, ws system.Workspace, raw string) ([]fs.DirEntry, system.ResolvedPath, error) {
+	resolved, err := ws.ResolveExisting(ctx, raw)
+	if err != nil {
+		return nil, system.ResolvedPath{}, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return nil, system.ResolvedPath{}, err
+	}
+	entries, err := fsys.ReadDir(workspaceName(resolved))
+	return entries, resolved, err
+}
+
+type workspaceWalkEntry struct {
+	Path    system.ResolvedPath
+	Name    string
+	Kind    string
+	Size    int64
+	Mode    string
+	ModTime time.Time
+	Level   int
+}
+
+func walkWorkspace(ctx context.Context, ws system.Workspace, raw string, opts fpsystem.WalkOptions) ([]workspaceWalkEntry, system.ResolvedPath, bool, error) {
+	root, err := ws.ResolveExisting(ctx, raw)
+	if err != nil {
+		return nil, system.ResolvedPath{}, false, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return nil, system.ResolvedPath{}, false, err
+	}
+	entries, truncated, err := fpsystem.Walk(ctx, fsys, workspaceName(root), opts)
+	if err != nil {
+		return nil, system.ResolvedPath{}, false, err
+	}
+	out := make([]workspaceWalkEntry, 0, len(entries))
+	for _, entry := range entries {
+		resolved, err := ws.ResolveExisting(ctx, entry.Path)
+		if err != nil {
+			continue
+		}
+		out = append(out, workspaceWalkEntry{
+			Path:    resolved,
+			Name:    entry.Name,
+			Kind:    entry.Kind,
+			Size:    entry.Size,
+			Mode:    entry.Mode,
+			ModTime: entry.ModTime,
+			Level:   entry.Level,
+		})
+	}
+	return out, root, truncated, nil
+}
+
+func globWorkspace(ctx context.Context, ws system.Workspace, pattern string, opts fpsystem.GlobOptions) ([]system.ResolvedPath, bool, error) {
+	base := opts.Base
+	if strings.TrimSpace(base) == "" {
+		base = "."
+	}
+	basePath, err := ws.ResolveExisting(ctx, base)
+	if err != nil {
+		return nil, false, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return nil, false, err
+	}
+	opts.Base = workspaceName(basePath)
+	names, truncated, err := fpsystem.Glob(ctx, fsys, pattern, opts)
+	if err != nil {
+		return nil, false, err
+	}
+	out := make([]system.ResolvedPath, 0, len(names))
+	for _, name := range names {
+		resolved, err := ws.ResolveExisting(ctx, name)
+		if err != nil {
+			continue
+		}
+		out = append(out, resolved)
+	}
+	return out, truncated, nil
+}
+
+func copyWorkspaceFile(ctx context.Context, ws system.Workspace, rawSrc, rawDst string, overwrite bool) (system.ResolvedPath, system.ResolvedPath, int64, error) {
+	src, err := ws.ResolveExisting(ctx, rawSrc)
+	if err != nil {
+		return system.ResolvedPath{}, system.ResolvedPath{}, 0, err
+	}
+	dst, err := ws.ResolveCreate(ctx, rawDst)
+	if err != nil {
+		return system.ResolvedPath{}, system.ResolvedPath{}, 0, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return system.ResolvedPath{}, system.ResolvedPath{}, 0, err
+	}
+	srcName := workspaceName(src)
+	info, err := fsys.Stat(srcName)
+	if err != nil {
+		return system.ResolvedPath{}, system.ResolvedPath{}, 0, err
+	}
+	if info.IsDir() {
+		return system.ResolvedPath{}, system.ResolvedPath{}, 0, fmt.Errorf("source path is a directory")
+	}
+	dstName := workspaceName(dst)
+	if !overwrite {
+		if _, err := fsys.Stat(dstName); err == nil {
+			return system.ResolvedPath{}, system.ResolvedPath{}, 0, fmt.Errorf("path already exists")
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return system.ResolvedPath{}, system.ResolvedPath{}, 0, err
+		}
+	}
+	data, err := fsys.ReadFile(srcName)
+	if err != nil {
+		return system.ResolvedPath{}, system.ResolvedPath{}, 0, err
+	}
+	if err := fsys.WriteFile(ctx, dstName, data, fpsystem.WriteFileOptions{Perm: info.Mode().Perm(), Overwrite: overwrite}); err != nil {
+		return system.ResolvedPath{}, system.ResolvedPath{}, 0, err
+	}
+	return src, dst, int64(len(data)), nil
+}
+
+func moveWorkspaceFile(ctx context.Context, ws system.Workspace, rawSrc, rawDst string, overwrite bool) (system.ResolvedPath, system.ResolvedPath, int64, error) {
+	src, dst, written, err := copyWorkspaceFile(ctx, ws, rawSrc, rawDst, overwrite)
+	if err != nil {
+		return system.ResolvedPath{}, system.ResolvedPath{}, 0, err
+	}
+	fsys, err := workspaceFileSystem(ws)
+	if err != nil {
+		return system.ResolvedPath{}, system.ResolvedPath{}, 0, err
+	}
+	if src.Rel != dst.Rel {
+		if err := fsys.Remove(ctx, workspaceName(src)); err != nil {
+			return system.ResolvedPath{}, system.ResolvedPath{}, written, err
+		}
+	}
+	return src, dst, written, nil
 }
 
 func entryType(entry fs.DirEntry) string {

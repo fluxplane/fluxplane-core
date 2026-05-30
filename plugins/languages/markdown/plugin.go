@@ -3,6 +3,7 @@ package markdown
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"path"
 	"sort"
@@ -17,6 +18,7 @@ import (
 	runtimelanguage "github.com/fluxplane/fluxplane-core/runtime/language"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/yuin/goldmark"
 	goldast "github.com/yuin/goldmark/ast"
 	goldtext "github.com/yuin/goldmark/text"
@@ -210,20 +212,20 @@ func (p Plugin) markdownFiles(ctx context.Context, req markdown.Query) ([]string
 		return nil, fmt.Errorf("path is required")
 	}
 	max := maxResults(req.MaxResults)
-	if info, _, err := p.system.Workspace().Stat(ctx, rel); err == nil && !info.IsDir() {
+	if info, _, err := statWorkspacePath(ctx, p.system.Workspace(), rel); err == nil && !info.IsDir() {
 		if !isMarkdown(rel) {
 			return nil, fmt.Errorf("path is not a markdown file")
 		}
 		return []string{rel}, nil
 	}
-	entries, _, _, err := p.system.Workspace().Walk(ctx, rel, system.WalkOptions{Depth: 20, ShowHidden: true, MaxEntries: 10000, FilesOnly: true, SkipDirs: noisyDirs()})
+	entries, err := walkWorkspace(ctx, p.system.Workspace(), rel, fpsystem.WalkOptions{Depth: 20, ShowHidden: true, MaxEntries: 10000, FilesOnly: true, SkipDirs: noisyDirs()})
 	if err != nil {
 		return nil, err
 	}
 	var files []string
 	for _, entry := range entries {
-		if isMarkdown(entry.Path.Rel) {
-			files = append(files, entry.Path.Rel)
+		if isMarkdown(entry.Path) {
+			files = append(files, entry.Path)
 			if len(files) >= max {
 				break
 			}
@@ -239,7 +241,7 @@ type parsedMarkdown struct {
 }
 
 func (p Plugin) parse(ctx context.Context, rel string, maxBytes int) (parsedMarkdown, error) {
-	data, truncated, _, err := p.system.Workspace().ReadFile(ctx, rel, int64(maxBytes))
+	data, truncated, _, err := readWorkspaceFile(ctx, p.system.Workspace(), rel, int64(maxBytes))
 	if err != nil {
 		return parsedMarkdown{}, err
 	}
@@ -250,6 +252,45 @@ func (p Plugin) parse(ctx context.Context, rel string, maxBytes int) (parsedMark
 		outline.Title = title.Title
 	}
 	return parsedMarkdown{Outline: outline, Links: markdownLinks(doc, data, rel)}, nil
+}
+
+func statWorkspacePath(ctx context.Context, ws system.Workspace, rel string) (fs.FileInfo, system.ResolvedPath, error) {
+	resolved, err := ws.ResolveExisting(ctx, rel)
+	if err != nil {
+		return nil, system.ResolvedPath{}, err
+	}
+	fsys, err := system.WorkspaceFileSystem(ws)
+	if err != nil {
+		return nil, system.ResolvedPath{}, err
+	}
+	info, err := fsys.Stat(system.WorkspacePathName(resolved))
+	return info, resolved, err
+}
+
+func readWorkspaceFile(ctx context.Context, ws system.Workspace, rel string, maxBytes int64) ([]byte, bool, system.ResolvedPath, error) {
+	resolved, err := ws.ResolveExisting(ctx, rel)
+	if err != nil {
+		return nil, false, system.ResolvedPath{}, err
+	}
+	fsys, err := system.WorkspaceFileSystem(ws)
+	if err != nil {
+		return nil, false, system.ResolvedPath{}, err
+	}
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, system.WorkspacePathName(resolved), maxBytes)
+	return data, truncated, resolved, err
+}
+
+func walkWorkspace(ctx context.Context, ws system.Workspace, rel string, opts fpsystem.WalkOptions) ([]fpsystem.WalkEntry, error) {
+	resolved, err := ws.ResolveExisting(ctx, rel)
+	if err != nil {
+		return nil, err
+	}
+	fsys, err := system.WorkspaceFileSystem(ws)
+	if err != nil {
+		return nil, err
+	}
+	entries, _, err := fpsystem.Walk(ctx, fsys, system.WorkspacePathName(resolved), opts)
+	return entries, err
 }
 
 func markdownHeadings(doc goldast.Node, source []byte) []markdown.Heading {
@@ -360,7 +401,7 @@ func (p Plugin) checkLinks(ctx context.Context, links []markdown.Link, maxBytes 
 				out = append(out, language.Diagnostic{Path: link.Path, Line: link.Line, Severity: "error", Code: "missing_target", Message: "link target is empty", Target: link.Target})
 				continue
 			}
-			if _, _, err := p.system.Workspace().Stat(ctx, link.TargetPath); err != nil {
+			if _, _, err := statWorkspacePath(ctx, p.system.Workspace(), link.TargetPath); err != nil {
 				out = append(out, language.Diagnostic{Path: link.Path, Line: link.Line, Severity: "error", Code: "missing_target", Message: "link target file does not exist", Target: link.Target})
 				continue
 			}

@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	browser "github.com/fluxplane/fluxplane-browser"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -17,6 +16,9 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/pathpattern"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
+	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
 
 // MemorySystem is a mutable in-memory system for Workspace-focused tests.
@@ -32,17 +34,14 @@ func NewMemory() *MemorySystem {
 func (s *MemorySystem) Workspace() system.Workspace     { return s.WorkspaceValue }
 func (s *MemorySystem) Network() system.Network         { return network{} }
 func (s *MemorySystem) Process() system.ProcessManager  { return nil }
-func (s *MemorySystem) Browser() browser.Manager        { return nil }
-func (s *MemorySystem) Clarifier() system.Clarifier     { return nil }
 func (s *MemorySystem) Environment() system.Environment { return environment{} }
 
 type environment struct{}
-type network struct{}
+type network struct {
+	fpsystemtest.UnsupportedNetwork
+}
 
 func (environment) Lookup(context.Context, string) (string, bool, error) { return "", false, nil }
-func (network) DoHTTP(context.Context, system.HTTPRequest) (system.HTTPResponse, error) {
-	return system.HTTPResponse{}, errors.ErrUnsupported
-}
 
 // MemoryWorkspace is a root-confined mutable Workspace for tests.
 type MemoryWorkspace struct {
@@ -70,6 +69,11 @@ func NewMemoryWorkspace() *MemoryWorkspace {
 }
 
 func (w *MemoryWorkspace) Root() string { return w.root }
+
+func (w *MemoryWorkspace) System() fpsystem.System {
+	sys, _ := systemkit.NewSystem().WithFileSystem(memoryFileSystem{workspace: w}).Build()
+	return sys
+}
 
 // Roots returns the single in-memory workspace root.
 func (w *MemoryWorkspace) Roots() []system.WorkspaceRoot {
@@ -472,6 +476,109 @@ func (e dirEntry) Info() (fs.FileInfo, error) {
 	return fileInfo(e), nil
 }
 
+type memoryFileSystem struct {
+	workspace *MemoryWorkspace
+}
+
+func (f memoryFileSystem) Open(name string) (fs.File, error) {
+	info, _, err := f.workspace.Stat(context.Background(), name)
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return &memoryFile{info: info}, nil
+	}
+	data, _, _, err := f.workspace.ReadFile(context.Background(), name, 0)
+	if err != nil {
+		return nil, err
+	}
+	return &memoryFile{Reader: bytes.NewReader(data), info: info}, nil
+}
+
+func (f memoryFileSystem) Stat(name string) (fs.FileInfo, error) {
+	info, _, err := f.workspace.Stat(context.Background(), name)
+	return info, err
+}
+
+func (f memoryFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, _, err := f.workspace.ReadDir(context.Background(), name)
+	return entries, err
+}
+
+func (f memoryFileSystem) ReadFile(name string) ([]byte, error) {
+	data, _, _, err := f.workspace.ReadFile(context.Background(), name, 0)
+	return data, err
+}
+
+func (f memoryFileSystem) WriteFile(ctx context.Context, name string, data []byte, opts fpsystem.WriteFileOptions) error {
+	perm := opts.Perm
+	if perm == 0 {
+		perm = 0644
+	}
+	_, err := f.workspace.WriteFile(ctx, name, data, perm, opts.Overwrite)
+	return err
+}
+
+func (f memoryFileSystem) WriteTempFile(ctx context.Context, dir, pattern string, data []byte, opts fpsystem.WriteTempFileOptions) (string, error) {
+	relDir, err := f.workspace.clean(dir)
+	if err != nil {
+		return "", err
+	}
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		pattern = "tmp-*"
+	}
+	if strings.ContainsAny(pattern, `/\`) {
+		return "", fmt.Errorf("temp file pattern must not contain a path separator")
+	}
+	perm := opts.Perm
+	if perm == 0 {
+		perm = 0644
+	}
+	for i := 1; i <= 1_000_000; i++ {
+		name := joinRel(relDir, tempFileName(pattern, i))
+		if _, err := f.workspace.WriteFile(ctx, name, data, perm, false); err == nil {
+			return name, nil
+		} else if !strings.Contains(err.Error(), "already exists") {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("could not allocate temp file")
+}
+
+func (f memoryFileSystem) MkdirAll(ctx context.Context, name string, opts fpsystem.MkdirOptions) error {
+	perm := opts.Perm
+	if perm == 0 {
+		perm = 0755
+	}
+	_, err := f.workspace.MkdirAll(ctx, name, perm)
+	return err
+}
+
+func (f memoryFileSystem) Remove(ctx context.Context, name string) error {
+	_, err := f.workspace.Remove(ctx, name)
+	return err
+}
+
+func (f memoryFileSystem) Rename(ctx context.Context, oldName, newName string, opts fpsystem.RenameOptions) error {
+	_, _, _, err := f.workspace.MoveFile(ctx, oldName, newName, opts.Overwrite)
+	return err
+}
+
+type memoryFile struct {
+	*bytes.Reader
+	info fs.FileInfo
+}
+
+func (f *memoryFile) Stat() (fs.FileInfo, error) { return f.info, nil }
+func (f *memoryFile) Close() error               { return nil }
+func (f *memoryFile) Read(p []byte) (int, error) {
+	if f.Reader == nil {
+		return 0, fs.ErrInvalid
+	}
+	return f.Reader.Read(p)
+}
+
 func prefixes(rel string) []string {
 	if rel == "" {
 		return nil
@@ -496,6 +603,21 @@ func base(rel string) string {
 		return "."
 	}
 	return rel[strings.LastIndex(rel, "/")+1:]
+}
+
+func joinRel(dir, name string) string {
+	if dir == "" {
+		return name
+	}
+	return dir + "/" + name
+}
+
+func tempFileName(pattern string, sequence int) string {
+	token := fmt.Sprintf("%06d", sequence)
+	if strings.Contains(pattern, "*") {
+		return strings.Replace(pattern, "*", token, 1)
+	}
+	return pattern + token
 }
 
 func hidden(rel string) bool {

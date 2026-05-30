@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 func anthropicImageBlocks(ctx context.Context, sys system.System, images []string) ([]map[string]any, error) {
@@ -67,7 +69,7 @@ func imageSource(ctx context.Context, sys system.System, raw string) (resolvedIm
 		return resolvedImage{contentType: contentType, data: data}, err
 	}
 	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
-		resp, err := sys.Network().DoHTTP(ctx, system.HTTPRequest{
+		resp, err := systemkit.DoHTTP(ctx, sys.Network(), systemkit.HTTPRequest{
 			URL:       raw,
 			Method:    "GET",
 			Timeout:   30 * time.Second,
@@ -89,7 +91,15 @@ func imageSource(ctx context.Context, sys system.System, raw string) (resolvedIm
 	if sys == nil || sys.Workspace() == nil {
 		return resolvedImage{}, fmt.Errorf("system workspace is not configured")
 	}
-	data, truncated, resolved, err := sys.Workspace().ReadFile(ctx, raw, defaultMaxFileSize)
+	resolved, err := sys.Workspace().ResolveExisting(ctx, raw)
+	if err != nil {
+		return resolvedImage{}, err
+	}
+	fsys, err := system.WorkspaceFileSystem(sys.Workspace())
+	if err != nil {
+		return resolvedImage{}, err
+	}
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, system.WorkspacePathName(resolved), defaultMaxFileSize)
 	if err != nil {
 		return resolvedImage{}, err
 	}
