@@ -520,11 +520,11 @@ func (p Plugin) files(manager *runtimeproject.Manager) operationruntime.TypedRes
 		if err != nil {
 			return operation.Failed("project_files_failed", err.Error(), nil)
 		}
-		fsys, err := system.WorkspaceFileSystem(p.system.Workspace())
+		fsys, err := runtimeworkspace.FileSystem(p.system.Workspace())
 		if err != nil {
 			return operation.Failed("project_files_failed", err.Error(), nil)
 		}
-		entries, truncated, err := fpsystem.Walk(ctx, fsys, system.WorkspacePathName(resolved), fpsystem.WalkOptions{Depth: depth, ShowHidden: true, MaxEntries: max, SkipDirs: noisyDirs()})
+		entries, truncated, err := fpsystem.Walk(ctx, fsys, runtimeworkspace.PathName(resolved), fpsystem.WalkOptions{Depth: depth, ShowHidden: true, MaxEntries: max, SkipDirs: noisyDirs()})
 		if err != nil {
 			return operation.Failed("project_files_failed", err.Error(), nil)
 		}
