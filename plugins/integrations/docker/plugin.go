@@ -26,7 +26,7 @@ const (
 
 // Plugin contributes Docker environment observation and assertions.
 type Plugin struct {
-	system fpsystem.System
+	process fpsystem.ProcessManager
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -34,7 +34,17 @@ var _ pluginhost.ObserverContributor = Plugin{}
 var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
 // New returns a Docker integration plugin.
-func New(sys fpsystem.System) Plugin { return Plugin{system: sys} }
+func New(sys fpsystem.System) Plugin { return Plugin{process: processFromSystem(sys)} }
+
+// NewWithProcess returns a Docker integration plugin using an explicit process boundary.
+func NewWithProcess(process fpsystem.ProcessManager) Plugin { return Plugin{process: process} }
+
+func processFromSystem(sys fpsystem.System) fpsystem.ProcessManager {
+	if sys == nil {
+		return nil
+	}
+	return sys.Process()
+}
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -51,7 +61,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 
 // EnvironmentObservers returns executable Docker observers.
 func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
-	return []runtimeevidence.Observer{dockerObserver(p)}, nil
+	return []runtimeevidence.Observer{dockerObserver{process: p.process}}, nil
 }
 
 // AssertionDerivers returns executable Docker assertion derivation.
@@ -70,7 +80,7 @@ type Status struct {
 }
 
 type dockerObserver struct {
-	system fpsystem.System
+	process fpsystem.ProcessManager
 }
 
 func (dockerObserver) Spec() coreevidence.ObserverSpec {
@@ -78,7 +88,7 @@ func (dockerObserver) Spec() coreevidence.ObserverSpec {
 }
 
 func (o dockerObserver) Observe(ctx context.Context, _ runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
-	status := observeDockerStatus(ctx, o.system)
+	status := observeDockerStatus(ctx, o.process)
 	return []coreevidence.Observation{{
 		ID:          "integration:docker:local",
 		Environment: coreevidence.Ref{Name: coreevidence.Name(Name)},
@@ -160,13 +170,12 @@ func assertionDeriverSpec() coreevidence.AssertionDeriverSpec {
 	}
 }
 
-func observeDockerStatus(ctx context.Context, sys fpsystem.System) Status {
+func observeDockerStatus(ctx context.Context, process fpsystem.ProcessManager) Status {
 	status := Status{}
-	if sys == nil || sys.Process() == nil {
+	if process == nil {
 		status.Diagnostic = "process manager is unavailable"
 		return status
 	}
-	process := sys.Process()
 	versionRun, err := process.Run(ctx, fpsystem.ProcessRequest{
 		Command:   "docker",
 		Args:      []string{"--version"},
