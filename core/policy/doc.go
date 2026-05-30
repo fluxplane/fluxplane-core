@@ -1,6 +1,6 @@
-// Package policy defines the pure invocation and authority vocabulary.
+// Package policy provides compatibility aliases for policy APIs that moved to
+// github.com/fluxplane/fluxplane-policy and github.com/fluxplane/fluxplane-policy/policyauth.
 //
-// Policy does not execute or enforce anything by itself. Runtime,
-// orchestration, and adapters use these types to evaluate whether a caller is
-// allowed to invoke a projection such as a tool or command.
+// Deprecated: use github.com/fluxplane/fluxplane-policy and
+// github.com/fluxplane/fluxplane-policy/policyauth directly.
 package policy
