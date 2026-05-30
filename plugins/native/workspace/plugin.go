@@ -9,6 +9,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 )
 
 const (
@@ -62,7 +63,7 @@ func summaryContextSpec() corecontext.ProviderSpec {
 }
 
 type summaryProvider struct {
-	workspace system.Workspace
+	workspace runtimeworkspace.Workspace
 }
 
 func (p summaryProvider) Spec() corecontext.ProviderSpec { return summaryContextSpec() }
@@ -87,7 +88,7 @@ func (p summaryProvider) Build(context.Context, corecontext.Request) ([]corecont
 	}}, nil
 }
 
-func renderWorkspaceSummary(workspace system.Workspace) string {
+func renderWorkspaceSummary(workspace runtimeworkspace.Workspace) string {
 	if workspace == nil {
 		return ""
 	}
@@ -97,7 +98,7 @@ func renderWorkspaceSummary(workspace system.Workspace) string {
 		if root == "" {
 			return ""
 		}
-		roots = []system.WorkspaceRoot{{Path: root, Rel: ".", Read: true, Write: true}}
+		roots = []runtimeworkspace.Root{{Path: root, Rel: ".", Read: true, Write: true}}
 	}
 	var lines []string
 	lines = append(lines, "Workspace:")
