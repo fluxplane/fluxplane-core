@@ -189,7 +189,7 @@ func envRefs(spec coresecret.EnvSpec) []coresecret.Ref {
 
 func secretConfigured(ctx context.Context, resolver runtimesecret.Resolver, ref coresecret.Ref) bool {
 	material, ok, err := resolver.ResolveSecret(ctx, ref)
-	return err == nil && ok && strings.TrimSpace(material.Value) != ""
+	return err == nil && ok && strings.TrimSpace(string(material.Value)) != ""
 }
 
 func anyFieldSet(fields []FieldStatus) bool {

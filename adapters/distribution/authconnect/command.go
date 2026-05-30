@@ -735,8 +735,9 @@ func resolvedFieldValues(ctx context.Context, resolver runtimesecret.Resolver, r
 	if len(method.SetupFields) == 0 {
 		for _, candidate := range refsForDisplayMethod(method) {
 			material, ok, err := resolver.ResolveSecret(ctx, candidate)
-			if err == nil && ok && strings.TrimSpace(material.Value) != "" {
-				out = append(out, resolvedField{Name: displayRefName(candidate), Value: material.Value, Set: true, Sensitive: true})
+			value := strings.TrimSpace(string(material.Value))
+			if err == nil && ok && value != "" {
+				out = append(out, resolvedField{Name: displayRefName(candidate), Value: value, Set: true, Sensitive: true})
 				break
 			}
 		}
@@ -750,9 +751,10 @@ func resolveDisplayField(ctx context.Context, resolver runtimesecret.Resolver, r
 	refs = append(refs, envRefs(spec.Env)...)
 	for _, candidate := range refs {
 		material, ok, err := resolver.ResolveSecret(ctx, candidate)
-		if err == nil && ok && strings.TrimSpace(material.Value) != "" {
+		value := strings.TrimSpace(string(material.Value))
+		if err == nil && ok && value != "" {
 			candidate = candidate.Normalize()
-			return strings.TrimSpace(material.Value), displayRefName(candidate), candidate.Scheme == coresecret.SchemeEnv, true
+			return value, displayRefName(candidate), candidate.Scheme == coresecret.SchemeEnv, true
 		}
 	}
 	if method.Method != coresecret.AuthMethodEnv || name != strings.TrimSpace(method.Name) {
@@ -760,9 +762,10 @@ func resolveDisplayField(ctx context.Context, resolver runtimesecret.Resolver, r
 	}
 	for _, candidate := range envRefs(method.Env) {
 		material, ok, err := resolver.ResolveSecret(ctx, candidate)
-		if err == nil && ok && strings.TrimSpace(material.Value) != "" {
+		value := strings.TrimSpace(string(material.Value))
+		if err == nil && ok && value != "" {
 			candidate = candidate.Normalize()
-			return strings.TrimSpace(material.Value), displayRefName(candidate), candidate.Scheme == coresecret.SchemeEnv, true
+			return value, displayRefName(candidate), candidate.Scheme == coresecret.SchemeEnv, true
 		}
 	}
 	return "", "", false, false
@@ -800,8 +803,8 @@ func envRefs(spec coresecret.EnvSpec) []coresecret.Ref {
 
 func displayRefName(ref coresecret.Ref) string {
 	ref = ref.Normalize()
-	if ref.Name != "" {
-		return ref.Name
+	if ref.Slot != "" {
+		return string(ref.Slot)
 	}
 	return ref.ResourceName()
 }

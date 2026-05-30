@@ -31,7 +31,7 @@ func TestFileStoreSavesAndResolvesPluginSecret(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("ResolveSecret = %#v, %v, %v; want material", material, ok, err)
 	}
-	if material.Kind != coresecret.KindOAuth2Token || material.Value != "access-token" {
+	if material.Kind != coresecret.KindOAuth2Token || string(material.Value) != "access-token" {
 		t.Fatalf("material = %#v, want oauth token", material)
 	}
 }

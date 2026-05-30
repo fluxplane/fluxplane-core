@@ -48,68 +48,32 @@ const (
 )
 
 // Ref identifies one secret without carrying its value.
-type Ref struct {
-	Scheme   Scheme `json:"scheme,omitempty" yaml:"scheme,omitempty"`
-	Plugin   string `json:"plugin,omitempty" yaml:"plugin,omitempty"`
-	Instance string `json:"instance,omitempty" yaml:"instance,omitempty"`
-	Name     string `json:"name" yaml:"name"`
-}
+type Ref = shared.Ref
 
-// FromSharedRef converts a shared fluxplane-secret ref to the compatibility shape.
-func FromSharedRef(ref shared.Ref) Ref {
-	ref = ref.Normalize()
-	return Ref{Scheme: ref.Scheme, Plugin: ref.Plugin, Instance: ref.Instance, Name: string(ref.Slot)}.Normalize()
-}
-
-// Shared returns the canonical shared fluxplane-secret ref.
-func (r Ref) Shared() shared.Ref {
-	r = r.Normalize()
-	return shared.Ref{Scheme: r.Scheme, Plugin: r.Plugin, Instance: r.Instance, Slot: shared.Slot(r.Name)}.Normalize()
-}
-
-// Normalize returns a trimmed ref.
-func (r Ref) Normalize() Ref {
-	r.Scheme = Scheme(strings.TrimSpace(string(r.Scheme)))
-	r.Plugin = strings.TrimSpace(r.Plugin)
-	r.Instance = strings.TrimSpace(r.Instance)
-	r.Name = strings.TrimSpace(r.Name)
-	return r
-}
-
-// ResourceName returns the authorization resource name for the ref.
-func (r Ref) ResourceName() string { return r.Shared().ResourceName() }
+// FromSharedRef returns the canonical shared fluxplane-secret ref.
+func FromSharedRef(ref shared.Ref) Ref { return ref.Normalize() }
 
 // Env returns an env secret ref.
-func Env(name string) Ref { return FromSharedRef(shared.Env(name)) }
+func Env(name string) Ref { return shared.Env(name) }
 
 // Plugin returns a plugin-scoped secret ref.
 func Plugin(plugin, instance, name string) Ref {
-	return FromSharedRef(shared.Plugin(plugin, instance, shared.Slot(name)))
+	return shared.Plugin(plugin, instance, shared.Slot(name))
 }
 
 // Kubernetes returns a Kubernetes Secret key ref.
 func Kubernetes(namespace, secretName, key string) Ref {
-	return FromSharedRef(shared.Kubernetes(namespace, secretName, shared.Slot(key)))
+	return shared.Kubernetes(namespace, secretName, shared.Slot(key))
 }
 
 // ParseRef parses a canonical secret resource name into a Ref.
-func ParseRef(value string) Ref { return FromSharedRef(shared.ParseRef(value)) }
+func ParseRef(value string) Ref { return shared.ParseRef(value) }
 
 // Material is secret material available only to trusted runtime code.
-type Material struct {
-	Kind  Kind   `json:"kind,omitempty"`
-	Value string `json:"-"`
-}
+type Material = shared.Material
 
-// Shared returns the canonical shared fluxplane-secret material.
-func (m Material) Shared() shared.Material {
-	return shared.Material{Kind: m.Kind, Value: []byte(m.Value)}
-}
-
-// FromSharedMaterial converts shared material to the compatibility shape.
-func FromSharedMaterial(m shared.Material) Material {
-	return Material{Kind: m.Kind, Value: string(m.Value)}
-}
+// FromSharedMaterial returns the canonical shared material shape.
+func FromSharedMaterial(m shared.Material) Material { return m }
 
 // AuthRequest asks runtime to obtain usable credential material for one plugin instance.
 type AuthRequest struct {
@@ -153,7 +117,7 @@ func (s AuthMethodSpec) Shared() auth.MethodSpec {
 	for _, field := range s.SetupFields {
 		fields = append(fields, field.Shared())
 	}
-	return auth.MethodSpec{Name: s.Name, Method: s.Method, Kind: s.Kind, DisplayName: s.DisplayName, Description: s.Description, Secret: s.Secret.Shared(), Env: auth.EnvSpec(s.Env), Header: auth.HeaderSpec(s.Header), OAuth2: auth.OAuth2Spec(s.OAuth2), SetupFields: fields, Annotations: cloneMap(s.Metadata)}.Normalize()
+	return auth.MethodSpec{Name: s.Name, Method: s.Method, Kind: s.Kind, DisplayName: s.DisplayName, Description: s.Description, Secret: s.Secret, Env: auth.EnvSpec(s.Env), Header: auth.HeaderSpec(s.Header), OAuth2: auth.OAuth2Spec(s.OAuth2), SetupFields: fields, Annotations: cloneMap(s.Metadata)}.Normalize()
 }
 
 // EnvSpec describes an environment-variable backed auth method.

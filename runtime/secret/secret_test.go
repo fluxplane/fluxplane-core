@@ -14,7 +14,7 @@ import (
 func TestEnvResolverFindsEnvSecret(t *testing.T) {
 	resolver := EnvResolver{Environment: mapEnvironment{"GITLAB_PERSONAL_ACCESS_TOKEN": "pat"}}
 	material, ok, err := resolver.ResolveSecret(context.Background(), coresecret.Env("GITLAB_PERSONAL_ACCESS_TOKEN"))
-	if err != nil || !ok || material.Value != "pat" {
+	if err != nil || !ok || string(material.Value) != "pat" {
 		t.Fatalf("ResolveSecret = %#v, %v, %v; want pat", material, ok, err)
 	}
 }
@@ -31,7 +31,7 @@ func TestBrokerMintAndResolveScopedPlaceholder(t *testing.T) {
 		t.Fatalf("placeholder = %q", placeholder)
 	}
 	material, ok, err := broker.ResolveHandle(ctx, handle)
-	if err != nil || !ok || material.Value != "pat" {
+	if err != nil || !ok || string(material.Value) != "pat" {
 		t.Fatalf("ResolveHandle = %#v, %v, %v; want pat", material, ok, err)
 	}
 	_, _, err = broker.ResolveHandle(ContextWithScope(authorizedContext(), Scope{Session: "other", Turn: "t1"}), handle)
@@ -71,7 +71,7 @@ func TestBrokerUseFirstSkipsMissingCandidateBeforeAuthorization(t *testing.T) {
 		}}},
 	})
 	ref, material, ok, err := broker.UseFirst(ctx, coresecret.Env("GITLAB_PERSONAL_ACCESS_TOKEN"), coresecret.Env("GITLAB_TOKEN"))
-	if err != nil || !ok || ref.Name != "GITLAB_TOKEN" || material.Value != "fallback" {
+	if err != nil || !ok || ref.Slot != "GITLAB_TOKEN" || string(material.Value) != "fallback" {
 		t.Fatalf("UseFirst = %#v, %#v, %v, %v; want fallback", ref, material, ok, err)
 	}
 }
@@ -99,7 +99,7 @@ func TestBrokerUseAvailableAuthorizesLogicalPluginSecret(t *testing.T) {
 			Env:    coresecret.EnvSpec{Name: "GITLAB_PERSONAL_ACCESS_TOKEN", Aliases: []string{"GITLAB_TOKEN"}},
 		}},
 	})
-	if err != nil || !ok || resolution.Ref.ResourceName() != "env/GITLAB_PERSONAL_ACCESS_TOKEN" || resolution.Material.Value != "pat" {
+	if err != nil || !ok || resolution.Ref.ResourceName() != "env/GITLAB_PERSONAL_ACCESS_TOKEN" || string(resolution.Material.Value) != "pat" {
 		t.Fatalf("UseAvailable = %#v, %v, %v; want configured env token", resolution, ok, err)
 	}
 }
@@ -135,7 +135,7 @@ func TestBrokerUseAvailableProbesAliasesWhenEnvNameUnset(t *testing.T) {
 			Env:    coresecret.EnvSpec{Aliases: []string{"GITLAB_TOKEN"}},
 		}},
 	})
-	if err != nil || !ok || resolution.Ref.ResourceName() != "env/GITLAB_TOKEN" || resolution.Material.Value != "fallback" {
+	if err != nil || !ok || resolution.Ref.ResourceName() != "env/GITLAB_TOKEN" || string(resolution.Material.Value) != "fallback" {
 		t.Fatalf("UseAvailable alias probe = %#v, %v, %v; want fallback", resolution, ok, err)
 	}
 }

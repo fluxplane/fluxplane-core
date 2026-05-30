@@ -23,7 +23,7 @@ func TestRefResourceName(t *testing.T) {
 
 func TestParseRef(t *testing.T) {
 	ref := ParseRef("kubernetes/latest/backend-db/dsn")
-	if ref.Scheme != SchemeKubernetes || ref.Plugin != "latest" || ref.Instance != "backend-db" || ref.Name != "dsn" {
+	if ref.Scheme != SchemeKubernetes || ref.Plugin != "latest" || ref.Instance != "backend-db" || ref.Slot != "dsn" {
 		t.Fatalf("ParseRef kubernetes = %#v", ref)
 	}
 }
@@ -89,7 +89,7 @@ func TestRefResourceNameForms(t *testing.T) {
 		{name: "empty env", ref: Ref{Scheme: SchemeEnv}, want: "env/*"},
 		{name: "plugin no instance", ref: Plugin(" gitlab ", " ", " token "), want: "plugin/gitlab/token"},
 		{name: "kubernetes trims empty", ref: Kubernetes(" ns ", " secret ", " key "), want: "kubernetes/ns/secret/key"},
-		{name: "custom", ref: Ref{Scheme: " custom ", Plugin: " plug ", Instance: " inst ", Name: " name "}, want: "custom/plug/inst/name"},
+		{name: "custom", ref: Ref{Scheme: " custom ", Plugin: " plug ", Instance: " inst ", Slot: " name "}, want: "custom/plug/inst/name"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -111,7 +111,7 @@ func TestParseRefForms(t *testing.T) {
 		{value: "env/GITLAB/TOKEN", want: Env("GITLAB/TOKEN")},
 		{value: "plugin/gitlab/company/token/with/slashes", want: Plugin("gitlab", "company", "token/with/slashes")},
 		{value: "kubernetes/ns/secret/key/with/slashes", want: Kubernetes("ns", "secret", "key/with/slashes")},
-		{value: "vault/path/to/secret", want: Ref{Scheme: "vault", Name: "path/to/secret"}},
+		{value: "vault/path/to/secret", want: Ref{Scheme: "vault", Slot: "path/to/secret"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.value, func(t *testing.T) {

@@ -49,7 +49,7 @@ func (r EnvResolver) ResolveSecret(ctx context.Context, ref coresecret.Ref) (cor
 	if ref.Scheme != coresecret.SchemeEnv {
 		return coresecret.Material{}, false, nil
 	}
-	if ref.Name == "" {
+	if ref.Slot == "" {
 		return coresecret.Material{}, false, fmt.Errorf("secret env ref name is empty")
 	}
 	if r.Environment == nil {
@@ -58,7 +58,7 @@ func (r EnvResolver) ResolveSecret(ctx context.Context, ref coresecret.Ref) (cor
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	value, ok, err := r.Environment.Lookup(ctx, ref.Name)
+	value, ok, err := r.Environment.Lookup(ctx, string(ref.Slot))
 	if err != nil {
 		return coresecret.Material{}, false, err
 	}
@@ -69,7 +69,7 @@ func (r EnvResolver) ResolveSecret(ctx context.Context, ref coresecret.Ref) (cor
 	if kind == "" {
 		kind = coresecret.KindAPIKey
 	}
-	return coresecret.Material{Kind: kind, Value: value}, true, nil
+	return coresecret.Material{Ref: ref, Kind: kind, Value: []byte(value)}, true, nil
 }
 
 // ChainResolver tries resolvers in order.
