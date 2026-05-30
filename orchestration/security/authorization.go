@@ -117,6 +117,37 @@ func (w authorizedWorkspace) ReadFile(ctx context.Context, raw string, maxBytes 
 	return data, truncated, resolved, nil
 }
 
+func (w authorizedWorkspace) CopyFile(ctx context.Context, rawSrc, rawDst string, overwrite bool) (runtimeworkspace.ResolvedPath, runtimeworkspace.ResolvedPath, int64, error) {
+	src, err := w.ResolveExisting(ctx, rawSrc)
+	if err != nil {
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
+	}
+	dst, err := w.ResolveCreate(ctx, rawDst)
+	if err != nil {
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
+	}
+	_, _, written, err := w.base.CopyFile(ctx, rawSrc, rawDst, overwrite)
+	if err != nil {
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
+	}
+	return src, dst, written, nil
+}
+
+func (w authorizedWorkspace) MoveFile(ctx context.Context, rawSrc, rawDst string, overwrite bool) (runtimeworkspace.ResolvedPath, runtimeworkspace.ResolvedPath, int64, error) {
+	src, err := w.ResolveExisting(ctx, rawSrc)
+	if err != nil {
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
+	}
+	dst, err := w.ResolveCreate(ctx, rawDst)
+	if err != nil {
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
+	}
+	_, _, written, err := w.base.MoveFile(ctx, rawSrc, rawDst, overwrite)
+	if err != nil {
+		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
+	}
+	return src, dst, written, nil
+}
 func (w authorizedWorkspace) CreateScratch(ctx context.Context, prefix string) (runtimeworkspace.ScratchDir, error) {
 	if err := Authorize(ctx, w.cfg, policy.ResourceRef{Kind: policy.ResourceWorkspace, Name: "scratch"}, policy.ActionWorkspaceWrite); err != nil {
 		return nil, err

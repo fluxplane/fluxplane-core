@@ -21,7 +21,7 @@ func TestContextProvidersAggregateCodingSummaries(t *testing.T) {
 	writeCodingFile(t, sys.Workspace(), "main.go", "package main\n\nfunc main() {}\n")
 	writeCodingFile(t, sys.Workspace(), "README.md", "# App\n")
 
-	providers, err := New(sys).ContextProviders(context.Background(), pluginhost.Context{})
+	providers, err := New(Config{Workspace: sys.Workspace(), Process: sys.Process()}).ContextProviders(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("ContextProviders: %v", err)
 	}

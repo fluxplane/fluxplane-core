@@ -74,7 +74,7 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 		if !strings.Contains(composeFiles.Text, "docker-compose.yaml") || strings.Contains(composeFiles.Text, "Dockerfile") {
 			t.Fatalf("docker compose facet files text = %q", composeFiles.Text)
 		}
-		providers, err := New(sys, workspace).ContextProviders(context.Background(), pluginhost.Context{})
+		providers, err := New(projectConfig(sys, workspace)).ContextProviders(context.Background(), pluginhost.Context{})
 		if err != nil {
 			t.Fatalf("ContextProviders: %v", err)
 		}
@@ -99,7 +99,7 @@ func TestProjectObserverAndAssertionDeriver(t *testing.T) {
 	workspace := sys.Workspace()
 	writeProjectFile(t, workspace, "go.mod", "module example.com/app\n\ngo 1.26\n")
 	writeProjectFile(t, workspace, "README.md", "# App\n")
-	plugin := New(sys, workspace)
+	plugin := New(projectConfig(sys, workspace))
 
 	observers, err := plugin.EnvironmentObservers(context.Background(), pluginhost.Context{})
 	if err != nil {
@@ -141,7 +141,7 @@ func TestProjectObserverAndAssertionDeriver(t *testing.T) {
 func TestProjectPluginResolvesWorkspaceDeclarationsLazily(t *testing.T) {
 	sys := system.NewMemory()
 	workspace := sys.Workspace()
-	plugin := New(sys, workspace)
+	plugin := New(projectConfig(sys, workspace))
 	writeProjectFile(t, workspace, "go.mod", "module example.com/app\n\ngo 1.26\n")
 	writeProjectFile(t, workspace, ".agents/workspaces.json", `{"workspaces":[{"id":"workspace:configured:test","roots":[{"path":"/memory-workspace"}]}]}`)
 
@@ -245,7 +245,7 @@ func runProjectPluginBackends(t *testing.T, fn func(*testing.T, fpsystem.System,
 
 func runProjectOp(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace, name string, input map[string]any) operation.Rendered {
 	t.Helper()
-	ops, err := New(sys, workspace).Operations(context.Background(), pluginhost.Context{})
+	ops, err := New(projectConfig(sys, workspace)).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -291,7 +291,7 @@ func runProjectTaskOpWithEvents(t *testing.T, sys fpsystem.System, workspace run
 
 func findProjectOp(t *testing.T, sys fpsystem.System, workspace runtimeworkspace.Workspace, name string) operation.Operation {
 	t.Helper()
-	ops, err := New(sys, workspace).Operations(context.Background(), pluginhost.Context{})
+	ops, err := New(projectConfig(sys, workspace)).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -399,4 +399,12 @@ func writeProjectFile(t *testing.T, ws runtimeworkspace.Workspace, rel, content 
 	if err := fsys.WriteFile(context.Background(), runtimeworkspace.PathName(resolved), []byte(content), fpsystem.WriteFileOptions{Perm: 0644, Overwrite: true}); err != nil {
 		t.Fatalf("WriteFile(%s): %v", rel, err)
 	}
+}
+
+func projectConfig(sys fpsystem.System, workspace runtimeworkspace.Workspace) Config {
+	cfg := Config{Workspace: workspace}
+	if sys != nil {
+		cfg.Process = sys.Process()
+	}
+	return cfg
 }

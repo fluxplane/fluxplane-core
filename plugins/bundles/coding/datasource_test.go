@@ -14,7 +14,7 @@ func TestCodingPluginForwardsWebDatasourceProviders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	providers, err := New(sys).DatasourceProviders(context.Background(), zeroPluginContext())
+	providers, err := New(Config{Workspace: sys.Workspace(), Process: sys.Process(), Environment: sys.Environment(), Network: sys.Network()}).DatasourceProviders(context.Background(), zeroPluginContext())
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
 	}

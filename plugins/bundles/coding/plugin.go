@@ -22,7 +22,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/native/project"
 	"github.com/fluxplane/fluxplane-core/plugins/native/shell"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	runtimehuman "github.com/fluxplane/fluxplane-core/runtime/human"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -32,14 +31,17 @@ const AgentsContextProvider = "agents.md"
 
 // Plugin aggregates the standard day-to-day coding operation sets.
 type Plugin struct {
-	system    fpsystem.System
 	workspace runtimeworkspace.Workspace
 	plugins   []pluginhost.Plugin
 }
 
-type Options struct {
-	Browser *browser.Plugin
-	Human   *human.Plugin
+type Config struct {
+	Workspace   runtimeworkspace.Workspace
+	Process     fpsystem.ProcessManager
+	Environment fpsystem.Environment
+	Network     fpsystem.Network
+	Browser     *browser.Plugin
+	Human       *human.Plugin
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -51,71 +53,27 @@ var _ pluginhost.AssertionDeriverContributor = Plugin{}
 var _ pluginhost.ReactionContributor = Plugin{}
 
 // New returns a standard coding plugin bundle.
-func New(sys fpsystem.System, workspaces ...runtimeworkspace.Workspace) Plugin {
-	return NewWithOptions(sys, workspaceFromSystem(sys, workspaces...), Options{})
-}
-
-func NewWithOptions(sys fpsystem.System, workspace runtimeworkspace.Workspace, opts Options) Plugin {
+func New(cfg Config) Plugin {
 	browserPlugin := browser.New(browser.Config{})
-	if opts.Browser != nil {
-		browserPlugin = *opts.Browser
+	if cfg.Browser != nil {
+		browserPlugin = *cfg.Browser
 	}
-	humanPlugin := human.NewWithConfig(humanConfig(sys, nil))
-	if opts.Human != nil {
-		humanPlugin = *opts.Human
+	humanPlugin := human.NewWithConfig(human.Config{Process: cfg.Process})
+	if cfg.Human != nil {
+		humanPlugin = *cfg.Human
 	}
-	return Plugin{system: sys, workspace: workspace, plugins: []pluginhost.Plugin{
-		project.New(sys, workspace),
-		filesystem.New(workspace),
-		golang.New(golangConfig(sys, workspace)),
-		markdown.New(workspace),
-		web.New(sys),
+	return Plugin{workspace: cfg.Workspace, plugins: []pluginhost.Plugin{
+		project.New(project.Config{Workspace: cfg.Workspace, Process: cfg.Process}),
+		filesystem.New(cfg.Workspace),
+		golang.New(golang.Config{Workspace: cfg.Workspace, Process: cfg.Process}),
+		markdown.New(cfg.Workspace),
+		web.NewWithBoundaries(web.Boundaries{Network: cfg.Network, Environment: cfg.Environment}),
 		browserPlugin,
-		git.New(sys),
-		shell.New(shellConfig(sys)),
-		code.New(codeConfig(sys, workspace)),
+		git.NewWithProcess(cfg.Process),
+		shell.New(shell.Config{Process: cfg.Process, Environment: cfg.Environment}),
+		code.New(code.Config{Workspace: cfg.Workspace, Process: cfg.Process}),
 		humanPlugin,
 	}}
-}
-
-func codeConfig(sys fpsystem.System, workspace runtimeworkspace.Workspace) code.Config {
-	if sys == nil {
-		return code.Config{Workspace: workspace}
-	}
-	return code.Config{Workspace: workspace, Process: sys.Process()}
-}
-
-func golangConfig(sys fpsystem.System, workspace runtimeworkspace.Workspace) golang.Config {
-	if sys == nil {
-		return golang.Config{Workspace: workspace}
-	}
-	return golang.Config{Workspace: workspace, Process: sys.Process()}
-}
-
-func humanConfig(sys fpsystem.System, clarifier runtimehuman.Clarifier) human.Config {
-	if sys == nil {
-		return human.Config{Clarifier: clarifier}
-	}
-	return human.Config{Process: sys.Process(), Clarifier: clarifier}
-}
-
-func shellConfig(sys fpsystem.System) shell.Config {
-	if sys == nil {
-		return shell.Config{}
-	}
-	return shell.Config{Process: sys.Process(), Environment: sys.Environment()}
-}
-
-func workspaceFromSystem(sys fpsystem.System, workspaces ...runtimeworkspace.Workspace) runtimeworkspace.Workspace {
-	if len(workspaces) > 0 {
-		return workspaces[0]
-	}
-	if provider, ok := sys.(interface {
-		Workspace() runtimeworkspace.Workspace
-	}); ok {
-		return provider.Workspace()
-	}
-	return nil
 }
 
 // Manifest returns plugin metadata.

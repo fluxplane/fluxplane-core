@@ -52,11 +52,20 @@ const (
 
 // Plugin contributes Workspace project inventory operations.
 type Plugin struct {
-	system           fpsystem.System
 	workspace        runtimeworkspace.Workspace
+	process          fpsystem.ProcessManager
 	manager          *runtimeproject.Manager
 	workspaceManager *runtimeworkspace.Manager
 	workspaceID      coreworkspace.ID
+}
+
+// Config configures project plugin boundaries.
+type Config struct {
+	Workspace        runtimeworkspace.Workspace
+	Process          fpsystem.ProcessManager
+	Manager          *runtimeproject.Manager
+	WorkspaceManager *runtimeworkspace.Manager
+	WorkspaceID      coreworkspace.ID
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -65,26 +74,8 @@ var _ pluginhost.ContextProviderContributor = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
 var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
-func New(sys fpsystem.System, workspaces ...runtimeworkspace.Workspace) Plugin {
-	return NewWithWorkspaceManager(sys, workspaceFromSystem(sys, workspaces...), runtimeworkspace.NewManager(), "")
-}
-
-// NewWithWorkspaceManager returns a project inventory plugin using workspace
-// resolution from the supplied manager.
-func NewWithWorkspaceManager(sys fpsystem.System, workspace runtimeworkspace.Workspace, workspaceManager *runtimeworkspace.Manager, explicitWorkspaceID coreworkspace.ID) Plugin {
-	return Plugin{system: sys, workspace: workspace, workspaceManager: workspaceManager, workspaceID: explicitWorkspaceID}
-}
-
-func workspaceFromSystem(sys fpsystem.System, workspaces ...runtimeworkspace.Workspace) runtimeworkspace.Workspace {
-	if len(workspaces) > 0 {
-		return workspaces[0]
-	}
-	if provider, ok := sys.(interface {
-		Workspace() runtimeworkspace.Workspace
-	}); ok {
-		return provider.Workspace()
-	}
-	return nil
+func New(cfg Config) Plugin {
+	return Plugin{workspace: cfg.Workspace, process: cfg.Process, manager: cfg.Manager, workspaceManager: cfg.WorkspaceManager, workspaceID: cfg.WorkspaceID}
 }
 
 // Manifest returns plugin metadata.
@@ -123,7 +114,7 @@ func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimee
 }
 
 func (p Plugin) ContextProviders(ctx context.Context, _ pluginhost.Context) ([]corecontext.Provider, error) {
-	if p.system == nil || p.workspace == nil {
+	if p.workspace == nil {
 		return nil, nil
 	}
 	manager := p.projectManager(ctx)
@@ -134,8 +125,8 @@ func (p Plugin) ContextProviders(ctx context.Context, _ pluginhost.Context) ([]c
 }
 
 func (p Plugin) Operations(ctx context.Context, _ pluginhost.Context) ([]operation.Operation, error) {
-	if p.system == nil || p.workspace == nil {
-		return nil, fmt.Errorf("projectplugin: system workspace is nil")
+	if p.workspace == nil {
+		return nil, fmt.Errorf("projectplugin: workspace is nil")
 	}
 	manager := p.projectManager(ctx)
 	if manager == nil {
@@ -154,7 +145,7 @@ func (p Plugin) projectManager(ctx context.Context) *runtimeproject.Manager {
 	if p.manager != nil {
 		return p.manager
 	}
-	if p.system == nil || p.workspace == nil {
+	if p.workspace == nil {
 		return nil
 	}
 	workspaceManager := p.workspaceManager
@@ -597,7 +588,7 @@ func (p Plugin) taskRun(manager *runtimeproject.Manager) operationruntime.TypedR
 			result.DryRun = true
 			return operation.OK(result)
 		}
-		if p.system == nil || p.system.Process() == nil {
+		if p.process == nil {
 			result.Diagnostics = append(result.Diagnostics, coreproject.Warning{Code: "process_unavailable", Message: "project task execution requires a process manager"})
 			return taskRunFailed("process manager is unavailable", result)
 		}
@@ -610,7 +601,7 @@ func (p Plugin) taskRun(manager *runtimeproject.Manager) operationruntime.TypedR
 			MaxStdout: int64(taskOutputBytes(req.MaxOutputBytes)),
 			MaxStderr: int64(taskOutputBytes(req.MaxOutputBytes)),
 		}
-		handle, err := p.system.Process().Start(ctx, processReq)
+		handle, err := p.process.Start(ctx, processReq)
 		if err != nil {
 			return taskRunFailed(err.Error(), result)
 		}

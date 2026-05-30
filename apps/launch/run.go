@@ -649,11 +649,26 @@ func availablePluginsWithAuth(hostSystem fpsystem.System, ws runtimeworkspace.Wo
 }
 
 func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver, opts nativePluginOptions) []pluginhost.Plugin {
+	var process fpsystem.ProcessManager
+	var environment fpsystem.Environment
+	var network fpsystem.Network
+	if hostSystem != nil {
+		process = hostSystem.Process()
+		environment = hostSystem.Environment()
+		network = hostSystem.Network()
+	}
 	return []pluginhost.Plugin{
 		workspace.New(ws),
 		discovery.New(),
 		identity.New(),
-		coding.NewWithOptions(hostSystem, ws, coding.Options{Browser: opts.Browser, Human: opts.Human}),
+		coding.New(coding.Config{
+			Workspace:   ws,
+			Process:     process,
+			Environment: environment,
+			Network:     network,
+			Browser:     opts.Browser,
+			Human:       opts.Human,
+		}),
 		goalplugin.New(),
 		loop.New(),
 		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
