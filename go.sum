@@ -167,8 +167,8 @@ github.com/fluxplane/fluxplane-auth v0.1.1 h1:fEIzbbDvy31PluMDxKFAx4v6w+J5LSrSRn
 github.com/fluxplane/fluxplane-auth v0.1.1/go.mod h1:+WDYvrSzvhjWgN/T2dvltuF88sQBTZTbOrr0OSsmxco=
 github.com/fluxplane/fluxplane-browser v0.1.0 h1:ku0kVz4uV76zTXN/lXp+yLXOku0RHsPASiIHJTTfho8=
 github.com/fluxplane/fluxplane-browser v0.1.0/go.mod h1:+OEbViZMUFrL+tdZ+zgoLTHfY15tLJybFLhtMOW+iTw=
-github.com/fluxplane/fluxplane-endpoint v0.1.1 h1:dUh+KF+TAC7tBZ1nd4TU0V4srXiF/RxZ4f4Du2346iI=
-github.com/fluxplane/fluxplane-endpoint v0.1.1/go.mod h1:YxEuZNTy8NfitF6foM1AwjYTZoP5MhSuzoCKbs+Nq2Y=
+github.com/fluxplane/fluxplane-endpoint v0.2.0 h1:s1pOyLPKYGFTkN3xdFOfLMm05mQW/IIT3qtRE58CAVE=
+github.com/fluxplane/fluxplane-endpoint v0.2.0/go.mod h1:YxEuZNTy8NfitF6foM1AwjYTZoP5MhSuzoCKbs+Nq2Y=
 github.com/fluxplane/fluxplane-event v0.1.0 h1:0SAx3OpuixskvESUzaCx97kZz2wqodrDmukrCN2wX0Y=
 github.com/fluxplane/fluxplane-event v0.1.0/go.mod h1:CYcx/cf6JBZ4nuo/1SBDVEQk+hz55yXlaU3paegSS+o=
 github.com/fluxplane/fluxplane-policy v0.1.1 h1:LNNWG/bdGwkAPm2j24g/Wpaw/DKL31eR7RVLbuWHZzQ=

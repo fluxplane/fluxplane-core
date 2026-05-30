@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -185,7 +185,7 @@ func TestKubernetesSecretResolverResolvesSecretKey(t *testing.T) {
 	}
 }
 
-func assertCandidate(t *testing.T, candidates []corediscovery.Candidate, kind, namespace, name, product string) corediscovery.Candidate {
+func assertCandidate(t *testing.T, candidates []fpendpoint.DiscoveryCandidate, kind, namespace, name, product string) fpendpoint.DiscoveryCandidate {
 	t.Helper()
 	for _, candidate := range candidates {
 		if candidate.Source.Kind == kind && candidate.Source.Namespace == namespace && candidate.Source.Name == name && candidate.ProductHint == product {
@@ -193,5 +193,5 @@ func assertCandidate(t *testing.T, candidates []corediscovery.Candidate, kind, n
 		}
 	}
 	t.Fatalf("candidate kind=%s namespace=%s name=%s product=%s not found in %#v", kind, namespace, name, product, candidates)
-	return corediscovery.Candidate{}
+	return fpendpoint.DiscoveryCandidate{}
 }

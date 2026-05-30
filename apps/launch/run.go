@@ -56,13 +56,12 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/runtime/authstatus"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
-	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-policy"
 )
@@ -393,9 +392,9 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		closeRuntime()
 		return Runtime{}, err
 	}
-	discoveryRegistry := runtimediscovery.NewRegistry()
-	endpointRegistry := runtimeendpoint.NewRegistry(0)
-	discoverer := runtimediscovery.NewRunner(discoveryRegistry, endpointRegistry)
+	discoveryRegistry := fpendpoint.NewDiscoveryRegistry()
+	endpointRegistry := fpendpoint.NewRegistry(0)
+	discoverer := fpendpoint.NewRunner(discoveryRegistry, endpointRegistry)
 	needsDataStore := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memory.Name)
 	needsDatasourceRuntime := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memory.Name)
 	if needsDataStore {
@@ -835,7 +834,7 @@ func datasourceRegistry(ctx context.Context, bundles []resource.ContributionBund
 	return datasourceRegistryWithOptions(ctx, bundles, plugins, root, nil, nil, nil, nil, nil, datasource.RegistryOptions{})
 }
 
-func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string, eventStore event.Store, dataStore coredata.Store, discoveryRegistry *runtimediscovery.Registry, discoverer *runtimediscovery.Runner, endpointRegistry *runtimeendpoint.Registry, opts datasource.RegistryOptions) (*coredatasource.Registry, error) {
+func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string, eventStore event.Store, dataStore coredata.Store, discoveryRegistry *fpendpoint.DiscoveryRegistry, discoverer *fpendpoint.Runner, endpointRegistry *fpendpoint.Registry, opts datasource.RegistryOptions) (*coredatasource.Registry, error) {
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		return nil, err

@@ -11,11 +11,11 @@ import (
 
 	mysql "github.com/go-sql-driver/mysql"
 
-	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/sqlclient"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 )
 
 type QueryInput struct {
@@ -277,12 +277,12 @@ func redactDSN(dsn string) string {
 	return "mysql://redacted"
 }
 
-func endpointRef(value string) coreendpoint.Ref {
+func endpointRef(value string) fpendpoint.Ref {
 	value = strings.TrimSpace(value)
 	if strings.HasPrefix(value, "@endpoint/") {
-		return coreendpoint.Ref(value)
+		return fpendpoint.Ref(value)
 	}
-	return coreendpoint.NewRef(value)
+	return fpendpoint.NewRef(value)
 }
 
 func duration(value string, fallback time.Duration) (time.Duration, error) {

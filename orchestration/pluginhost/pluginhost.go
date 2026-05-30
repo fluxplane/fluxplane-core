@@ -14,10 +14,9 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/channelruntime"
 	"github.com/fluxplane/fluxplane-core/orchestration/identity"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
-	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-policy"
 )
@@ -31,14 +30,14 @@ type Manifest struct {
 
 // Context is passed to a plugin when resolving contributions.
 type Context struct {
-	Ref        resource.PluginRef         `json:"ref"`
-	Config     any                        `json:"-"`
-	EventStore event.Store                `json:"-"`
-	DataStore  coredata.Store             `json:"-"`
-	Discovery  *runtimediscovery.Registry `json:"-"`
-	Discoverer *runtimediscovery.Runner   `json:"-"`
-	Endpoints  *runtimeendpoint.Registry  `json:"-"`
-	Secrets    runtimesecret.Resolver     `json:"-"`
+	Ref        resource.PluginRef            `json:"ref"`
+	Config     any                           `json:"-"`
+	EventStore event.Store                   `json:"-"`
+	DataStore  coredata.Store                `json:"-"`
+	Discovery  *fpendpoint.DiscoveryRegistry `json:"-"`
+	Discoverer *fpendpoint.Runner            `json:"-"`
+	Endpoints  *fpendpoint.Registry          `json:"-"`
+	Secrets    runtimesecret.Resolver        `json:"-"`
 }
 
 // Plugin contributes resources during app composition.
@@ -104,7 +103,7 @@ type DatasourceProviderContributor interface {
 // DiscoveryProviderContributor is implemented by plugins that make endpoint
 // candidate discovery providers available to other plugins.
 type DiscoveryProviderContributor interface {
-	DiscoveryProviders(context.Context, Context) ([]runtimediscovery.Provider, error)
+	DiscoveryProviders(context.Context, Context) ([]fpendpoint.DiscoveryProvider, error)
 }
 
 // SecretResolverContributor is implemented by plugins that can resolve
@@ -152,7 +151,7 @@ type DatasourceProviderContribution struct {
 // DiscoveryProviderContribution is one endpoint discovery provider.
 type DiscoveryProviderContribution struct {
 	Source   resource.SourceRef
-	Provider runtimediscovery.Provider
+	Provider fpendpoint.DiscoveryProvider
 }
 
 // SecretResolverContribution is one credential resolver contribution.
@@ -246,9 +245,9 @@ type Host struct {
 	plugins    map[string]Plugin
 	eventStore event.Store
 	dataStore  coredata.Store
-	discovery  *runtimediscovery.Registry
-	discoverer *runtimediscovery.Runner
-	endpoints  *runtimeendpoint.Registry
+	discovery  *fpendpoint.DiscoveryRegistry
+	discoverer *fpendpoint.Runner
+	endpoints  *fpendpoint.Registry
 	secrets    *runtimesecret.Registry
 }
 
@@ -278,21 +277,21 @@ func (h *Host) SetDataStore(store coredata.Store) {
 }
 
 // SetDiscoveryRegistry configures the shared endpoint discovery registry.
-func (h *Host) SetDiscoveryRegistry(registry *runtimediscovery.Registry) {
+func (h *Host) SetDiscoveryRegistry(registry *fpendpoint.DiscoveryRegistry) {
 	if h != nil {
 		h.discovery = registry
 	}
 }
 
 // SetDiscoveryRunner configures the shared endpoint discovery runner.
-func (h *Host) SetDiscoveryRunner(runner *runtimediscovery.Runner) {
+func (h *Host) SetDiscoveryRunner(runner *fpendpoint.Runner) {
 	if h != nil {
 		h.discoverer = runner
 	}
 }
 
 // SetEndpointRegistry configures the shared endpoint registry.
-func (h *Host) SetEndpointRegistry(registry *runtimeendpoint.Registry) {
+func (h *Host) SetEndpointRegistry(registry *fpendpoint.Registry) {
 	if h != nil {
 		h.endpoints = registry
 	}
@@ -551,13 +550,13 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 
 func (h *Host) ensureSharedRegistries() {
 	if h.discovery == nil {
-		h.discovery = runtimediscovery.NewRegistry()
+		h.discovery = fpendpoint.NewDiscoveryRegistry()
 	}
 	if h.endpoints == nil {
-		h.endpoints = runtimeendpoint.NewRegistry(0)
+		h.endpoints = fpendpoint.NewRegistry(0)
 	}
 	if h.discoverer == nil {
-		h.discoverer = runtimediscovery.NewRunner(h.discovery, h.endpoints)
+		h.discoverer = fpendpoint.NewRunner(h.discovery, h.endpoints)
 	}
 	if h.secrets == nil {
 		h.secrets = runtimesecret.NewRegistry()

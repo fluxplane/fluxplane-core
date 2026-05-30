@@ -9,13 +9,10 @@ import (
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
-	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
-	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
-	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 )
 
 const (
@@ -25,44 +22,44 @@ const (
 )
 
 type EndpointRecord struct {
-	ID        string                 `json:"id" datasource:"id" jsonschema:"description=Endpoint ref."`
-	URL       string                 `json:"url,omitempty" datasource:"url,searchable" jsonschema:"description=Resolved endpoint URL."`
-	Product   string                 `json:"product,omitempty" datasource:"filterable,searchable" jsonschema:"description=Endpoint product such as mysql or loki."`
-	Protocol  string                 `json:"protocol,omitempty" datasource:"filterable,searchable" jsonschema:"description=Endpoint protocol."`
-	Provider  string                 `json:"provider,omitempty" datasource:"filterable,searchable" jsonschema:"description=Discovery provider that owns the endpoint."`
-	Namespace string                 `json:"namespace,omitempty" datasource:"filterable,searchable" jsonschema:"description=Source namespace when available."`
-	Source    coreendpoint.SourceRef `json:"source,omitempty" datasource:"object" jsonschema:"description=Non-secret endpoint source."`
-	Metadata  map[string]string      `json:"metadata,omitempty" datasource:"object" jsonschema:"description=Non-secret endpoint metadata."`
-	ExpiresAt string                 `json:"expires_at,omitempty" datasource:"filterable" jsonschema:"description=Expiration timestamp for discovered endpoint records."`
+	ID        string               `json:"id" datasource:"id" jsonschema:"description=Endpoint ref."`
+	URL       string               `json:"url,omitempty" datasource:"url,searchable" jsonschema:"description=Resolved endpoint URL."`
+	Product   string               `json:"product,omitempty" datasource:"filterable,searchable" jsonschema:"description=Endpoint product such as mysql or loki."`
+	Protocol  string               `json:"protocol,omitempty" datasource:"filterable,searchable" jsonschema:"description=Endpoint protocol."`
+	Provider  string               `json:"provider,omitempty" datasource:"filterable,searchable" jsonschema:"description=Discovery provider that owns the endpoint."`
+	Namespace string               `json:"namespace,omitempty" datasource:"filterable,searchable" jsonschema:"description=Source namespace when available."`
+	Source    fpendpoint.SourceRef `json:"source,omitempty" datasource:"object" jsonschema:"description=Non-secret endpoint source."`
+	Metadata  map[string]string    `json:"metadata,omitempty" datasource:"object" jsonschema:"description=Non-secret endpoint metadata."`
+	ExpiresAt string               `json:"expires_at,omitempty" datasource:"filterable" jsonschema:"description=Expiration timestamp for discovered endpoint records."`
 }
 
 type EndpointCandidate struct {
-	ID            string                 `json:"id" datasource:"id" jsonschema:"description=Stable endpoint candidate id."`
-	URL           string                 `json:"url,omitempty" datasource:"url,searchable" jsonschema:"description=Candidate endpoint URL."`
-	Product       string                 `json:"product,omitempty" datasource:"filterable,searchable" jsonschema:"description=Candidate product hint."`
-	Protocol      string                 `json:"protocol,omitempty" datasource:"filterable,searchable" jsonschema:"description=Candidate protocol."`
-	Provider      string                 `json:"provider,omitempty" datasource:"filterable,searchable" jsonschema:"description=Discovery provider name."`
-	Namespace     string                 `json:"namespace,omitempty" datasource:"filterable,searchable" jsonschema:"description=Source namespace when available."`
-	Source        coreendpoint.SourceRef `json:"source,omitempty" datasource:"object" jsonschema:"description=Non-secret candidate source."`
-	Score         float64                `json:"score,omitempty" datasource:"filterable" jsonschema:"description=Candidate confidence score."`
-	CredentialRef string                 `json:"credential_ref,omitempty" jsonschema:"description=Credential reference associated with the endpoint candidate."`
-	Labels        map[string]string      `json:"labels,omitempty" datasource:"object" jsonschema:"description=Candidate labels."`
-	Annotations   map[string]string      `json:"annotations,omitempty" datasource:"object" jsonschema:"description=Candidate annotations."`
-	Reasons       []string               `json:"reasons,omitempty" datasource:"array" jsonschema:"description=Candidate match reasons."`
+	ID            string               `json:"id" datasource:"id" jsonschema:"description=Stable endpoint candidate id."`
+	URL           string               `json:"url,omitempty" datasource:"url,searchable" jsonschema:"description=Candidate endpoint URL."`
+	Product       string               `json:"product,omitempty" datasource:"filterable,searchable" jsonschema:"description=Candidate product hint."`
+	Protocol      string               `json:"protocol,omitempty" datasource:"filterable,searchable" jsonschema:"description=Candidate protocol."`
+	Provider      string               `json:"provider,omitempty" datasource:"filterable,searchable" jsonschema:"description=Discovery provider name."`
+	Namespace     string               `json:"namespace,omitempty" datasource:"filterable,searchable" jsonschema:"description=Source namespace when available."`
+	Source        fpendpoint.SourceRef `json:"source,omitempty" datasource:"object" jsonschema:"description=Non-secret candidate source."`
+	Score         float64              `json:"score,omitempty" datasource:"filterable" jsonschema:"description=Candidate confidence score."`
+	CredentialRef string               `json:"credential_ref,omitempty" jsonschema:"description=Credential reference associated with the endpoint candidate."`
+	Labels        map[string]string    `json:"labels,omitempty" datasource:"object" jsonschema:"description=Candidate labels."`
+	Annotations   map[string]string    `json:"annotations,omitempty" datasource:"object" jsonschema:"description=Candidate annotations."`
+	Reasons       []string             `json:"reasons,omitempty" datasource:"array" jsonschema:"description=Candidate match reasons."`
 }
 
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
 
 type endpointDatasourceProvider struct {
-	discovery *runtimediscovery.Registry
-	endpoints *runtimeendpoint.Registry
+	discovery *fpendpoint.DiscoveryRegistry
+	endpoints *fpendpoint.Registry
 }
 
 type endpointAccessor struct {
 	spec      coredatasource.Spec
 	entities  []coredatasource.EntitySpec
-	discovery *runtimediscovery.Registry
-	endpoints *runtimeendpoint.Registry
+	discovery *fpendpoint.DiscoveryRegistry
+	endpoints *fpendpoint.Registry
 }
 
 func EndpointDatasourceSpec() coredatasource.Spec {
@@ -157,7 +154,7 @@ func (a *endpointAccessor) Get(_ context.Context, req coredatasource.GetRequest)
 	if a.endpoints == nil {
 		return coredatasource.Record{}, coredatasource.ErrNotFound
 	}
-	resolved, ok := a.endpoints.Resolve(coreendpoint.NewRef(req.ID))
+	resolved, ok := a.endpoints.Resolve(fpendpoint.NewRef(req.ID))
 	if !ok {
 		return coredatasource.Record{}, coredatasource.ErrNotFound
 	}
@@ -174,7 +171,7 @@ func (a *endpointAccessor) searchCandidates(ctx context.Context, req coredatasou
 		query["query"] = strings.TrimSpace(req.Query)
 	}
 	product := firstNonEmpty(filters["product"], filters["products"])
-	result, err := a.discovery.Discover(ctx, corediscovery.Request{
+	result, err := a.discovery.Discover(ctx, fpendpoint.DiscoveryRequest{
 		Product:   product,
 		Providers: splitCSV(filters["provider"]),
 		Query:     query,
@@ -207,12 +204,12 @@ func (a *endpointAccessor) endpointRecords(filters map[string]string) []coredata
 	return out
 }
 
-func (a *endpointAccessor) recordFromResolved(resolved coreendpoint.Resolved) coredatasource.Record {
-	record := runtimeendpoint.Record{Resolved: resolved, Metadata: cloneMap(resolved.Metadata), Source: resolved.Source}
+func (a *endpointAccessor) recordFromResolved(resolved fpendpoint.Resolved) coredatasource.Record {
+	record := fpendpoint.RuntimeRecord{Resolved: resolved, Metadata: cloneMap(resolved.Metadata), Source: resolved.Source}
 	return registryRecord(a.spec.Name, record)
 }
 
-func registryRecord(datasource coredatasource.Name, record runtimeendpoint.Record) coredatasource.Record {
+func registryRecord(datasource coredatasource.Name, record fpendpoint.RuntimeRecord) coredatasource.Record {
 	resolved := record.Resolved
 	if resolved.URL == "" {
 		resolved.URL = record.Spec.URL
@@ -238,7 +235,7 @@ func registryRecord(datasource coredatasource.Name, record runtimeendpoint.Recor
 	return coredatasource.Record{ID: raw.ID, Datasource: datasource, Entity: EndpointRecordEntity, Title: firstNonEmpty(product, resolved.URL, raw.ID), Content: strings.Join(nonEmpty(raw.URL, raw.Product, raw.Protocol, raw.Provider, raw.Namespace, resolved.Source.Kind, resolved.Source.Name), " "), URL: raw.URL, Metadata: cleanMap(meta), Raw: raw}
 }
 
-func candidateRecord(datasource coredatasource.Name, candidate corediscovery.Candidate, provider string) coredatasource.Record {
+func candidateRecord(datasource coredatasource.Name, candidate fpendpoint.DiscoveryCandidate, provider string) coredatasource.Record {
 	product := candidate.ProductHint
 	protocol := firstNonEmpty(candidate.Protocol, candidate.Scheme)
 	raw := EndpointCandidate{ID: candidate.ID, URL: candidate.URL, Product: product, Protocol: protocol, Provider: provider, Namespace: candidate.Source.Namespace, Source: candidate.Source, Score: candidate.Score, CredentialRef: candidate.AuthRef, Labels: candidate.Labels, Annotations: candidate.Annotations, Reasons: candidate.Reasons}

@@ -12,11 +12,9 @@ import (
 	"strings"
 	"time"
 
-	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
-	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
 	"github.com/fluxplane/fluxplane-core/core/operation"
-	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-policy"
 )
 
@@ -185,9 +183,9 @@ type discoveryRequest struct {
 }
 
 type discoveryResult struct {
-	EndpointRefs []coreendpoint.Ref
-	Candidates   []corediscovery.Candidate
-	Probes       []corediscovery.ProbeResult
+	EndpointRefs []fpendpoint.Ref
+	Candidates   []fpendpoint.DiscoveryCandidate
+	Probes       []fpendpoint.ProbeResult
 	SelectedURL  string
 }
 
@@ -213,12 +211,12 @@ func (p Plugin) discoverEndpoints(ctx operation.Context, in discoveryRequest) (d
 	if len(namespaces) > 0 {
 		query["namespaces"] = strings.Join(namespaces, ",")
 	}
-	discovered, err := p.discovery.Discover(ctx, corediscovery.Request{Product: "loki", Query: query, Limit: limit})
+	discovered, err := p.discovery.Discover(ctx, fpendpoint.DiscoveryRequest{Product: "loki", Query: query, Limit: limit})
 	if err != nil {
 		return discoveryResult{}, err
 	}
-	var probes []corediscovery.ProbeResult
-	var refs []coreendpoint.Ref
+	var probes []fpendpoint.ProbeResult
+	var refs []fpendpoint.Ref
 	selected := ""
 	for _, candidate := range discovered.Candidates {
 		probeCandidate := candidate
@@ -237,8 +235,8 @@ func (p Plugin) discoverEndpoints(ctx operation.Context, in discoveryRequest) (d
 				continue
 			}
 		}
-		ref, err := p.endpointRegistry().Put(runtimeendpoint.Record{
-			Spec:     coreendpoint.Spec{Name: "loki-" + probeCandidate.ID, URL: probeCandidate.URL, Product: "loki", Protocol: "http", Labels: probeCandidate.Labels, Annotations: probeCandidate.Annotations},
+		ref, err := p.endpointRegistry().Put(fpendpoint.RuntimeRecord{
+			Spec:     fpendpoint.Spec{Name: "loki-" + probeCandidate.ID, URL: probeCandidate.URL, Product: "loki", Protocol: "http", Labels: probeCandidate.Labels, Annotations: probeCandidate.Annotations},
 			Source:   probeCandidate.Source,
 			Metadata: endpointMetadata(candidate, probeCandidate),
 		})
@@ -255,11 +253,11 @@ func (p Plugin) discoverEndpoints(ctx operation.Context, in discoveryRequest) (d
 	return discoveryResult{EndpointRefs: refs, Candidates: discovered.Candidates, Probes: probes, SelectedURL: selected}, nil
 }
 
-func usableProbe(probe corediscovery.ProbeResult) bool {
+func usableProbe(probe fpendpoint.ProbeResult) bool {
 	return probe.Status == "ready" || probe.Status == "reachable"
 }
 
-func (p Plugin) probeCandidate(ctx operation.Context, candidate corediscovery.Candidate) corediscovery.ProbeResult {
+func (p Plugin) probeCandidate(ctx operation.Context, candidate fpendpoint.DiscoveryCandidate) fpendpoint.ProbeResult {
 	timeout := p.cfg.AutoDiscover.ProbeTimeout
 	client := lokiClient{network: p.network, baseURL: candidate.URL, timeout: durationOrDefault(timeout, 5*time.Second)}
 	test := client.test(ctx)
@@ -269,9 +267,9 @@ func (p Plugin) probeCandidate(ctx operation.Context, candidate corediscovery.Ca
 	} else if test.Reachable && test.Error == "" {
 		status = "reachable"
 	}
-	return corediscovery.ProbeResult{
+	return fpendpoint.ProbeResult{
 		CandidateID: candidate.ID,
-		Probe:       corediscovery.ProbeSpec{Product: "loki", Method: "GET", Path: "/ready", ExpectedCodes: []int{200}, Timeout: timeout},
+		Probe:       fpendpoint.ProbeSpec{Product: "loki", Method: "GET", Path: "/ready", ExpectedCodes: []int{200}, Timeout: timeout},
 		Status:      status,
 		LatencyMS:   test.LatencyMS,
 		Product:     "loki",
@@ -280,9 +278,9 @@ func (p Plugin) probeCandidate(ctx operation.Context, candidate corediscovery.Ca
 	}
 }
 
-func (p Plugin) probeCandidateWithRetry(ctx operation.Context, candidate corediscovery.Candidate, timeout time.Duration) corediscovery.ProbeResult {
+func (p Plugin) probeCandidateWithRetry(ctx operation.Context, candidate fpendpoint.DiscoveryCandidate, timeout time.Duration) fpendpoint.ProbeResult {
 	deadline := time.Now().Add(timeout)
-	var last corediscovery.ProbeResult
+	var last fpendpoint.ProbeResult
 	for {
 		last = p.probeCandidate(ctx, candidate)
 		if usableProbe(last) || time.Now().After(deadline) {
@@ -297,18 +295,18 @@ func (p Plugin) probeCandidateWithRetry(ctx operation.Context, candidate coredis
 	}
 }
 
-func (p Plugin) portForwardCandidate(ctx operation.Context, candidate corediscovery.Candidate) (corediscovery.Candidate, error) {
+func (p Plugin) portForwardCandidate(ctx operation.Context, candidate fpendpoint.DiscoveryCandidate) (fpendpoint.DiscoveryCandidate, error) {
 	if p.process == nil {
-		return corediscovery.Candidate{}, fmt.Errorf("loki kubernetes port-forward requires process manager")
+		return fpendpoint.DiscoveryCandidate{}, fmt.Errorf("loki kubernetes port-forward requires process manager")
 	}
 	namespace := strings.TrimSpace(candidate.Source.Namespace)
 	name := strings.TrimSpace(candidate.Source.Name)
 	if namespace == "" || name == "" {
-		return corediscovery.Candidate{}, fmt.Errorf("loki kubernetes candidate is missing namespace or name")
+		return fpendpoint.DiscoveryCandidate{}, fmt.Errorf("loki kubernetes candidate is missing namespace or name")
 	}
 	kind, ok := portForwardKind(candidate.Source.Kind)
 	if !ok {
-		return corediscovery.Candidate{}, fmt.Errorf("loki kubernetes candidate kind %q cannot be port-forwarded", candidate.Source.Kind)
+		return fpendpoint.DiscoveryCandidate{}, fmt.Errorf("loki kubernetes candidate kind %q cannot be port-forwarded", candidate.Source.Kind)
 	}
 	remotePort := candidate.Port
 	if remotePort <= 0 {
@@ -342,7 +340,7 @@ func (p Plugin) portForwardCandidate(ctx operation.Context, candidate corediscov
 		MaxStderr: 16 * 1024,
 	})
 	if err != nil {
-		return corediscovery.Candidate{}, err
+		return fpendpoint.DiscoveryCandidate{}, err
 	}
 	forwarded := candidate
 	forwarded.URL = fmt.Sprintf("http://127.0.0.1:%d", localPort)
@@ -375,13 +373,13 @@ func portFromURL(value string) int {
 	return port
 }
 
-func localPortForCandidate(candidate corediscovery.Candidate, remotePort int) int {
+func localPortForCandidate(candidate fpendpoint.DiscoveryCandidate, remotePort int) int {
 	sum := sha1.Sum([]byte(candidate.ID + "|" + candidate.Source.Namespace + "|" + candidate.Source.Name + "|" + strconv.Itoa(remotePort)))
 	offset := int(sum[0])<<8 | int(sum[1])
 	return 20000 + offset%20000
 }
 
-func endpointMetadata(original, selected corediscovery.Candidate) map[string]string {
+func endpointMetadata(original, selected fpendpoint.DiscoveryCandidate) map[string]string {
 	metadata := map[string]string{"product": "loki", "score": fmt.Sprintf("%.1f", original.Score), "provenance": strings.Join(selected.Reasons, ",")}
 	if selected.URL != original.URL {
 		metadata["original_url"] = original.URL
@@ -407,7 +405,7 @@ func (p Plugin) clientFor(ctx operation.Context, inputURL, endpointRef, tenantID
 		target = ""
 	}
 	if target == "" && ref != "" {
-		resolved, ok := p.endpointRegistry().Resolve(coreendpoint.Ref(ref))
+		resolved, ok := p.endpointRegistry().Resolve(fpendpoint.Ref(ref))
 		if !ok {
 			return lokiClient{}, "", fmt.Errorf("endpoint %q is not resolved", ref)
 		}
@@ -440,10 +438,10 @@ func (p Plugin) clientFor(ctx operation.Context, inputURL, endpointRef, tenantID
 	return lokiClient{network: p.network, baseURL: target, tenantID: tenant, timeout: durationOrDefault(timeout, 10*time.Second)}, target, nil
 }
 
-func (p Plugin) selectDiscoveredEndpoint() (runtimeendpoint.Record, bool) {
+func (p Plugin) selectDiscoveredEndpoint() (fpendpoint.RuntimeRecord, bool) {
 	records := p.endpointRegistry().List("loki")
 	if len(records) == 0 {
-		return runtimeendpoint.Record{}, false
+		return fpendpoint.RuntimeRecord{}, false
 	}
 	sort.SliceStable(records, func(i, j int) bool {
 		leftMonitoring := records[i].Source.Namespace == "monitoring"
@@ -463,7 +461,7 @@ func (p Plugin) selectDiscoveredEndpoint() (runtimeendpoint.Record, bool) {
 			return record, true
 		}
 	}
-	return runtimeendpoint.Record{}, false
+	return fpendpoint.RuntimeRecord{}, false
 }
 
 func scoreMetadata(metadata map[string]string) float64 {
@@ -525,11 +523,11 @@ func (p Plugin) limit(limit int) int {
 	return limit
 }
 
-func (p Plugin) endpointRegistry() *runtimeendpoint.Registry {
+func (p Plugin) endpointRegistry() *fpendpoint.Registry {
 	if p.endpoints != nil {
 		return p.endpoints
 	}
-	return runtimeendpoint.NewRegistry(15 * time.Minute)
+	return fpendpoint.NewRegistry(15 * time.Minute)
 }
 
 func recentLogsQuery(in RecentLogsInput, defaultNamespace string) (string, error) {
@@ -701,7 +699,7 @@ func (p Plugin) accessTarget(ctx operation.Context, input any) string {
 		target = ""
 	}
 	if target == "" && ref != "" {
-		if resolved, ok := p.endpointRegistry().Resolve(coreendpoint.Ref(ref)); ok {
+		if resolved, ok := p.endpointRegistry().Resolve(fpendpoint.Ref(ref)); ok {
 			target = resolved.URL
 		}
 	}

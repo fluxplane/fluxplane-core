@@ -4,21 +4,18 @@ import (
 	"context"
 	"testing"
 
-	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
-	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
-	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 )
 
 func TestDiscoveryPluginListsProvidersAndEndpoints(t *testing.T) {
-	discovery := runtimediscovery.NewRegistry()
-	endpoints := runtimeendpoint.NewRegistry(0)
+	discovery := fpendpoint.NewDiscoveryRegistry()
+	endpoints := fpendpoint.NewRegistry(0)
 	if err := discovery.Register(testProvider{}); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
-	ref, err := endpoints.Put(runtimeendpoint.Record{Spec: coreendpoint.Spec{Name: "dev-loki", URL: "http://loki:3100", Product: "loki"}})
+	ref, err := endpoints.Put(fpendpoint.RuntimeRecord{Spec: fpendpoint.Spec{Name: "dev-loki", URL: "http://loki:3100", Product: "loki"}})
 	if err != nil {
 		t.Fatalf("Put() error = %v", err)
 	}
@@ -47,8 +44,8 @@ func TestDiscoveryPluginListsProvidersAndEndpoints(t *testing.T) {
 }
 
 func TestEndpointRegistryEvidenceDerivesEndpointAvailability(t *testing.T) {
-	endpoints := runtimeendpoint.NewRegistry(0)
-	ref, err := endpoints.Put(runtimeendpoint.Record{Spec: coreendpoint.Spec{Name: "dev-loki", URL: "http://loki:3100", Product: "loki"}})
+	endpoints := fpendpoint.NewRegistry(0)
+	ref, err := endpoints.Put(fpendpoint.RuntimeRecord{Spec: fpendpoint.Spec{Name: "dev-loki", URL: "http://loki:3100", Product: "loki"}})
 	if err != nil {
 		t.Fatalf("Put() error = %v", err)
 	}
@@ -74,9 +71,9 @@ func TestEndpointRegistryEvidenceDerivesEndpointAvailability(t *testing.T) {
 }
 
 func TestEndpointRegistryEvidenceDoesNotDeriveAvailabilityForUnprobedProviderCandidates(t *testing.T) {
-	endpoints := runtimeendpoint.NewRegistry(0)
-	_, err := endpoints.Put(runtimeendpoint.Record{
-		Spec: coreendpoint.Spec{Name: "kubernetes-loki", URL: "http://loki:3100", Product: "loki"},
+	endpoints := fpendpoint.NewRegistry(0)
+	_, err := endpoints.Put(fpendpoint.RuntimeRecord{
+		Spec: fpendpoint.Spec{Name: "kubernetes-loki", URL: "http://loki:3100", Product: "loki"},
 		Metadata: map[string]string{
 			"provider": "kubernetes",
 			"product":  "loki",
@@ -105,9 +102,9 @@ func TestEndpointRegistryEvidenceDoesNotDeriveAvailabilityForUnprobedProviderCan
 }
 
 func TestEndpointRegistryEvidenceDerivesAvailabilityForReadyProviderCandidates(t *testing.T) {
-	endpoints := runtimeendpoint.NewRegistry(0)
-	_, err := endpoints.Put(runtimeendpoint.Record{
-		Spec: coreendpoint.Spec{Name: "kubernetes-loki", URL: "http://loki:3100", Product: "loki"},
+	endpoints := fpendpoint.NewRegistry(0)
+	_, err := endpoints.Put(fpendpoint.RuntimeRecord{
+		Spec: fpendpoint.Spec{Name: "kubernetes-loki", URL: "http://loki:3100", Product: "loki"},
 		Metadata: map[string]string{
 			"provider":     "kubernetes",
 			"product":      "loki",
@@ -135,10 +132,10 @@ func TestEndpointRegistryEvidenceDerivesAvailabilityForReadyProviderCandidates(t
 
 type testProvider struct{}
 
-func (testProvider) Spec() runtimediscovery.ProviderSpec {
-	return runtimediscovery.ProviderSpec{Name: "test", Products: []string{"loki"}}
+func (testProvider) Spec() fpendpoint.ProviderSpec {
+	return fpendpoint.ProviderSpec{Name: "test", Products: []string{"loki"}}
 }
 
-func (testProvider) Discover(ctx context.Context, req corediscovery.Request) (corediscovery.Result, error) {
-	return corediscovery.Result{}, nil
+func (testProvider) Discover(ctx context.Context, req fpendpoint.DiscoveryRequest) (fpendpoint.DiscoveryResult, error) {
+	return fpendpoint.DiscoveryResult{}, nil
 }

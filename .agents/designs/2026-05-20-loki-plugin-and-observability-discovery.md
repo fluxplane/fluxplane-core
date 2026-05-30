@@ -103,9 +103,9 @@ Prometheus validation will use `/api/v1/status/buildinfo`, `/-/ready`, or
 
 Therefore discovery should be split:
 
-- `core/endpoint`: inert endpoint specs, endpoint references, resolved endpoint
+- `github.com/fluxplane/fluxplane-endpoint`: inert endpoint specs, endpoint references, resolved endpoint
   handles, source refs, and endpoint metadata;
-- `core/discovery`: inert discovery requests, detector specs, candidate specs,
+- `github.com/fluxplane/fluxplane-endpoint`: inert discovery requests, detector specs, candidate specs,
   probe specs/results, and registry contribution contracts;
 - runtime/orchestration endpoint discovery service: receives discovery signals,
   keeps the discovered endpoint registry, resolves endpoint refs, and ensures
@@ -117,10 +117,10 @@ Therefore discovery should be split:
 
 ### Endpoint and discovery both deserve core concepts
 
-Yes: this likely needs both `core/endpoint` and `core/discovery`, with different
+Yes: this likely needs both `github.com/fluxplane/fluxplane-endpoint` and `github.com/fluxplane/fluxplane-endpoint`, with different
 responsibilities.
 
-`core/endpoint` should model the stable connection target:
+`github.com/fluxplane/fluxplane-endpoint` should model the stable connection target:
 
 - `endpoint.Spec`: an explicitly configured endpoint, such as a Loki URL or
   Grafana base URL;
@@ -134,7 +134,7 @@ responsibilities.
 - endpoint metadata: cluster, namespace, product, protocol, labels,
   annotations, trust, and freshness.
 
-`core/discovery` should model the process that finds and validates endpoints:
+`github.com/fluxplane/fluxplane-endpoint` should model the process that finds and validates endpoints:
 
 - `discovery.Request`: list/find/resolve/ensure request with query filters;
 - `discovery.Candidate`: possible endpoint found by a discovery source;
@@ -172,8 +172,8 @@ A cleaner boundary is one of:
    endpoint results. This is the clean long-term shape.
 2. **Runtime discovery operation**: runtime exposes `discover_endpoints` and
    `discovery_endpoint_ensure`; Kubernetes is one candidate source behind that
-   operation. Requests/results are shaped by `core/discovery` and endpoint refs
-   by `core/endpoint`. This is the practical interim shape.
+   operation. Requests/results are shaped by `github.com/fluxplane/fluxplane-endpoint` and endpoint refs
+   by `github.com/fluxplane/fluxplane-endpoint`. This is the practical interim shape.
 3. **Small shared detector package**: a package under `plugins/kubernetesplugin`
    or a future `plugins/observabilitydiscovery` contains only generic candidate
    structs and client-go enumeration. Product plugins pass matcher/probe
@@ -184,7 +184,7 @@ A cleaner boundary is one of:
    and stores endpoint records. This has the least coupling between product
    plugins and infrastructure plugins.
 
-Recommended path: introduce the `core/endpoint` and `core/discovery` vocabulary
+Recommended path: introduce the `github.com/fluxplane/fluxplane-endpoint` and `github.com/fluxplane/fluxplane-endpoint` vocabulary
 first, then implement discovery signals and a runtime endpoint registry. Avoid
 Loki importing Kubernetes helpers directly except possibly as a short-lived
 prototype.
@@ -210,8 +210,8 @@ prototype.
 - No writes to Loki.
 - No streaming tail in v1 unless managed-process/operation streaming is already
   available; prefer bounded query windows first.
-- No broad `core/observability` domain in v1. Narrow `core/endpoint` and
-  `core/discovery` vocabularies are acceptable because they describe generic
+- No broad `core/observability` domain in v1. Narrow `github.com/fluxplane/fluxplane-endpoint` and
+  `github.com/fluxplane/fluxplane-endpoint` vocabularies are acceptable because they describe generic
   connection targets and discovery flows, not observability semantics.
 - No shelling out to `kubectl` or `dex` in the implementation; use Go clients.
 - No secret/token scraping from Kubernetes Secrets in v1. Discovery may find
@@ -222,9 +222,9 @@ prototype.
 Initial packages:
 
 ```text
-core/endpoint                      # inert endpoint specs, refs, resolved handles
-core/discovery                     # inert discovery requests/candidates/probes
-runtime/endpoint                   # registry, resolver, ensure lifecycle
+github.com/fluxplane/fluxplane-endpoint                      # inert endpoint specs, refs, resolved handles
+github.com/fluxplane/fluxplane-endpoint                     # inert discovery requests/candidates/probes
+github.com/fluxplane/fluxplane-endpoint Registry/Runner                   # registry, resolver, ensure lifecycle
 orchestration/discovery            # optional coordination of plugin signals
 plugins/lokiplugin                 # Loki datasource, operations, probes
 plugins/kubernetesplugin/discovery # Kubernetes candidate source
@@ -237,9 +237,9 @@ matching code:
 plugins/observabilitydiscovery     # optional helper package, not a core concept
 ```
 
-`core/endpoint` is justified only if it remains generic and inert. It should
+`github.com/fluxplane/fluxplane-endpoint` is justified only if it remains generic and inert. It should
 hold configured endpoint specs, endpoint refs, resolved endpoint handles, source
-refs, and endpoint metadata. `core/discovery` holds request/candidate/probe/result
+refs, and endpoint metadata. `github.com/fluxplane/fluxplane-endpoint` holds request/candidate/probe/result
 shapes and contribution contracts. Neither package may know about Kubernetes
 clients, HTTP execution, Loki LogQL, Prometheus queries, Grafana API paths, or
 cluster RBAC.
@@ -796,7 +796,7 @@ use the concept.
 
 A lightweight interim version can be a `discover_endpoints` operation backed by
 the runtime endpoint service, with Kubernetes as the first candidate source. It
-takes `core/discovery.DetectorSpec`-shaped hints:
+takes `github.com/fluxplane/fluxplane-endpoint DetectorSpec`-shaped hints:
 
 ```json
 {
@@ -810,8 +810,8 @@ takes `core/discovery.DetectorSpec`-shaped hints:
 
 Product plugins can call that operation or duplicate the exact detector hints
 through a small Go interface. If operation-to-operation calls are not yet a good
-runtime pattern, keep the code internal but use the same `core/endpoint` and
-`core/discovery` shapes for tests and future migration.
+runtime pattern, keep the code internal but use the same `github.com/fluxplane/fluxplane-endpoint` and
+`github.com/fluxplane/fluxplane-endpoint` shapes for tests and future migration.
 
 ## Security and safety
 
@@ -832,11 +832,11 @@ runtime pattern, keep the code internal but use the same `core/endpoint` and
 
 ## Implementation sequence
 
-1. Add `core/endpoint` with inert `Spec`, `Ref`, `SourceRef`, and `Resolved`
+1. Add `github.com/fluxplane/fluxplane-endpoint` with inert `Spec`, `Ref`, `SourceRef`, and `Resolved`
    shapes. Keep it dependency-free and serializable.
-2. Add `core/discovery` with inert `Request`, `Candidate`, `DetectorSpec`,
+2. Add `github.com/fluxplane/fluxplane-endpoint` with inert `Request`, `Candidate`, `DetectorSpec`,
    `ProbeSpec`, `ProbeResult`, and `Result` shapes.
-3. Add `runtime/endpoint` registry/resolver with explicit `discover_endpoints`
+3. Add `github.com/fluxplane/fluxplane-endpoint Registry/Runner` registry/resolver with explicit `discover_endpoints`
    and `discovery_endpoint_ensure` operations. The registry stores discovered
    endpoint metadata and resolved endpoint freshness.
 4. Add discovery signal contribution contracts: source plugins contribute
@@ -856,7 +856,7 @@ runtime pattern, keep the code internal but use the same `core/endpoint` and
 
 Resolved direction from this design pass:
 
-- Use both `core/endpoint` and `core/discovery`.
+- Use both `github.com/fluxplane/fluxplane-endpoint` and `github.com/fluxplane/fluxplane-endpoint`.
 - Use both pluginhost contributions and app manifest resources for detector/probe
   specs; pluginhost provides defaults, app manifests provide explicit overrides.
 - Prefer discovery signals/registry coordination over Go imports between product

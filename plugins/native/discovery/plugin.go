@@ -9,15 +9,13 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/activation"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
-	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 )
 
 const (
@@ -34,9 +32,9 @@ const (
 )
 
 type Plugin struct {
-	discovery  *runtimediscovery.Registry
-	discoverer *runtimediscovery.Runner
-	endpoints  *runtimeendpoint.Registry
+	discovery  *fpendpoint.DiscoveryRegistry
+	discoverer *fpendpoint.Runner
+	endpoints  *fpendpoint.Registry
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -143,9 +141,9 @@ func operationRefs(specs []operation.Spec) []operation.Ref {
 type StatusInput struct{}
 
 type StatusOutput struct {
-	Providers []runtimediscovery.ProviderStatus `json:"providers,omitempty"`
-	Runner    runtimediscovery.RunnerStatus     `json:"runner,omitempty"`
-	Endpoints int                               `json:"endpoints"`
+	Providers []fpendpoint.ProviderStatus `json:"providers,omitempty"`
+	Runner    fpendpoint.RunnerStatus     `json:"runner,omitempty"`
+	Endpoints int                         `json:"endpoints"`
 }
 
 type DiscoverInput struct {
@@ -156,13 +154,13 @@ type DiscoverInput struct {
 }
 
 type DiscoverOutput struct {
-	Run runtimediscovery.RunSummary `json:"run"`
+	Run fpendpoint.RunSummary `json:"run"`
 }
 
 type ProvidersInput struct{}
 
 type ProvidersOutput struct {
-	Providers []runtimediscovery.ProviderSpec `json:"providers,omitempty"`
+	Providers []fpendpoint.ProviderSpec `json:"providers,omitempty"`
 }
 
 type EndpointListInput struct {
@@ -170,12 +168,12 @@ type EndpointListInput struct {
 }
 
 type EndpointSummary struct {
-	Ref       coreendpoint.Ref       `json:"ref"`
-	URL       string                 `json:"url,omitempty"`
-	Product   string                 `json:"product,omitempty"`
-	Source    coreendpoint.SourceRef `json:"source,omitempty"`
-	Metadata  map[string]string      `json:"metadata,omitempty"`
-	ExpiresAt string                 `json:"expires_at,omitempty"`
+	Ref       fpendpoint.Ref       `json:"ref"`
+	URL       string               `json:"url,omitempty"`
+	Product   string               `json:"product,omitempty"`
+	Source    fpendpoint.SourceRef `json:"source,omitempty"`
+	Metadata  map[string]string    `json:"metadata,omitempty"`
+	ExpiresAt string               `json:"expires_at,omitempty"`
 }
 
 type EndpointListOutput struct {
@@ -183,7 +181,7 @@ type EndpointListOutput struct {
 }
 
 type EndpointGetInput struct {
-	Ref coreendpoint.Ref `json:"ref" jsonschema:"required,description=Endpoint ref such as @endpoint/loki-abc."`
+	Ref fpendpoint.Ref `json:"ref" jsonschema:"required,description=Endpoint ref such as @endpoint/loki-abc."`
 }
 
 type EndpointGetOutput struct {
@@ -195,7 +193,7 @@ type EndpointRegistryEvidence struct {
 }
 
 type endpointRegistryObserver struct {
-	endpoints *runtimeendpoint.Registry
+	endpoints *fpendpoint.Registry
 }
 
 func (o endpointRegistryObserver) Spec() coreevidence.ObserverSpec {
@@ -324,7 +322,7 @@ func observationIDs(id string) []string {
 }
 
 func (p Plugin) status(_ operation.Context, _ StatusInput) (StatusOutput, error) {
-	var runner runtimediscovery.RunnerStatus
+	var runner fpendpoint.RunnerStatus
 	if p.discoverer != nil {
 		runner = p.discoverer.Status()
 	}
@@ -335,7 +333,7 @@ func (p Plugin) discover(ctx operation.Context, in DiscoverInput) (DiscoverOutpu
 	if p.discoverer == nil {
 		return DiscoverOutput{}, fmt.Errorf("discoveryplugin: discovery runner is nil")
 	}
-	run := p.discoverer.Trigger(ctx, runtimediscovery.RunRequest{
+	run := p.discoverer.Trigger(ctx, fpendpoint.RunRequest{
 		Providers:  in.Providers,
 		Products:   in.Products,
 		Namespaces: in.Namespaces,
@@ -374,7 +372,7 @@ func (p Plugin) endpointGet(_ operation.Context, in EndpointGetInput) (EndpointG
 	return EndpointGetOutput{Endpoint: summary}, nil
 }
 
-func endpointSummary(record runtimeendpoint.Record) EndpointSummary {
+func endpointSummary(record fpendpoint.RuntimeRecord) EndpointSummary {
 	resolved := record.Resolved
 	if resolved.URL == "" {
 		resolved.URL = record.Spec.URL

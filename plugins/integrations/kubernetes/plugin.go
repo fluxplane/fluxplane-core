@@ -25,10 +25,10 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
-	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
@@ -218,8 +218,8 @@ func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimee
 	return []runtimeevidence.AssertionDeriver{kubernetesAssertionDeriver{}}, nil
 }
 
-func (p Plugin) DiscoveryProviders(context.Context, pluginhost.Context) ([]runtimediscovery.Provider, error) {
-	return []runtimediscovery.Provider{kubernetesEndpointDiscoveryProvider{plugin: p}}, nil
+func (p Plugin) DiscoveryProviders(context.Context, pluginhost.Context) ([]fpendpoint.DiscoveryProvider, error) {
+	return []fpendpoint.DiscoveryProvider{kubernetesEndpointDiscoveryProvider{plugin: p}}, nil
 }
 
 func (p Plugin) SecretResolvers(context.Context, pluginhost.Context) ([]runtimesecret.Resolver, error) {

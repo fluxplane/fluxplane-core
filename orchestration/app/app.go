@@ -21,12 +21,11 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/orchestration/resourcecatalog"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
-	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-policy"
 )
@@ -50,9 +49,9 @@ type Config struct {
 	Security             policy.AuthorizationPolicy
 	IdentityResolver     identity.Resolver
 	ExternalIdentity     identity.ExternalResolver
-	Discovery            *runtimediscovery.Registry
-	Discoverer           *runtimediscovery.Runner
-	Endpoints            *runtimeendpoint.Registry
+	Discovery            *fpendpoint.DiscoveryRegistry
+	Discoverer           *fpendpoint.Runner
+	Endpoints            *fpendpoint.Registry
 }
 
 // BundleTransform mutates or augments resource bundles after plugin
@@ -81,9 +80,9 @@ type Composition struct {
 	EventRegistry     *event.Registry
 	EventStore        event.Store
 	DataStore         coredata.Store
-	Discovery         *runtimediscovery.Registry
-	Discoverer        *runtimediscovery.Runner
-	Endpoints         *runtimeendpoint.Registry
+	Discovery         *fpendpoint.DiscoveryRegistry
+	Discoverer        *fpendpoint.Runner
+	Endpoints         *fpendpoint.Registry
 	Secrets           *runtimesecret.Registry
 	Bundles           []resource.ContributionBundle
 	Diagnostics       []resource.Diagnostic
@@ -542,7 +541,7 @@ func appendEventTypesFromBundles(base []event.Event, bundles []resource.Contribu
 	return out
 }
 
-func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store, discoveryRegistry *runtimediscovery.Registry, discoverer *runtimediscovery.Runner, endpointRegistry *runtimeendpoint.Registry) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, session.SessionCommandCatalog, []coredatasource.Provider, []runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, []reactionRuleBinding, []identity.ExternalResolver, *runtimediscovery.Registry, *runtimediscovery.Runner, *runtimeendpoint.Registry, *runtimesecret.Registry, []resource.Diagnostic, error) {
+func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store, discoveryRegistry *fpendpoint.DiscoveryRegistry, discoverer *fpendpoint.Runner, endpointRegistry *fpendpoint.Registry) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, session.SessionCommandCatalog, []coredatasource.Provider, []runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, []reactionRuleBinding, []identity.ExternalResolver, *fpendpoint.DiscoveryRegistry, *fpendpoint.Runner, *fpendpoint.Registry, *runtimesecret.Registry, []resource.Diagnostic, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -562,13 +561,13 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		return out, operations, contextProviders, sessionCommands, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, nil, nil, nil, nil, diagnostics, err
 	}
 	if discoveryRegistry == nil {
-		discoveryRegistry = runtimediscovery.NewRegistry()
+		discoveryRegistry = fpendpoint.NewDiscoveryRegistry()
 	}
 	if endpointRegistry == nil {
-		endpointRegistry = runtimeendpoint.NewRegistry(0)
+		endpointRegistry = fpendpoint.NewRegistry(0)
 	}
 	if discoverer == nil {
-		discoverer = runtimediscovery.NewRunner(discoveryRegistry, endpointRegistry)
+		discoverer = fpendpoint.NewRunner(discoveryRegistry, endpointRegistry)
 	}
 	secretRegistry := runtimesecret.NewRegistry()
 	host.SetEventStore(eventStore)

@@ -11,10 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
-	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
-	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,8 +31,8 @@ type kubernetesEndpointDiscoveryProvider struct {
 	plugin Plugin
 }
 
-func (p kubernetesEndpointDiscoveryProvider) Spec() runtimediscovery.ProviderSpec {
-	return runtimediscovery.ProviderSpec{
+func (p kubernetesEndpointDiscoveryProvider) Spec() fpendpoint.ProviderSpec {
+	return fpendpoint.ProviderSpec{
 		Name:        Name,
 		Source:      "kubernetes",
 		Products:    []string{"loki", "grafana", "prometheus", "database", "postgres", "mysql", "redis", "mongodb", "http"},
@@ -42,7 +40,7 @@ func (p kubernetesEndpointDiscoveryProvider) Spec() runtimediscovery.ProviderSpe
 	}
 }
 
-func (p kubernetesEndpointDiscoveryProvider) Discover(ctx context.Context, req corediscovery.Request) (corediscovery.Result, error) {
+func (p kubernetesEndpointDiscoveryProvider) Discover(ctx context.Context, req fpendpoint.DiscoveryRequest) (fpendpoint.DiscoveryResult, error) {
 	opts := EndpointDiscoveryOptions{
 		Product:    req.Product,
 		Limit:      req.Limit,
@@ -54,14 +52,14 @@ func (p kubernetesEndpointDiscoveryProvider) Discover(ctx context.Context, req c
 	}
 	candidates, err := DiscoverEndpointCandidates(ctx, p.plugin, opts)
 	if err != nil {
-		return corediscovery.Result{}, err
+		return fpendpoint.DiscoveryResult{}, err
 	}
-	return corediscovery.Result{Candidates: candidates}, nil
+	return fpendpoint.DiscoveryResult{Candidates: candidates}, nil
 }
 
 // DiscoverEndpointCandidates discovers product endpoint candidates from
 // Kubernetes Services and Pods.
-func DiscoverEndpointCandidates(ctx context.Context, p Plugin, opts EndpointDiscoveryOptions) ([]corediscovery.Candidate, error) {
+func DiscoverEndpointCandidates(ctx context.Context, p Plugin, opts EndpointDiscoveryOptions) ([]fpendpoint.DiscoveryCandidate, error) {
 	product := strings.TrimSpace(opts.Product)
 	client, err := p.clientset(ctx)
 	if err != nil {
@@ -69,7 +67,7 @@ func DiscoverEndpointCandidates(ctx context.Context, p Plugin, opts EndpointDisc
 	}
 	namespaces := endpointDiscoveryNamespaces(p.cfg, opts.Namespaces)
 	limit := opts.Limit
-	var candidates []corediscovery.Candidate
+	var candidates []fpendpoint.DiscoveryCandidate
 	for _, namespace := range namespaces {
 		if namespace == "" && namespace != metav1.NamespaceAll {
 			continue
@@ -102,7 +100,7 @@ func DiscoverEndpointCandidates(ctx context.Context, p Plugin, opts EndpointDisc
 	return candidates, nil
 }
 
-func annotateKubernetesCandidate(candidate *corediscovery.Candidate, cfg Config) {
+func annotateKubernetesCandidate(candidate *fpendpoint.DiscoveryCandidate, cfg Config) {
 	if candidate == nil {
 		return
 	}
@@ -147,16 +145,16 @@ func endpointDiscoveryNamespaces(cfg Config, requested []string) []string {
 	return []string{metav1.NamespaceAll}
 }
 
-func serviceEndpointCandidates(product string, service corev1.Service) []corediscovery.Candidate {
+func serviceEndpointCandidates(product string, service corev1.Service) []fpendpoint.DiscoveryCandidate {
 	if service.Spec.Type == corev1.ServiceTypeExternalName || len(service.Spec.Ports) == 0 {
 		return nil
 	}
-	var out []corediscovery.Candidate
+	var out []fpendpoint.DiscoveryCandidate
 	for _, port := range service.Spec.Ports {
 		productHint, _, _ := detectEndpointProduct(service.Name, port.Name, int(port.Port), service.Labels)
 		scheme := schemeForEndpointProduct(productHint)
 		url := fmt.Sprintf("%s://%s.%s.svc:%d", scheme, service.Name, service.Namespace, port.Port)
-		candidate := scoredEndpointCandidate(product, url, scheme, service.Name+"."+service.Namespace+".svc", int(port.Port), port.Name, service.Labels, service.Annotations, coreendpoint.SourceRef{
+		candidate := scoredEndpointCandidate(product, url, scheme, service.Name+"."+service.Namespace+".svc", int(port.Port), port.Name, service.Labels, service.Annotations, fpendpoint.SourceRef{
 			Kind:      "kubernetes.service",
 			Name:      service.Name,
 			Namespace: service.Namespace,
@@ -182,7 +180,7 @@ func serviceEndpointCandidates(product string, service corev1.Service) []coredis
 	return out
 }
 
-func podEndpointCandidates(product string, pod corev1.Pod, allowPodIP bool) []corediscovery.Candidate {
+func podEndpointCandidates(product string, pod corev1.Pod, allowPodIP bool) []fpendpoint.DiscoveryCandidate {
 	if !allowPodIP || pod.Status.Phase != corev1.PodRunning || strings.TrimSpace(pod.Status.PodIP) == "" {
 		return nil
 	}
@@ -190,10 +188,10 @@ func podEndpointCandidates(product string, pod corev1.Pod, allowPodIP bool) []co
 	if len(ports) == 0 && lokiNameOrLabel(pod.Name, pod.Labels) {
 		ports = []namedPort{{Name: "http-metrics", Port: 3100}}
 	}
-	var out []corediscovery.Candidate
+	var out []fpendpoint.DiscoveryCandidate
 	for _, port := range ports {
 		url := fmt.Sprintf("http://%s:%d", pod.Status.PodIP, port.Port)
-		candidate := scoredEndpointCandidate(product, url, "http", pod.Status.PodIP, port.Port, port.Name, pod.Labels, pod.Annotations, coreendpoint.SourceRef{
+		candidate := scoredEndpointCandidate(product, url, "http", pod.Status.PodIP, port.Port, port.Name, pod.Labels, pod.Annotations, fpendpoint.SourceRef{
 			Kind:      "kubernetes.pod",
 			Name:      pod.Name,
 			Namespace: pod.Namespace,
@@ -232,12 +230,12 @@ func podHTTPPorts(pod corev1.Pod) []namedPort {
 	return ports
 }
 
-func deploymentEnvEndpointCandidates(product string, deployment appsv1.Deployment) []corediscovery.Candidate {
+func deploymentEnvEndpointCandidates(product string, deployment appsv1.Deployment) []fpendpoint.DiscoveryCandidate {
 	return containerEnvEndpointCandidates(product, "deployment", deployment.Namespace, deployment.Name, string(deployment.UID), deployment.Spec.Template.Spec.Containers, deployment.Labels, deployment.Annotations)
 }
 
-func containerEnvEndpointCandidates(product, workloadKind, namespace, workloadName, uid string, containers []corev1.Container, labels, annotations map[string]string) []corediscovery.Candidate {
-	var out []corediscovery.Candidate
+func containerEnvEndpointCandidates(product, workloadKind, namespace, workloadName, uid string, containers []corev1.Container, labels, annotations map[string]string) []fpendpoint.DiscoveryCandidate {
+	var out []fpendpoint.DiscoveryCandidate
 	for _, container := range containers {
 		values := map[string]string{}
 		var refs []envEndpointRef
@@ -279,8 +277,8 @@ func envSecretOrConfigRef(name string, source *corev1.EnvVarSource) envEndpointR
 	return envEndpointRef{}
 }
 
-func envValueEndpointCandidates(product, workloadKind, namespace, workloadName, uid, container string, values map[string]string, labels, annotations map[string]string) []corediscovery.Candidate {
-	var out []corediscovery.Candidate
+func envValueEndpointCandidates(product, workloadKind, namespace, workloadName, uid, container string, values map[string]string, labels, annotations map[string]string) []fpendpoint.DiscoveryCandidate {
+	var out []fpendpoint.DiscoveryCandidate
 	for name, value := range values {
 		if !looksLikeEndpointEnv(name) {
 			continue
@@ -310,8 +308,8 @@ func envValueEndpointCandidates(product, workloadKind, namespace, workloadName, 
 	return out
 }
 
-func envRefEndpointCandidates(product, workloadKind, namespace, workloadName, uid, container string, refs []envEndpointRef, labels, annotations map[string]string) []corediscovery.Candidate {
-	var out []corediscovery.Candidate
+func envRefEndpointCandidates(product, workloadKind, namespace, workloadName, uid, container string, refs []envEndpointRef, labels, annotations map[string]string) []fpendpoint.DiscoveryCandidate {
+	var out []fpendpoint.DiscoveryCandidate
 	for _, ref := range refs {
 		if !looksLikeEndpointEnv(ref.Name) {
 			continue
@@ -328,7 +326,7 @@ func envRefEndpointCandidates(product, workloadKind, namespace, workloadName, ui
 		if ref.Source == "secret" {
 			authRef = coresecret.Kubernetes(namespace, ref.Ref, ref.Key).ResourceName()
 		}
-		out = append(out, corediscovery.Candidate{
+		out = append(out, fpendpoint.DiscoveryCandidate{
 			ID:          endpointCandidateID(source, ref.Source+"|"+ref.Ref+"|"+ref.Key),
 			ProductHint: productHint,
 			Protocol:    productHint,
@@ -343,15 +341,15 @@ func envRefEndpointCandidates(product, workloadKind, namespace, workloadName, ui
 	return out
 }
 
-func envEndpointCandidate(product, workloadKind, namespace, workloadName, uid, container, envName, value string, labels, annotations map[string]string) (corediscovery.Candidate, bool) {
+func envEndpointCandidate(product, workloadKind, namespace, workloadName, uid, container, envName, value string, labels, annotations map[string]string) (fpendpoint.DiscoveryCandidate, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return corediscovery.Candidate{}, false
+		return fpendpoint.DiscoveryCandidate{}, false
 	}
 	productHint := productFromEnvName(envName)
 	endpointURL, host, port, scheme, ok := sanitizeEndpointValue(productHint, value)
 	if !ok {
-		return corediscovery.Candidate{}, false
+		return fpendpoint.DiscoveryCandidate{}, false
 	}
 	if productHint == "" {
 		productHint = productFromSchemeOrPort(scheme, port)
@@ -360,10 +358,10 @@ func envEndpointCandidate(product, workloadKind, namespace, workloadName, uid, c
 		productHint = concrete
 	}
 	if product != "" && !productMatches(product, productHint) {
-		return corediscovery.Candidate{}, false
+		return fpendpoint.DiscoveryCandidate{}, false
 	}
 	source := envSource(workloadKind, namespace, workloadName, uid, container, envName)
-	return corediscovery.Candidate{
+	return fpendpoint.DiscoveryCandidate{
 		ID:          endpointCandidateID(source, endpointURL),
 		URL:         endpointURL,
 		Scheme:      scheme,
@@ -388,7 +386,7 @@ func schemeForEndpointProduct(product string) string {
 	}
 }
 
-func envSource(workloadKind, namespace, workloadName, uid, container, envName string) coreendpoint.SourceRef {
+func envSource(workloadKind, namespace, workloadName, uid, container, envName string) fpendpoint.SourceRef {
 	attrs := map[string]string{
 		"provider": Name,
 		"workload": workloadKind,
@@ -397,7 +395,7 @@ func envSource(workloadKind, namespace, workloadName, uid, container, envName st
 	if container != "" {
 		attrs["container"] = container
 	}
-	return coreendpoint.SourceRef{Kind: "kubernetes." + workloadKind + ".env", Name: workloadName, Namespace: namespace, UID: uid, Attributes: attrs}
+	return fpendpoint.SourceRef{Kind: "kubernetes." + workloadKind + ".env", Name: workloadName, Namespace: namespace, UID: uid, Attributes: attrs}
 }
 
 func looksLikeEndpointEnv(name string) bool {
@@ -517,9 +515,9 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
-func scoredEndpointCandidate(product, endpointURL, scheme, host string, port int, portName string, labels, annotations map[string]string, source coreendpoint.SourceRef) corediscovery.Candidate {
+func scoredEndpointCandidate(product, endpointURL, scheme, host string, port int, portName string, labels, annotations map[string]string, source fpendpoint.SourceRef) fpendpoint.DiscoveryCandidate {
 	productHint, score, reasons := endpointProductScore(product, source.Name, portName, port, labels)
-	return corediscovery.Candidate{
+	return fpendpoint.DiscoveryCandidate{
 		ID:          endpointCandidateID(source, endpointURL),
 		URL:         endpointURL,
 		Scheme:      scheme,
@@ -585,7 +583,7 @@ func detectEndpointProduct(name, portName string, port int, labels map[string]st
 	return "", 0, nil
 }
 
-func includeCandidate(product string, candidate corediscovery.Candidate) bool {
+func includeCandidate(product string, candidate fpendpoint.DiscoveryCandidate) bool {
 	if product == "" {
 		return true
 	}
@@ -655,7 +653,7 @@ func sourceIsServiceName(name string) bool {
 	return strings.TrimSpace(name) != ""
 }
 
-func rankedCandidates(in []corediscovery.Candidate, limit int) []corediscovery.Candidate {
+func rankedCandidates(in []fpendpoint.DiscoveryCandidate, limit int) []fpendpoint.DiscoveryCandidate {
 	sort.SliceStable(in, func(i, j int) bool {
 		if in[i].Score == in[j].Score {
 			return in[i].ID < in[j].ID
@@ -668,7 +666,7 @@ func rankedCandidates(in []corediscovery.Candidate, limit int) []corediscovery.C
 	return in
 }
 
-func endpointCandidateID(source coreendpoint.SourceRef, url string) string {
+func endpointCandidateID(source fpendpoint.SourceRef, url string) string {
 	sum := sha1.Sum([]byte(source.Kind + "|" + source.Namespace + "|" + source.Name + "|" + url))
 	return hex.EncodeToString(sum[:12])
 }

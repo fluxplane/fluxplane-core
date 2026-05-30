@@ -11,14 +11,11 @@ import (
 	"testing"
 
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
-	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
-	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-event"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
@@ -117,8 +114,8 @@ func TestAutoDiscoverySelectsOnlySuccessfulProbe(t *testing.T) {
 	}))
 	defer good.Close()
 
-	registry := runtimediscovery.NewRegistry()
-	if err := registry.Register(staticDiscoveryProvider{candidates: []corediscovery.Candidate{
+	registry := fpendpoint.NewDiscoveryRegistry()
+	if err := registry.Register(staticDiscoveryProvider{candidates: []fpendpoint.DiscoveryCandidate{
 		{ID: "bad", URL: bad.URL, Score: 100},
 		{ID: "good", URL: good.URL, Score: 90},
 	}}); err != nil {
@@ -144,15 +141,15 @@ func TestAutoDiscoverySelectsOnlySuccessfulProbe(t *testing.T) {
 }
 
 func TestAutoDiscoveryPortForwardsKubernetesServiceCandidate(t *testing.T) {
-	registry := runtimediscovery.NewRegistry()
-	if err := registry.Register(staticDiscoveryProvider{candidates: []corediscovery.Candidate{{
+	registry := fpendpoint.NewDiscoveryRegistry()
+	if err := registry.Register(staticDiscoveryProvider{candidates: []fpendpoint.DiscoveryCandidate{{
 		ID:          "loki-service",
 		URL:         "http://loki.monitoring.svc:3100",
 		Host:        "loki.monitoring.svc",
 		Port:        3100,
 		ProductHint: "loki",
 		Score:       100,
-		Source: coreendpoint.SourceRef{
+		Source: fpendpoint.SourceRef{
 			Kind:      "kubernetes.service",
 			Namespace: "monitoring",
 			Name:      "loki",
@@ -212,8 +209,8 @@ func TestLokiNetworkAccessUsesResolvedTarget(t *testing.T) {
 	}
 	assertNetworkAccess(t, access, "http://input-loki:3100")
 
-	endpoints := runtimeendpoint.NewRegistry(0)
-	ref, err := endpoints.Put(runtimeendpoint.Record{Spec: coreendpoint.Spec{Name: "loki-dev", URL: "http://endpoint-loki:3100", Product: "loki"}})
+	endpoints := fpendpoint.NewRegistry(0)
+	ref, err := endpoints.Put(fpendpoint.RuntimeRecord{Spec: fpendpoint.Spec{Name: "loki-dev", URL: "http://endpoint-loki:3100", Product: "loki"}})
 	if err != nil {
 		t.Fatalf("endpoint Put() error = %v", err)
 	}
@@ -313,15 +310,15 @@ func TestLookupEnvDoesNotReadHostEnvironment(t *testing.T) {
 }
 
 type staticDiscoveryProvider struct {
-	candidates []corediscovery.Candidate
+	candidates []fpendpoint.DiscoveryCandidate
 }
 
-func (p staticDiscoveryProvider) Spec() runtimediscovery.ProviderSpec {
-	return runtimediscovery.ProviderSpec{Name: "static", Products: []string{"loki"}}
+func (p staticDiscoveryProvider) Spec() fpendpoint.ProviderSpec {
+	return fpendpoint.ProviderSpec{Name: "static", Products: []string{"loki"}}
 }
 
-func (p staticDiscoveryProvider) Discover(context.Context, corediscovery.Request) (corediscovery.Result, error) {
-	return corediscovery.Result{Candidates: p.candidates}, nil
+func (p staticDiscoveryProvider) Discover(context.Context, fpendpoint.DiscoveryRequest) (fpendpoint.DiscoveryResult, error) {
+	return fpendpoint.DiscoveryResult{Candidates: p.candidates}, nil
 }
 
 type lokiFakeSystem struct {

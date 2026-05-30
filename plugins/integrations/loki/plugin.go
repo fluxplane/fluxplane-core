@@ -14,9 +14,8 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 )
 
 const (
@@ -67,8 +66,8 @@ type Plugin struct {
 	environment fpsystem.Environment
 	ref         resource.PluginRef
 	cfg         Config
-	discovery   *runtimediscovery.Registry
-	endpoints   *runtimeendpoint.Registry
+	discovery   *fpendpoint.DiscoveryRegistry
+	endpoints   *fpendpoint.Registry
 }
 
 // Boundaries are the host capabilities used by the Loki plugin.
@@ -89,7 +88,7 @@ func New(sys fpsystem.System) Plugin {
 }
 
 func NewWithBoundaries(boundaries Boundaries) Plugin {
-	return Plugin{process: boundaries.Process, network: boundaries.Network, environment: boundaries.Environment, discovery: runtimediscovery.NewRegistry(), endpoints: runtimeendpoint.NewRegistry(15 * time.Minute)}
+	return Plugin{process: boundaries.Process, network: boundaries.Network, environment: boundaries.Environment, discovery: fpendpoint.NewDiscoveryRegistry(), endpoints: fpendpoint.NewRegistry(15 * time.Minute)}
 }
 
 func boundariesFromSystem(sys fpsystem.System) Boundaries {
@@ -117,10 +116,10 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 		p.endpoints = ctx.Endpoints
 	}
 	if p.discovery == nil {
-		p.discovery = runtimediscovery.NewRegistry()
+		p.discovery = fpendpoint.NewDiscoveryRegistry()
 	}
 	if p.endpoints == nil {
-		p.endpoints = runtimeendpoint.NewRegistry(15 * time.Minute)
+		p.endpoints = fpendpoint.NewRegistry(15 * time.Minute)
 	}
 	return p, nil
 }
