@@ -71,7 +71,7 @@ func (p Plugin) portForward() operationruntime.TypedResultHandler[portForwardInp
 		if err != nil {
 			return coreoperation.Failed("invalid_k8s_port_forward_input", err.Error(), nil)
 		}
-		handle, started, err := p.system.Process().Ensure(ctx, fpsystem.ProcessRequest{
+		handle, started, err := p.process.Ensure(ctx, fpsystem.ProcessRequest{
 			Command:   "kubectl",
 			Args:      resolved.args,
 			Label:     resolved.label,

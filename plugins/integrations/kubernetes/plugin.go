@@ -128,10 +128,19 @@ func policyFromConfig(cfg Config, fallback string) namespacePolicy {
 
 type Plugin struct {
 	pluginhost.Configurable[Config]
-	system fpsystem.System
-	ref    resource.PluginRef
-	cfg    Config
-	client kubernetes.Interface
+	process     fpsystem.ProcessManager
+	network     fpsystem.Network
+	environment fpsystem.Environment
+	ref         resource.PluginRef
+	cfg         Config
+	client      kubernetes.Interface
+}
+
+// Boundaries are the host capabilities used by the Kubernetes plugin.
+type Boundaries struct {
+	Process     fpsystem.ProcessManager
+	Network     fpsystem.Network
+	Environment fpsystem.Environment
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -144,11 +153,24 @@ var _ pluginhost.DiscoveryProviderContributor = Plugin{}
 var _ pluginhost.SecretResolverContributor = Plugin{}
 
 func New(sys fpsystem.System) Plugin {
-	return Plugin{system: sys}
+	return NewWithBoundaries(boundariesFromSystem(sys))
 }
 
 func NewWithClient(sys fpsystem.System, client kubernetes.Interface) Plugin {
-	return Plugin{system: sys, client: client}
+	p := New(sys)
+	p.client = client
+	return p
+}
+
+func NewWithBoundaries(boundaries Boundaries) Plugin {
+	return Plugin{process: boundaries.Process, network: boundaries.Network, environment: boundaries.Environment}
+}
+
+func boundariesFromSystem(sys fpsystem.System) Boundaries {
+	if sys == nil {
+		return Boundaries{}
+	}
+	return Boundaries{Process: sys.Process(), Network: sys.Network(), Environment: sys.Environment()}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -178,8 +200,8 @@ func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resour
 }
 
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
-	if p.system == nil {
-		return nil, fmt.Errorf("kubernetesplugin: system is nil")
+	if p.process == nil {
+		return nil, fmt.Errorf("kubernetesplugin: process manager is nil")
 	}
 	return []operation.Operation{portForwardOperation(p)}, nil
 }
@@ -593,7 +615,7 @@ func (p Plugin) httpClientForRestConfig(cfg *rest.Config) (*http.Client, error) 
 	if err != nil {
 		return nil, err
 	}
-	if p.system == nil || p.system.Network() == nil {
+	if p.network == nil {
 		return client, nil
 	}
 	tlsConfig, err := rest.TLSConfigFor(cfg)
@@ -601,7 +623,7 @@ func (p Plugin) httpClientForRestConfig(cfg *rest.Config) (*http.Client, error) 
 		return nil, err
 	}
 	boundaryTransport := systemkit.NewRoundTripper(
-		p.system.Network(),
+		p.network,
 		systemkit.WithHTTPClientTimeout(30*time.Second),
 		systemkit.WithHTTPClientMaxBytes(10*1024*1024),
 		systemkit.WithHTTPClientTLSConfig(tlsConfig),
@@ -657,13 +679,13 @@ func (p Plugin) restConfigFromKubeconfig(ctx context.Context) (*rest.Config, str
 func (p Plugin) kubeconfigPath(ctx context.Context) (string, error) {
 	path := p.cfg.Kubeconfig
 	if path == "" && p.cfg.KubeconfigEnv != "" {
-		path, _, _ = lookupEnv(ctx, p.system, p.cfg.KubeconfigEnv)
+		path, _, _ = lookupEnv(ctx, p.environment, p.cfg.KubeconfigEnv)
 	}
 	if path == "" {
-		path, _, _ = lookupEnv(ctx, p.system, "KUBECONFIG")
+		path, _, _ = lookupEnv(ctx, p.environment, "KUBECONFIG")
 	}
 	if path == "" {
-		home, _, _ := lookupEnv(ctx, p.system, "HOME")
+		home, _, _ := lookupEnv(ctx, p.environment, "HOME")
 		if home != "" {
 			path = filepath.Join(home, ".kube", "config")
 		}
@@ -683,13 +705,13 @@ func defaultNamespace(ctx context.Context, cfg Config) (string, error) {
 	return namespace, nil
 }
 
-func lookupEnv(ctx context.Context, sys fpsystem.System, key string) (string, bool, error) {
+func lookupEnv(ctx context.Context, env fpsystem.Environment, key string) (string, bool, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return "", false, nil
 	}
-	if sys != nil && sys.Environment() != nil {
-		return sys.Environment().Lookup(ctx, key)
+	if env != nil {
+		return env.Lookup(ctx, key)
 	}
 	return "", false, errors.ErrUnsupported
 }
