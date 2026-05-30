@@ -107,25 +107,40 @@ func Resolve(ctx context.Context, sys fpsystem.System, store runtimesecret.FileS
 }
 
 func ResolveWithResolver(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
+	return ResolveWithEnvironment(ctx, environmentFromSystem(sys), resolver, ref, cfg)
+}
+
+func ResolveWithEnvironment(ctx context.Context, environment fpsystem.Environment, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
 	if resolver == nil {
-		return resolve(ctx, sys, runtimesecret.NewFileStore(DefaultAuthStorePath), ref, cfg)
+		return resolveWithEnvironment(ctx, environment, runtimesecret.NewFileStore(DefaultAuthStorePath), ref, cfg)
 	}
 	cfg = NormalizeConfig(cfg)
 	method := cfg.Auth.Method
 	switch method {
 	case "", TokenMethod:
-		return resolveStoredOrEnvResolver(ctx, sys, resolver, ref, cfg, TokenMethod)
+		return resolveStoredOrEnvResolver(ctx, environment, resolver, ref, cfg, TokenMethod)
 	case EnvMethod:
-		return resolveEnvResolver(ctx, sys, resolver, cfg)
+		return resolveEnvResolver(ctx, environment, resolver, cfg)
 	case OAuth2Method:
-		return resolveOAuthResolver(ctx, sys, resolver, ref, cfg)
+		return resolveOAuthResolver(ctx, environment, resolver, ref, cfg)
 	default:
 		return Session{}, fmt.Errorf("slackplugin: unsupported auth method %q", method)
 	}
 }
 
 func resolve(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, ref resource.PluginRef, cfg Config) (Session, error) {
-	return ResolveWithResolver(ctx, sys, store, ref, cfg)
+	return resolveWithEnvironment(ctx, environmentFromSystem(sys), store, ref, cfg)
+}
+
+func resolveWithEnvironment(ctx context.Context, environment fpsystem.Environment, store runtimesecret.FileStore, ref resource.PluginRef, cfg Config) (Session, error) {
+	return ResolveWithEnvironment(ctx, environment, store, ref, cfg)
+}
+
+func environmentFromSystem(sys fpsystem.System) fpsystem.Environment {
+	if sys == nil {
+		return nil
+	}
+	return sys.Environment()
 }
 
 func storedTokenAuthMethod(ref resource.PluginRef) coresecret.AuthMethodSpec {
@@ -206,12 +221,12 @@ func oauth2AuthMethod(ref resource.PluginRef) coresecret.AuthMethodSpec {
 	}
 }
 
-func resolveStoredOrEnvResolver(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config, method string) (Session, error) {
+func resolveStoredOrEnvResolver(ctx context.Context, environment fpsystem.Environment, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config, method string) (Session, error) {
 	session := Session{Method: method}
 	session.BotToken = loadResolvedValue(ctx, resolver, BotTokenSecretRef(ref))
 	session.AppToken = loadResolvedValue(ctx, resolver, AppTokenSecretRef(ref))
 	session.UserToken = loadResolvedValue(ctx, resolver, UserTokenSecretRef(ref))
-	envSession := envSession(ctx, sys, cfg)
+	envSession := envSession(ctx, environment, cfg)
 	session.BotToken = firstNonEmpty(session.BotToken, envSession.BotToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv))))
 	session.AppToken = firstNonEmpty(session.AppToken, envSession.AppToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.AppTokenEnv, defaultAppTokenEnv))))
 	session.UserToken = firstNonEmpty(session.UserToken, envSession.UserToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))))
@@ -221,8 +236,8 @@ func resolveStoredOrEnvResolver(ctx context.Context, sys fpsystem.System, resolv
 	return session, nil
 }
 
-func resolveEnvResolver(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, cfg Config) (Session, error) {
-	session := envSession(ctx, sys, cfg)
+func resolveEnvResolver(ctx context.Context, environment fpsystem.Environment, resolver runtimesecret.Resolver, cfg Config) (Session, error) {
+	session := envSession(ctx, environment, cfg)
 	session.Method = EnvMethod
 	session.BotToken = firstNonEmpty(session.BotToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv))))
 	session.AppToken = firstNonEmpty(session.AppToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.AppTokenEnv, defaultAppTokenEnv))))
@@ -233,12 +248,12 @@ func resolveEnvResolver(ctx context.Context, sys fpsystem.System, resolver runti
 	return session, nil
 }
 
-func resolveOAuthResolver(ctx context.Context, sys fpsystem.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
+func resolveOAuthResolver(ctx context.Context, environment fpsystem.Environment, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
 	session := Session{Method: OAuth2Method}
 	session.BotToken = loadResolvedValue(ctx, resolver, OAuth2SecretRef(ref))
 	session.AppToken = loadResolvedValue(ctx, resolver, AppTokenSecretRef(ref))
 	session.UserToken = loadResolvedValue(ctx, resolver, UserTokenSecretRef(ref))
-	envSession := envSession(ctx, sys, cfg)
+	envSession := envSession(ctx, environment, cfg)
 	session.AppToken = firstNonEmpty(session.AppToken, envSession.AppToken)
 	session.UserToken = firstNonEmpty(session.UserToken, envSession.UserToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))))
 	if session.BotToken == "" && session.UserToken == "" {
@@ -247,22 +262,22 @@ func resolveOAuthResolver(ctx context.Context, sys fpsystem.System, resolver run
 	return session, nil
 }
 
-func envSession(ctx context.Context, sys fpsystem.System, cfg Config) Session {
-	if sys == nil || sys.Environment() == nil {
+func envSession(ctx context.Context, environment fpsystem.Environment, cfg Config) Session {
+	if environment == nil {
 		return Session{}
 	}
 	return Session{
-		BotToken:  lookupEnv(ctx, sys, firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv)),
-		AppToken:  lookupEnv(ctx, sys, firstNonEmpty(cfg.Auth.AppTokenEnv, defaultAppTokenEnv)),
-		UserToken: lookupEnv(ctx, sys, firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv)),
+		BotToken:  lookupEnv(ctx, environment, firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv)),
+		AppToken:  lookupEnv(ctx, environment, firstNonEmpty(cfg.Auth.AppTokenEnv, defaultAppTokenEnv)),
+		UserToken: lookupEnv(ctx, environment, firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv)),
 	}
 }
 
-func lookupEnv(ctx context.Context, sys fpsystem.System, name string) string {
-	if strings.TrimSpace(name) == "" || sys == nil || sys.Environment() == nil {
+func lookupEnv(ctx context.Context, environment fpsystem.Environment, name string) string {
+	if strings.TrimSpace(name) == "" || environment == nil {
 		return ""
 	}
-	value, ok, err := sys.Environment().Lookup(ctx, strings.TrimSpace(name))
+	value, ok, err := environment.Lookup(ctx, strings.TrimSpace(name))
 	if err != nil || !ok {
 		return ""
 	}

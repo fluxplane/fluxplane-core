@@ -41,7 +41,8 @@ type slackClientFactory func(token, appToken string) *slack.Client
 
 type Plugin struct {
 	pluginhost.Configurable[Config]
-	system        fpsystem.System
+	network       fpsystem.Network
+	environment   fpsystem.Environment
 	store         runtimesecret.FileStore
 	secrets       runtimesecret.Resolver
 	ref           resource.PluginRef
@@ -75,7 +76,15 @@ func NewWithResolver(sys fpsystem.System, dispatcher *Dispatcher, resolver runti
 	if resolver == nil {
 		resolver = store
 	}
-	return Plugin{system: sys, store: store, secrets: resolver, dispatcher: dispatcher}
+	network, environment := boundariesFromSystem(sys)
+	return Plugin{network: network, environment: environment, store: store, secrets: resolver, dispatcher: dispatcher}
+}
+
+func boundariesFromSystem(sys fpsystem.System) (fpsystem.Network, fpsystem.Environment) {
+	if sys == nil {
+		return nil, nil
+	}
+	return sys.Network(), sys.Environment()
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -152,7 +161,7 @@ func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context
 	if method := strings.TrimSpace(req.Method); method != "" {
 		cfg.Auth.Method = method
 	}
-	session, err := ResolveWithResolver(ctx, p.system, req.Secrets, p.ref, cfg)
+	session, err := ResolveWithEnvironment(ctx, p.environment, req.Secrets, p.ref, cfg)
 	if err != nil {
 		reports <- p.authTestReport(session.Method, "connection", "failed", err.Error(), nil)
 		return nil
@@ -225,8 +234,8 @@ func (p Plugin) newClient(token, appToken string) *slack.Client {
 	if appToken != "" {
 		options = append(options, slack.OptionAppLevelToken(appToken))
 	}
-	if p.system != nil && p.system.Network() != nil {
-		options = append(options, slack.OptionHTTPClient(systemkit.NewHTTPClient(p.system.Network())))
+	if p.network != nil {
+		options = append(options, slack.OptionHTTPClient(systemkit.NewHTTPClient(p.network)))
 	}
 	return slack.New(token, options...)
 }
