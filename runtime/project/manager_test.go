@@ -8,11 +8,12 @@ import (
 
 	coreproject "github.com/fluxplane/fluxplane-core/core/project"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 func TestManagerDetectsProjectsWithHostWorkspace(t *testing.T) {
-	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+	runManagerBackends(t, func(t *testing.T, ws runtimeworkspace.Workspace) {
 		writeWorkspaceFile(t, ws, "go.mod", "module example.com/root\n\ngo 1.26\n")
 		writeWorkspaceFile(t, ws, "package.json", `{"name":"root-js","scripts":{"test":"node test.js"}}`)
 		writeWorkspaceFile(t, ws, "Makefile", "build:\n\tgo build ./...\n")
@@ -89,7 +90,7 @@ func TestManagerDetectsProjectsWithHostWorkspace(t *testing.T) {
 }
 
 func TestManagerCreatesDocsOnlyProjectWithoutOwner(t *testing.T) {
-	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+	runManagerBackends(t, func(t *testing.T, ws runtimeworkspace.Workspace) {
 		writeWorkspaceFile(t, ws, "docs/guide.md", "# Guide\n")
 		inventory, _, err := NewManager(ws).Inventory(context.Background(), coreproject.InventoryQuery{Refresh: true})
 		if err != nil {
@@ -102,7 +103,7 @@ func TestManagerCreatesDocsOnlyProjectWithoutOwner(t *testing.T) {
 }
 
 func TestManagerDetectsFluxplaneCoderAndAIConfigFacets(t *testing.T) {
-	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+	runManagerBackends(t, func(t *testing.T, ws runtimeworkspace.Workspace) {
 		writeWorkspaceFile(t, ws, "fluxplane.yaml", "kind: app\nname: demo\n")
 		writeWorkspaceFile(t, ws, ".coder.yaml", "version: 1\nworkspace: {}\nimports: {}\n")
 		writeWorkspaceFile(t, ws, "AGENTS.md", "# Agents\n")
@@ -132,7 +133,7 @@ func TestManagerDetectsFluxplaneCoderAndAIConfigFacets(t *testing.T) {
 }
 
 func TestManagerResolvesProjectTaskRunCommands(t *testing.T) {
-	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+	runManagerBackends(t, func(t *testing.T, ws runtimeworkspace.Workspace) {
 		writeWorkspaceFile(t, ws, "package.json", `{"name":"app","scripts":{"test":"vitest run"}}`)
 		writeWorkspaceFile(t, ws, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
 		writeWorkspaceFile(t, ws, "Taskfile.yaml", "version: '3'\ntasks:\n  lint:\n    desc: Run lint\n    cmds:\n      - go vet ./...\n")
@@ -169,7 +170,7 @@ func TestManagerResolvesProjectTaskRunCommands(t *testing.T) {
 }
 
 func TestManagerResolvesPackageManagerFromAncestorLockfile(t *testing.T) {
-	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+	runManagerBackends(t, func(t *testing.T, ws runtimeworkspace.Workspace) {
 		writeWorkspaceFile(t, ws, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
 		writeWorkspaceFile(t, ws, "apps/web/package.json", `{"name":"web","scripts":{"test":"vitest run"}}`)
 
@@ -188,7 +189,7 @@ func TestManagerResolvesPackageManagerFromAncestorLockfile(t *testing.T) {
 }
 
 func TestManagerPrefersNearestPackageLockOverAncestorLockfile(t *testing.T) {
-	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+	runManagerBackends(t, func(t *testing.T, ws runtimeworkspace.Workspace) {
 		writeWorkspaceFile(t, ws, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
 		writeWorkspaceFile(t, ws, "apps/web/package-lock.json", `{"lockfileVersion":3}`)
 		writeWorkspaceFile(t, ws, "apps/web/package.json", `{"name":"web","scripts":{"test":"node test.js"}}`)
@@ -245,7 +246,7 @@ Setext
 	}
 }
 
-func runManagerBackends(t *testing.T, fn func(*testing.T, system.Workspace)) {
+func runManagerBackends(t *testing.T, fn func(*testing.T, runtimeworkspace.Workspace)) {
 	t.Helper()
 	t.Run("host", func(t *testing.T) {
 		sys, err := system.NewHost(system.Config{Root: t.TempDir()})
@@ -256,7 +257,7 @@ func runManagerBackends(t *testing.T, fn func(*testing.T, system.Workspace)) {
 	})
 }
 
-func writeWorkspaceFile(t *testing.T, ws system.Workspace, rel, content string) {
+func writeWorkspaceFile(t *testing.T, ws runtimeworkspace.Workspace, rel, content string) {
 	t.Helper()
 	resolved, err := ws.ResolveCreate(context.Background(), rel)
 	if err != nil {
@@ -478,7 +479,7 @@ func TestManagerSkipsScratchHostRoot(t *testing.T) {
 }
 
 func TestManagerRejectsWorkspaceIDWhenUnscoped(t *testing.T) {
-	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+	runManagerBackends(t, func(t *testing.T, ws runtimeworkspace.Workspace) {
 		manager := NewManager(ws)
 		_, _, err := manager.Inventory(context.Background(), coreproject.InventoryQuery{WorkspaceID: "workspace:configured:other"})
 		if err == nil {
