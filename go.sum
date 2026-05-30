@@ -183,6 +183,8 @@ github.com/fluxplane/fluxplane-secret v0.1.1 h1:N/rDvbxb7/cyLmFK6rKgYWdbEl/mM/x+
 github.com/fluxplane/fluxplane-secret v0.1.1/go.mod h1:XkWhjAtAy2a05s71Yx1VAy+KrbDr8kuPHc1Fp1rl1IU=
 github.com/fluxplane/fluxplane-system v0.1.5 h1:BT0sI4Gv3lobAGd+0pn8jcOXPuOeHxYgqFBqwvNhlX8=
 github.com/fluxplane/fluxplane-system v0.1.5/go.mod h1:zzEAgTQG60ysL1J7AJ2m/UjlVCBWqyHzdO5MH2PieeA=
+github.com/fluxplane/fluxplane-system v0.1.6 h1:a8jlDrhTz10ejSpjO2PP8sa6JSn354W3RAqNTFHTmFI=
+github.com/fluxplane/fluxplane-system v0.1.6/go.mod h1:LpJUOWv+BolcpSSfwnP0aZYjgSmuhcSY9d5Q1J94xio=
 github.com/fxamacker/cbor/v2 v2.9.2 h1:X4Ksno9+x3cz0TZv69ec1hxP/+tymuR8PXQJyDwfh78=
 github.com/fxamacker/cbor/v2 v2.9.2/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
 github.com/getkin/kin-openapi v0.138.0 h1:ebfE0JAmF6AqHrNBy1KO3Fs68K9tPs48HalvLPo7Rv4=

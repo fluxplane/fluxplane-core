@@ -20,7 +20,7 @@ require (
 	github.com/fluxplane/fluxplane-event v0.1.0
 	github.com/fluxplane/fluxplane-policy v0.1.1
 	github.com/fluxplane/fluxplane-secret v0.1.1
-	github.com/fluxplane/fluxplane-system v0.1.5
+	github.com/fluxplane/fluxplane-system v0.1.6
 	github.com/getkin/kin-openapi v0.138.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
