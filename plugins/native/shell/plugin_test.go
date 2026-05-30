@@ -19,7 +19,7 @@ func TestShellExecStreamsProcessEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	ops, err := shellPlugin(sys).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestProcessRunIntentUsesNormalizedCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	ops, err := shellPlugin(sys).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestBackgroundProcessLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	ops, err := shellPlugin(sys).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestBackgroundShellStartDoesNotUseTimeoutAsLifetime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	ops, err := shellPlugin(sys).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestShellInfoWorksWithAuthorizedSystem(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 	sys := systemauth.System(host, systemauth.Config{})
-	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	ops, err := shellPlugin(sys).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -162,6 +162,13 @@ func TestShellInfoWorksWithAuthorizedSystem(t *testing.T) {
 	if result.IsError() {
 		t.Fatalf("shell_info error = %#v", result.Error)
 	}
+}
+
+func shellPlugin(sys system.System) Plugin {
+	if sys == nil {
+		return New(Config{})
+	}
+	return New(Config{Process: sys.Process(), Environment: sys.Environment()})
 }
 
 func findOp(t *testing.T, ops []operation.Operation, name string) operation.Operation {

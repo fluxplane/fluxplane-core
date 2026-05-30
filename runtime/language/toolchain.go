@@ -12,19 +12,19 @@ import (
 
 const defaultProbeTimeout = 10 * time.Second
 
-// ResolveToolchainStatus probes a toolchain through the runtime system
-// boundary. Core toolchain specs remain inert; this package owns process IO.
-func ResolveToolchainStatus(ctx context.Context, sys system.System, spec corelanguage.ToolchainSpec) corelanguage.ToolchainStatus {
+// ResolveToolchainStatus probes a toolchain through a process boundary. Core
+// toolchain specs remain inert; this package owns process IO.
+func ResolveToolchainStatus(ctx context.Context, process system.ProcessManager, spec corelanguage.ToolchainSpec) corelanguage.ToolchainStatus {
 	status := corelanguage.ToolchainStatus{ID: spec.ID, Available: true, Versions: map[string]string{}}
 	if len(spec.RequiredBinaries) == 0 {
 		status.Available = true
 		return status
 	}
-	if sys == nil || sys.Process() == nil {
+	if process == nil {
 		return unavailable(status, "process manager is unavailable")
 	}
 	for _, binary := range spec.RequiredBinaries {
-		binStatus := probeBinary(ctx, sys, binary)
+		binStatus := probeBinary(ctx, process, binary)
 		if !binStatus.Available {
 			status.Available = false
 			status.Diagnostics = append(status.Diagnostics, corelanguage.Diagnostic{
@@ -59,13 +59,13 @@ func unavailable(status corelanguage.ToolchainStatus, msg string) corelanguage.T
 	return status
 }
 
-func probeBinary(ctx context.Context, sys system.System, binary corelanguage.ToolchainBinarySpec) corelanguage.ToolchainBinaryStatus {
+func probeBinary(ctx context.Context, process system.ProcessManager, binary corelanguage.ToolchainBinarySpec) corelanguage.ToolchainBinaryStatus {
 	out := corelanguage.ToolchainBinaryStatus{Name: binary.Name}
 	args := binary.VersionArgs
 	if len(args) == 0 {
 		args = []string{"version"}
 	}
-	result, err := sys.Process().Run(ctx, system.ProcessRequest{
+	result, err := process.Run(ctx, system.ProcessRequest{
 		Command:   binary.Name,
 		Args:      args,
 		Timeout:   defaultProbeTimeout,

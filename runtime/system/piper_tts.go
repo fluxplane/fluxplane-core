@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 
 	"github.com/amitybell/piper"
 	voice "github.com/amitybell/piper-voice-jenny"
@@ -70,7 +71,7 @@ func playWAVBackground(ctx context.Context, path string) error {
 			continue
 		}
 		cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-		configureCommandProcess(cmd)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		if err := cmd.Start(); err != nil {
 			continue
 		}
@@ -83,11 +84,18 @@ func playWAVBackground(ctx context.Context, path string) error {
 		go func() {
 			select {
 			case <-ctx.Done():
-				terminateCommandProcess(cmd)
+				terminatePiperPlayer(cmd)
 			case <-done:
 			}
 		}()
 		return nil
 	}
 	return fmt.Errorf("no audio player available (need aplay or paplay)")
+}
+
+func terminatePiperPlayer(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 }

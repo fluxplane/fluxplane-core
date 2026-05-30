@@ -7,11 +7,10 @@ import (
 
 	corelanguage "github.com/fluxplane/fluxplane-core/core/language"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
-	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 )
 
 func TestResolveToolchainStatusUnavailableWithoutProcessManager(t *testing.T) {
-	status := ResolveToolchainStatus(context.Background(), systemtest.NewMemory(), corelanguage.ToolchainSpec{
+	status := ResolveToolchainStatus(context.Background(), nil, corelanguage.ToolchainSpec{
 		ID: "go",
 		RequiredBinaries: []corelanguage.ToolchainBinarySpec{{
 			Name: "go",
@@ -23,7 +22,7 @@ func TestResolveToolchainStatusUnavailableWithoutProcessManager(t *testing.T) {
 }
 
 func TestResolveToolchainStatusAvailableWithoutBinariesOrProcessManager(t *testing.T) {
-	status := ResolveToolchainStatus(context.Background(), systemtest.NewMemory(), corelanguage.ToolchainSpec{
+	status := ResolveToolchainStatus(context.Background(), nil, corelanguage.ToolchainSpec{
 		ID: "parser-only",
 	})
 	if !status.Available || len(status.Diagnostics) != 0 {
@@ -33,8 +32,7 @@ func TestResolveToolchainStatusAvailableWithoutBinariesOrProcessManager(t *testi
 
 func TestResolveToolchainStatusUsesSystemProcess(t *testing.T) {
 	proc := &fakeProcess{result: system.ProcessResult{ExitCode: 0, Stdout: "go version go1.26 linux/amd64\n"}}
-	sys := fakeSystem{process: proc}
-	status := ResolveToolchainStatus(context.Background(), sys, corelanguage.ToolchainSpec{
+	status := ResolveToolchainStatus(context.Background(), proc, corelanguage.ToolchainSpec{
 		ID: "go",
 		RequiredBinaries: []corelanguage.ToolchainBinarySpec{{
 			Name:        "go",
@@ -48,15 +46,6 @@ func TestResolveToolchainStatusUsesSystemProcess(t *testing.T) {
 		t.Fatalf("request = %#v, want go version", proc.request)
 	}
 }
-
-type fakeSystem struct {
-	process *fakeProcess
-}
-
-func (s fakeSystem) Workspace() system.Workspace     { return nil }
-func (s fakeSystem) Network() system.Network         { return nil }
-func (s fakeSystem) Process() system.ProcessManager  { return s.process }
-func (s fakeSystem) Environment() system.Environment { return nil }
 
 type fakeProcess struct {
 	request system.ProcessRequest

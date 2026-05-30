@@ -36,14 +36,23 @@ var supportedShells = []string{"sh", "bash", "zsh", "fish", "pwsh", "powershell"
 
 // Plugin contributes shell and process execution operations.
 type Plugin struct {
-	system system.System
+	process     system.ProcessManager
+	environment system.Environment
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
+// Config configures shell and process execution boundaries.
+type Config struct {
+	Process     system.ProcessManager
+	Environment system.Environment
+}
+
 // New returns a shell plugin.
-func New(sys system.System) Plugin { return Plugin{system: sys} }
+func New(cfg Config) Plugin {
+	return Plugin{process: cfg.Process, environment: cfg.Environment}
+}
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -61,8 +70,8 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 
 // Operations returns executable shell operations.
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
-	if p.system == nil {
-		return nil, fmt.Errorf("shellplugin: system is nil")
+	if p.process == nil {
+		return nil, fmt.Errorf("shellplugin: process manager is nil")
 	}
 	return []operation.Operation{
 		operationruntime.NewTypedResult[shellInput, map[string]any](specByName(ShellOp), p.shell(), operationruntime.WithIntent(shellIntent), operationruntime.WithAccess(shellAccess)),
@@ -213,7 +222,7 @@ func (p Plugin) run() operationruntime.TypedResultHandler[execInput, map[string]
 }
 
 func (p Plugin) runProcess(ctx operation.Context, request system.ProcessRequest) operation.Result {
-	handle, err := p.system.Process().Start(ctx, request)
+	handle, err := p.process.Start(ctx, request)
 	if err != nil {
 		return operation.Failed("process_run_failed", err.Error(), nil)
 	}
@@ -264,9 +273,9 @@ func (p Plugin) startProcess(ctx operation.Context, request system.ProcessReques
 		err     error
 	)
 	if ensure {
-		handle, started, err = p.system.Process().Ensure(ctx, request)
+		handle, started, err = p.process.Ensure(ctx, request)
 	} else {
-		handle, err = p.system.Process().Start(ctx, request)
+		handle, err = p.process.Start(ctx, request)
 		started = true
 	}
 	if err != nil {
@@ -290,7 +299,7 @@ type processListInput struct{}
 
 func (p Plugin) list() operationruntime.TypedResultHandler[processListInput, map[string]any] {
 	return func(ctx operation.Context, _ processListInput) operation.Result {
-		processes, err := p.system.Process().List(ctx)
+		processes, err := p.process.List(ctx)
 		if err != nil {
 			return operation.Failed("process_list_failed", err.Error(), nil)
 		}
@@ -324,7 +333,7 @@ func (p Plugin) status() operationruntime.TypedResultHandler[processIDInput, map
 		if invalid != nil {
 			return *invalid
 		}
-		info, err := p.system.Process().Status(ctx, id)
+		info, err := p.process.Status(ctx, id)
 		if err != nil {
 			return operation.Failed("process_status_failed", err.Error(), nil)
 		}
@@ -339,7 +348,7 @@ func (p Plugin) output() operationruntime.TypedResultHandler[processIDInput, map
 		if invalid != nil {
 			return *invalid
 		}
-		output, err := p.system.Process().Output(ctx, id)
+		output, err := p.process.Output(ctx, id)
 		if err != nil {
 			return operation.Failed("process_output_failed", err.Error(), nil)
 		}
@@ -355,7 +364,7 @@ func (p Plugin) wait() operationruntime.TypedResultHandler[processIDInput, map[s
 		if invalid != nil {
 			return *invalid
 		}
-		result, err := p.system.Process().Wait(ctx, id, time.Duration(req.TimeoutMS)*time.Millisecond)
+		result, err := p.process.Wait(ctx, id, time.Duration(req.TimeoutMS)*time.Millisecond)
 		data := processResultData(result)
 		if err != nil {
 			return operation.Failed("process_wait_failed", err.Error(), data)
@@ -370,7 +379,7 @@ func (p Plugin) stop() operationruntime.TypedResultHandler[processIDInput, map[s
 		if invalid != nil {
 			return *invalid
 		}
-		if err := p.system.Process().Stop(ctx, id); err != nil {
+		if err := p.process.Stop(ctx, id); err != nil {
 			return operation.Failed("process_stop_failed", err.Error(), nil)
 		}
 		return operation.OK(operation.Rendered{Text: "Stopped " + id, Data: map[string]any{"process_id": id}})
@@ -383,7 +392,7 @@ func (p Plugin) kill() operationruntime.TypedResultHandler[processIDInput, map[s
 		if invalid != nil {
 			return *invalid
 		}
-		if err := p.system.Process().Kill(ctx, id); err != nil {
+		if err := p.process.Kill(ctx, id); err != nil {
 			return operation.Failed("process_kill_failed", err.Error(), nil)
 		}
 		return operation.OK(operation.Rendered{Text: "Killed " + id, Data: map[string]any{"process_id": id}})
@@ -469,8 +478,10 @@ func (p Plugin) resolveShell(ctx context.Context, requested string) (shellInfo, 
 	choices := supportedShells
 	if strings.TrimSpace(requested) != "" {
 		choices = []string{strings.TrimSpace(requested)}
-	} else if shell, ok, _ := p.system.Environment().Lookup(ctx, "SHELL"); ok && strings.TrimSpace(shell) != "" {
-		choices = append([]string{filepath.Base(shell)}, choices...)
+	} else if p.environment != nil {
+		if shell, ok, _ := p.environment.Lookup(ctx, "SHELL"); ok && strings.TrimSpace(shell) != "" {
+			choices = append([]string{filepath.Base(shell)}, choices...)
+		}
 	}
 	for _, name := range choices {
 		for _, info := range p.availableShells(ctx) {
@@ -489,7 +500,10 @@ func (p Plugin) resolveShell(ctx context.Context, requested string) (shellInfo, 
 func (p Plugin) availableShells(ctx context.Context) []map[string]any {
 	out := make([]map[string]any, 0, len(supportedShells))
 	seen := map[string]bool{}
-	resolver, _ := p.system.Environment().(system.ExecutableResolver)
+	var resolver system.ExecutableResolver
+	if p.environment != nil {
+		resolver, _ = p.environment.(system.ExecutableResolver)
+	}
 	for _, name := range supportedShells {
 		if seen[name] {
 			continue
@@ -515,7 +529,7 @@ func (p Plugin) shellVersion(ctx context.Context, path, name string) string {
 	if name == "cmd" {
 		args = []string{"/C", "ver"}
 	}
-	result, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: path, Args: args, Timeout: 2 * time.Second, MaxStdout: 4096, MaxStderr: 4096})
+	result, err := p.process.Run(ctx, system.ProcessRequest{Command: path, Args: args, Timeout: 2 * time.Second, MaxStdout: 4096, MaxStderr: 4096})
 	if err != nil && result.Stdout == "" && result.Stderr == "" {
 		return ""
 	}

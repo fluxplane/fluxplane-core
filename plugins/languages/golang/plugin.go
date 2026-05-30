@@ -398,7 +398,7 @@ func (o goToolchainObserver) Observe(ctx context.Context, _ runtimeevidence.Obse
 	if o.system == nil {
 		return nil, nil
 	}
-	status := runtimelanguage.ResolveToolchainStatus(ctx, o.system, o.spec)
+	status := runtimelanguage.ResolveToolchainStatus(ctx, o.system.Process(), o.spec)
 	scope := "local"
 	if workspace := o.system.Workspace(); workspace != nil && strings.TrimSpace(workspace.Root()) != "" {
 		scope = "workspace:" + workspace.Root()

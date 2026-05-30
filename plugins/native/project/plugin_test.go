@@ -391,7 +391,7 @@ func writeProjectFile(t *testing.T, ws runtimeworkspace.Workspace, rel, content 
 	}
 	fsys, err := runtimeworkspace.FileSystem(ws)
 	if err != nil {
-		t.Fatalf("WorkspaceFileSystem(%s): %v", rel, err)
+		t.Fatalf("FileSystem(%s): %v", rel, err)
 	}
 	if err := fsys.WriteFile(context.Background(), runtimeworkspace.PathName(resolved), []byte(content), fpsystem.WriteFileOptions{Perm: 0644, Overwrite: true}); err != nil {
 		t.Fatalf("WriteFile(%s): %v", rel, err)

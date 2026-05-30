@@ -94,7 +94,7 @@ func runMarkdownBackends(t *testing.T, fn func(*testing.T, system.System)) {
 
 func runMarkdownOp(t *testing.T, sys system.System, name string, input map[string]any) operation.Rendered {
 	t.Helper()
-	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	ops, err := New(sys.Workspace()).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -123,7 +123,7 @@ func writeMarkdownFile(t *testing.T, ws runtimeworkspace.Workspace, rel, content
 	}
 	fsys, err := runtimeworkspace.FileSystem(ws)
 	if err != nil {
-		t.Fatalf("WorkspaceFileSystem(%s): %v", rel, err)
+		t.Fatalf("FileSystem(%s): %v", rel, err)
 	}
 	if err := fsys.WriteFile(context.Background(), runtimeworkspace.PathName(resolved), []byte(content), fpsystem.WriteFileOptions{Perm: 0644, Overwrite: true}); err != nil {
 		t.Fatalf("WriteFile(%s): %v", rel, err)

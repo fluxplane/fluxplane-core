@@ -17,7 +17,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimelanguage "github.com/fluxplane/fluxplane-core/runtime/language"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/yuin/goldmark"
@@ -36,15 +35,15 @@ const (
 
 // Plugin contributes markdown language-support operations.
 type Plugin struct {
-	system system.System
+	workspace runtimeworkspace.Workspace
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
 // New returns a markdown language plugin.
-func New(sys system.System) Plugin {
-	return Plugin{system: sys}
+func New(workspace runtimeworkspace.Workspace) Plugin {
+	return Plugin{workspace: workspace}
 }
 
 // Manifest returns plugin metadata.
@@ -85,7 +84,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 
 // Operations returns executable markdown operations.
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
-	if p.system == nil || p.system.Workspace() == nil {
+	if p.workspace == nil {
 		return nil, fmt.Errorf("markdownplugin: system workspace is nil")
 	}
 	return []operation.Operation{
@@ -213,13 +212,13 @@ func (p Plugin) markdownFiles(ctx context.Context, req markdown.Query) ([]string
 		return nil, fmt.Errorf("path is required")
 	}
 	max := maxResults(req.MaxResults)
-	if info, _, err := statWorkspacePath(ctx, p.system.Workspace(), rel); err == nil && !info.IsDir() {
+	if info, _, err := statWorkspacePath(ctx, p.workspace, rel); err == nil && !info.IsDir() {
 		if !isMarkdown(rel) {
 			return nil, fmt.Errorf("path is not a markdown file")
 		}
 		return []string{rel}, nil
 	}
-	entries, err := walkWorkspace(ctx, p.system.Workspace(), rel, fpsystem.WalkOptions{Depth: 20, ShowHidden: true, MaxEntries: 10000, FilesOnly: true, SkipDirs: noisyDirs()})
+	entries, err := walkWorkspace(ctx, p.workspace, rel, fpsystem.WalkOptions{Depth: 20, ShowHidden: true, MaxEntries: 10000, FilesOnly: true, SkipDirs: noisyDirs()})
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +241,7 @@ type parsedMarkdown struct {
 }
 
 func (p Plugin) parse(ctx context.Context, rel string, maxBytes int) (parsedMarkdown, error) {
-	data, truncated, _, err := readWorkspaceFile(ctx, p.system.Workspace(), rel, int64(maxBytes))
+	data, truncated, _, err := readWorkspaceFile(ctx, p.workspace, rel, int64(maxBytes))
 	if err != nil {
 		return parsedMarkdown{}, err
 	}
@@ -402,7 +401,7 @@ func (p Plugin) checkLinks(ctx context.Context, links []markdown.Link, maxBytes 
 				out = append(out, language.Diagnostic{Path: link.Path, Line: link.Line, Severity: "error", Code: "missing_target", Message: "link target is empty", Target: link.Target})
 				continue
 			}
-			if _, _, err := statWorkspacePath(ctx, p.system.Workspace(), link.TargetPath); err != nil {
+			if _, _, err := statWorkspacePath(ctx, p.workspace, link.TargetPath); err != nil {
 				out = append(out, language.Diagnostic{Path: link.Path, Line: link.Line, Severity: "error", Code: "missing_target", Message: "link target file does not exist", Target: link.Target})
 				continue
 			}

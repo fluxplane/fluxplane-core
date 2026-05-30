@@ -36,6 +36,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-event"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -303,11 +304,11 @@ func TestLaunchPassesWorkspaceConfigToSystem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveCreate: %v", err)
 	}
-	fsys, err := system.WorkspaceFileSystem(runtime.System.Workspace())
+	fsys, err := runtimeworkspace.FileSystem(runtime.System.Workspace())
 	if err != nil {
-		t.Fatalf("WorkspaceFileSystem: %v", err)
+		t.Fatalf("FileSystem: %v", err)
 	}
-	if err := fsys.WriteFile(context.Background(), system.WorkspacePathName(resolved), []byte("x"), fpsystem.WriteFileOptions{Perm: 0644}); err != nil {
+	if err := fsys.WriteFile(context.Background(), runtimeworkspace.PathName(resolved), []byte("x"), fpsystem.WriteFileOptions{Perm: 0644}); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	if resolved.Rel != "@tmp/out.txt" {

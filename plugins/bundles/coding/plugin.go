@@ -23,6 +23,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/native/shell"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
@@ -54,6 +55,7 @@ func New(sys system.System) Plugin {
 }
 
 func NewWithOptions(sys system.System, opts Options) Plugin {
+	workspace := systemWorkspace(sys)
 	browserPlugin := browser.New(browser.Config{})
 	if opts.Browser != nil {
 		browserPlugin = *opts.Browser
@@ -64,16 +66,30 @@ func NewWithOptions(sys system.System, opts Options) Plugin {
 	}
 	return Plugin{system: sys, plugins: []pluginhost.Plugin{
 		project.New(sys),
-		filesystem.New(sys),
+		filesystem.New(workspace),
 		golang.New(sys),
-		markdown.New(sys),
+		markdown.New(workspace),
 		web.New(sys),
 		browserPlugin,
 		git.New(sys),
-		shell.New(sys),
+		shell.New(shellConfig(sys)),
 		code.New(sys),
 		humanPlugin,
 	}}
+}
+
+func shellConfig(sys system.System) shell.Config {
+	if sys == nil {
+		return shell.Config{}
+	}
+	return shell.Config{Process: sys.Process(), Environment: sys.Environment()}
+}
+
+func systemWorkspace(sys system.System) runtimeworkspace.Workspace {
+	if sys == nil {
+		return nil
+	}
+	return sys.Workspace()
 }
 
 // Manifest returns plugin metadata.
@@ -216,7 +232,7 @@ func agentsContextSpec() corecontext.ProviderSpec {
 }
 
 type agentsContextProvider struct {
-	workspace system.Workspace
+	workspace runtimeworkspace.Workspace
 }
 
 func (p agentsContextProvider) Spec() corecontext.ProviderSpec { return agentsContextSpec() }
@@ -229,11 +245,11 @@ func (p agentsContextProvider) Build(ctx context.Context, _ corecontext.Request)
 	if err != nil {
 		return nil, nil
 	}
-	fsys, err := system.WorkspaceFileSystem(p.workspace)
+	fsys, err := runtimeworkspace.FileSystem(p.workspace)
 	if err != nil {
 		return nil, nil
 	}
-	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, system.WorkspacePathName(resolved), 64*1024)
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, runtimeworkspace.PathName(resolved), 64*1024)
 	if err != nil {
 		return nil, nil
 	}

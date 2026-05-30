@@ -958,16 +958,6 @@ func workspaceName(resolved ResolvedPath) string {
 	return runtimeworkspace.PathName(resolved)
 }
 
-// WorkspacePathName returns the scoped filesystem name for resolved.
-func WorkspacePathName(resolved ResolvedPath) string {
-	return runtimeworkspace.PathName(resolved)
-}
-
-// WorkspaceFileSystem returns the scoped filesystem exposed by ws.
-func WorkspaceFileSystem(ws Workspace) (fpsystem.FileSystem, error) {
-	return runtimeworkspace.FileSystem(ws)
-}
-
 func (w *HostWorkspace) filesystemName(resolved ResolvedPath) (fpsystem.FileSystem, string) {
 	if w != nil && w.base != nil && len(w.roots) > 0 &&
 		strings.TrimSpace(resolved.Rel) == "" &&

@@ -54,7 +54,7 @@ func newHostFilesystemTestEnv(t *testing.T, root string) *filesystemTestEnv {
 
 func (e *filesystemTestEnv) Operation(t *testing.T, name string) operation.Operation {
 	t.Helper()
-	ops, err := New(e.sys).Operations(context.Background(), pluginhost.Context{})
+	ops, err := New(e.workspace).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}

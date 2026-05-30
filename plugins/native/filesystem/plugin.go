@@ -18,7 +18,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -43,14 +42,14 @@ const (
 
 // Plugin contributes workspace filesystem operations.
 type Plugin struct {
-	system system.System
+	workspace runtimeworkspace.Workspace
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
 // New returns a filesystem plugin using sys.
-func New(sys system.System) Plugin { return Plugin{system: sys} }
+func New(workspace runtimeworkspace.Workspace) Plugin { return Plugin{workspace: workspace} }
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -76,10 +75,10 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 
 // Operations returns executable filesystem operations.
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
-	if p.system == nil {
+	if p.workspace == nil {
 		return nil, fmt.Errorf("filesystemplugin: system is nil")
 	}
-	ws := p.system.Workspace()
+	ws := p.workspace
 	return []operation.Operation{
 		operationruntime.NewTypedResult[dirCreateInput, operation.Rendered](specByName(DirCreateOp), func(ctx operation.Context, req dirCreateInput) operation.Result { return p.dirCreate(ws)(ctx, req) }, operationruntime.WithAccessFields[dirCreateInput](
 			operationruntime.PathAccess(func(input dirCreateInput) string { return input.Path }, policy.ActionWorkspaceWrite),

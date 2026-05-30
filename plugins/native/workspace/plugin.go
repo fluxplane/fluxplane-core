@@ -8,7 +8,6 @@ import (
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 )
 
@@ -21,15 +20,15 @@ const (
 
 // Plugin contributes generic workspace context available to all local apps.
 type Plugin struct {
-	system system.System
+	workspace runtimeworkspace.Workspace
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.ContextProviderContributor = Plugin{}
 
 // New returns a workspace plugin bound to a runtime system.
-func New(sys system.System) Plugin {
-	return Plugin{system: sys}
+func New(workspace runtimeworkspace.Workspace) Plugin {
+	return Plugin{workspace: workspace}
 }
 
 // Manifest returns plugin metadata.
@@ -44,10 +43,10 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 
 // ContextProviders returns workspace context providers.
 func (p Plugin) ContextProviders(context.Context, pluginhost.Context) ([]corecontext.Provider, error) {
-	if p.system == nil || p.system.Workspace() == nil {
+	if p.workspace == nil {
 		return nil, nil
 	}
-	return []corecontext.Provider{summaryProvider{workspace: p.system.Workspace()}}, nil
+	return []corecontext.Provider{summaryProvider{workspace: p.workspace}}, nil
 }
 
 func summaryContextSpec() corecontext.ProviderSpec {

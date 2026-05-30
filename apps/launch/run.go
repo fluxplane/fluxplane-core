@@ -62,6 +62,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-core/runtime/systemauth"
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-event"
 )
 
@@ -641,7 +642,7 @@ func availablePluginsWithAuth(hostSystem system.System, dispatcher *slack.Dispat
 
 func availablePluginsWithOptions(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver, opts nativePluginOptions) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
-		workspace.New(hostSystem),
+		workspace.New(systemWorkspace(hostSystem)),
 		discovery.New(),
 		identity.New(),
 		coding.NewWithOptions(hostSystem, coding.Options{Browser: opts.Browser, Human: opts.Human}),
@@ -654,6 +655,13 @@ func availablePluginsWithOptions(hostSystem system.System, dispatcher *slack.Dis
 		skills.New(),
 		text.New(),
 	}
+}
+
+func systemWorkspace(sys system.System) runtimeworkspace.Workspace {
+	if sys == nil {
+		return nil
+	}
+	return sys.Workspace()
 }
 
 // AuthPluginRegistry returns first-party plugins that expose auth declarations
