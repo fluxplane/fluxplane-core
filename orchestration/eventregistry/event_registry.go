@@ -3,7 +3,7 @@ package eventregistry
 
 import (
 	"fmt"
-	corepolicy "github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/policyevent"
 
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
@@ -81,7 +81,7 @@ func defaultEventTypes() []event.Event {
 		operation.OperationFailed{},
 		operation.OperationRejected{},
 		operation.OperationCanceled{},
-		corepolicy.AuthorizationDecision{},
+		policyevent.AuthorizationDecision{},
 		operationruntime.ApprovalRequested{},
 		operationruntime.ApprovalGranted{},
 		operationruntime.ApprovalDenied{},
