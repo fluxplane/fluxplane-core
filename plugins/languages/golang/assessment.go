@@ -13,7 +13,8 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/language/golang"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 const defaultAssessmentRulesPath = "engine-architecture.rules.json"
@@ -569,7 +570,7 @@ func cleanAssessmentPath(raw string) string {
 }
 
 type workspaceAssessmentSource struct {
-	workspace system.Workspace
+	workspace runtimeworkspace.Workspace
 }
 
 func (s workspaceAssessmentSource) WorkspaceRoot() string {
@@ -587,7 +588,7 @@ func (s workspaceAssessmentSource) ListFiles(ctx context.Context, scope codegate
 	if root == "" {
 		root = "."
 	}
-	entries, _, truncated, err := walkWorkspace(ctx, s.workspace, root, system.WalkOptions{
+	entries, _, truncated, err := walkWorkspace(ctx, s.workspace, root, fpsystem.WalkOptions{
 		Depth:      50,
 		MaxEntries: 20000,
 		FilesOnly:  true,

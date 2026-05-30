@@ -26,6 +26,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimeproject "github.com/fluxplane/fluxplane-core/runtime/project"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 const (
@@ -868,7 +869,7 @@ func (p Plugin) goFilesForPath(ctx context.Context, rawPath string) ([]string, e
 	if root == "" {
 		root = "."
 	}
-	entries, _, _, err := walkWorkspace(ctx, p.system.Workspace(), root, system.WalkOptions{Depth: 50, ShowHidden: false, MaxEntries: 10000, FilesOnly: true, SkipDirs: noisyDirs()})
+	entries, _, _, err := walkWorkspace(ctx, p.system.Workspace(), root, fpsystem.WalkOptions{Depth: 50, ShowHidden: false, MaxEntries: 10000, FilesOnly: true, SkipDirs: noisyDirs()})
 	if err != nil {
 		return nil, err
 	}

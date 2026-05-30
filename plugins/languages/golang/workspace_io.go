@@ -6,38 +6,38 @@ import (
 	"io/fs"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/runtime/system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
-func statWorkspacePath(ctx context.Context, ws system.Workspace, rel string) (fs.FileInfo, system.ResolvedPath, error) {
+func statWorkspacePath(ctx context.Context, ws runtimeworkspace.Workspace, rel string) (fs.FileInfo, runtimeworkspace.ResolvedPath, error) {
 	resolved, err := ws.ResolveExisting(ctx, rel)
 	if err != nil {
-		return nil, system.ResolvedPath{}, err
+		return nil, runtimeworkspace.ResolvedPath{}, err
 	}
-	fsys, err := system.WorkspaceFileSystem(ws)
+	fsys, err := runtimeworkspace.FileSystem(ws)
 	if err != nil {
-		return nil, system.ResolvedPath{}, err
+		return nil, runtimeworkspace.ResolvedPath{}, err
 	}
-	info, err := fsys.Stat(system.WorkspacePathName(resolved))
+	info, err := fsys.Stat(runtimeworkspace.PathName(resolved))
 	return info, resolved, err
 }
 
-func readWorkspaceFile(ctx context.Context, ws system.Workspace, rel string, maxBytes int64) ([]byte, bool, system.ResolvedPath, error) {
+func readWorkspaceFile(ctx context.Context, ws runtimeworkspace.Workspace, rel string, maxBytes int64) ([]byte, bool, runtimeworkspace.ResolvedPath, error) {
 	resolved, err := ws.ResolveExisting(ctx, rel)
 	if err != nil {
-		return nil, false, system.ResolvedPath{}, err
+		return nil, false, runtimeworkspace.ResolvedPath{}, err
 	}
-	fsys, err := system.WorkspaceFileSystem(ws)
+	fsys, err := runtimeworkspace.FileSystem(ws)
 	if err != nil {
-		return nil, false, system.ResolvedPath{}, err
+		return nil, false, runtimeworkspace.ResolvedPath{}, err
 	}
-	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, system.WorkspacePathName(resolved), maxBytes)
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, runtimeworkspace.PathName(resolved), maxBytes)
 	return data, truncated, resolved, err
 }
 
 type workspaceWalkEntry struct {
-	Path    system.ResolvedPath
+	Path    runtimeworkspace.ResolvedPath
 	Name    string
 	Kind    string
 	Size    int64
@@ -46,25 +46,18 @@ type workspaceWalkEntry struct {
 	Level   int
 }
 
-func walkWorkspace(ctx context.Context, ws system.Workspace, rel string, opts system.WalkOptions) ([]workspaceWalkEntry, system.ResolvedPath, bool, error) {
+func walkWorkspace(ctx context.Context, ws runtimeworkspace.Workspace, rel string, opts fpsystem.WalkOptions) ([]workspaceWalkEntry, runtimeworkspace.ResolvedPath, bool, error) {
 	resolved, err := ws.ResolveExisting(ctx, rel)
 	if err != nil {
-		return nil, system.ResolvedPath{}, false, err
+		return nil, runtimeworkspace.ResolvedPath{}, false, err
 	}
-	fsys, err := system.WorkspaceFileSystem(ws)
+	fsys, err := runtimeworkspace.FileSystem(ws)
 	if err != nil {
-		return nil, system.ResolvedPath{}, false, err
+		return nil, runtimeworkspace.ResolvedPath{}, false, err
 	}
-	entries, truncated, err := fpsystem.Walk(ctx, fsys, system.WorkspacePathName(resolved), fpsystem.WalkOptions{
-		Depth:         opts.Depth,
-		ShowHidden:    opts.ShowHidden,
-		MaxEntries:    opts.MaxEntries,
-		FilesOnly:     opts.FilesOnly,
-		SkipDirs:      opts.SkipDirs,
-		FilterPattern: opts.FilterPattern,
-	})
+	entries, truncated, err := fpsystem.Walk(ctx, fsys, runtimeworkspace.PathName(resolved), opts)
 	if err != nil {
-		return nil, system.ResolvedPath{}, false, err
+		return nil, runtimeworkspace.ResolvedPath{}, false, err
 	}
 	out := make([]workspaceWalkEntry, 0, len(entries))
 	for _, entry := range entries {
@@ -83,7 +76,7 @@ func walkWorkspace(ctx context.Context, ws system.Workspace, rel string, opts sy
 		})
 	}
 	if len(out) == 0 && len(entries) > 0 {
-		return nil, system.ResolvedPath{}, false, fmt.Errorf("workspace walk resolved no readable entries")
+		return nil, runtimeworkspace.ResolvedPath{}, false, fmt.Errorf("workspace walk resolved no readable entries")
 	}
 	return out, resolved, truncated, nil
 }
