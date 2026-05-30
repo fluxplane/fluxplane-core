@@ -111,6 +111,14 @@ Executable main package only?                                  -> cmd
 Use [docs/concepts.md](docs/concepts.md). If a change blurs concepts, split the
 shapes instead of using vague packages.
 
+When extracting reusable concepts into sibling modules, avoid broad packages named
+`common`, `coretypes`, or `contracts`. Each extracted module must answer one
+clear question (for example: event = what is an event, system = host capability
+boundary, user = who is the actor, policy = may this subject do this action on
+this resource, operation = what is callable, datasource = what data is
+searchable/gettable, app = what is an authored Fluxplane app). If the module
+name cannot be explained that way, it probably should not exist yet.
+
 - `Request`: boundary ask from user/model/protocol/provider. Keep DTOs near
   adapters/orchestration unless they are stable model-facing contracts; map
   them to canonical messages, `command.Invocation`s, operation inputs, or

@@ -1,296 +1,114 @@
 package policy
 
 import (
-	"context"
-	"path"
-	"strings"
+	base "github.com/fluxplane/fluxplane-policy"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 )
 
 // Action names one protected action over a resource.
-type Action string
+type Action = base.Action
 
 const (
-	ActionDatasourceRead   Action = "datasource.read"
-	ActionDatasourceSearch Action = "datasource.search"
-	ActionDatasourceIndex  Action = "datasource.index"
-	ActionDatasourceAdmin  Action = "datasource.admin"
+	ActionDatasourceRead   = base.ActionDatasourceRead
+	ActionDatasourceSearch = base.ActionDatasourceSearch
+	ActionDatasourceIndex  = base.ActionDatasourceIndex
+	ActionDatasourceAdmin  = base.ActionDatasourceAdmin
 
-	ActionWorkspaceRead  Action = "workspace.read"
-	ActionWorkspaceWrite Action = "workspace.write"
-	ActionWorkspaceAdmin Action = "workspace.admin"
+	ActionWorkspaceRead  = base.ActionWorkspaceRead
+	ActionWorkspaceWrite = base.ActionWorkspaceWrite
+	ActionWorkspaceAdmin = base.ActionWorkspaceAdmin
 
-	ActionProcessExec  Action = "process.exec"
-	ActionProcessAdmin Action = "process.admin"
+	ActionProcessExec  = base.ActionProcessExec
+	ActionProcessAdmin = base.ActionProcessAdmin
 
-	ActionNetworkFetch   Action = "network.fetch"
-	ActionNetworkConnect Action = "network.connect"
+	ActionNetworkFetch   = base.ActionNetworkFetch
+	ActionNetworkConnect = base.ActionNetworkConnect
 
-	ActionChannelSend  Action = "channel.send"
-	ActionChannelAdmin Action = "channel.admin"
+	ActionChannelSend  = base.ActionChannelSend
+	ActionChannelAdmin = base.ActionChannelAdmin
 
-	ActionTaskRead  Action = "task.read"
-	ActionTaskWrite Action = "task.write"
-	ActionTaskRun   Action = "task.run"
-	ActionTaskAdmin Action = "task.admin"
+	ActionTaskRead  = base.ActionTaskRead
+	ActionTaskWrite = base.ActionTaskWrite
+	ActionTaskRun   = base.ActionTaskRun
+	ActionTaskAdmin = base.ActionTaskAdmin
 
-	ActionSessionRead  Action = "session.read"
-	ActionSessionWrite Action = "session.write"
-	ActionSessionAdmin Action = "session.admin"
+	ActionSessionRead  = base.ActionSessionRead
+	ActionSessionWrite = base.ActionSessionWrite
+	ActionSessionAdmin = base.ActionSessionAdmin
 
-	ActionModelInvoke     Action = "model.invoke"
-	ActionOperationInvoke Action = "operation.invoke"
-	ActionApprovalGrant   Action = "approval.grant"
+	ActionModelInvoke     = base.ActionModelInvoke
+	ActionOperationInvoke = base.ActionOperationInvoke
+	ActionApprovalGrant   = base.ActionApprovalGrant
 
-	ActionSecretRead  Action = "secret.read"
-	ActionSecretUse   Action = "secret.use"
-	ActionSecretAdmin Action = "secret.admin"
+	ActionSecretRead  = base.ActionSecretRead
+	ActionSecretUse   = base.ActionSecretUse
+	ActionSecretAdmin = base.ActionSecretAdmin
 )
 
 // Actions returns the stable authorization action vocabulary.
-func Actions() []Action {
-	return []Action{
-		ActionDatasourceRead, ActionDatasourceSearch, ActionDatasourceIndex, ActionDatasourceAdmin,
-		ActionWorkspaceRead, ActionWorkspaceWrite, ActionWorkspaceAdmin,
-		ActionProcessExec, ActionProcessAdmin,
-		ActionNetworkFetch, ActionNetworkConnect,
-		ActionChannelSend, ActionChannelAdmin,
-		ActionTaskRead, ActionTaskWrite, ActionTaskRun, ActionTaskAdmin,
-		ActionSessionRead, ActionSessionWrite, ActionSessionAdmin,
-		ActionModelInvoke, ActionOperationInvoke, ActionApprovalGrant,
-		ActionSecretRead, ActionSecretUse, ActionSecretAdmin,
-	}
-}
+var Actions = base.Actions
 
 // SubjectKind classifies a policy subject.
-type SubjectKind string
+type SubjectKind = base.SubjectKind
 
 const (
-	SubjectUser    SubjectKind = "user"
-	SubjectGroup   SubjectKind = "group"
-	SubjectService SubjectKind = "service"
-	SubjectSystem  SubjectKind = "system"
-	SubjectAgent   SubjectKind = "agent"
+	SubjectUser    = base.SubjectUser
+	SubjectGroup   = base.SubjectGroup
+	SubjectService = base.SubjectService
+	SubjectSystem  = base.SubjectSystem
+	SubjectAgent   = base.SubjectAgent
 )
 
 // SubjectKinds returns the stable authorization subject vocabulary.
-func SubjectKinds() []SubjectKind {
-	return []SubjectKind{SubjectUser, SubjectGroup, SubjectService, SubjectSystem, SubjectAgent}
-}
+var SubjectKinds = base.SubjectKinds
 
 // SubjectRef identifies one policy subject.
-type SubjectRef struct {
-	Kind SubjectKind `json:"kind" yaml:"kind"`
-	ID   string      `json:"id" yaml:"id"`
-}
+type SubjectRef = base.SubjectRef
 
 // ResourceKind classifies a protected resource.
-type ResourceKind string
+type ResourceKind = base.ResourceKind
 
 const (
-	ResourceDatasource ResourceKind = "datasource"
-	ResourceWorkspace  ResourceKind = "workspace"
-	ResourcePath       ResourceKind = "path"
-	ResourceProcess    ResourceKind = "process"
-	ResourceNetwork    ResourceKind = "network"
-	ResourceChannel    ResourceKind = "channel"
-	ResourceTask       ResourceKind = "task"
-	ResourceSession    ResourceKind = "session"
-	ResourceAdmin      ResourceKind = "admin"
-	ResourceModel      ResourceKind = "model"
-	ResourceOperation  ResourceKind = "operation"
-	ResourceSecret     ResourceKind = "secret"
+	ResourceDatasource = base.ResourceDatasource
+	ResourceWorkspace  = base.ResourceWorkspace
+	ResourcePath       = base.ResourcePath
+	ResourceProcess    = base.ResourceProcess
+	ResourceNetwork    = base.ResourceNetwork
+	ResourceChannel    = base.ResourceChannel
+	ResourceTask       = base.ResourceTask
+	ResourceSession    = base.ResourceSession
+	ResourceAdmin      = base.ResourceAdmin
+	ResourceModel      = base.ResourceModel
+	ResourceOperation  = base.ResourceOperation
+	ResourceSecret     = base.ResourceSecret
 )
 
 // ResourceKinds returns the stable authorization resource vocabulary.
-func ResourceKinds() []ResourceKind {
-	return []ResourceKind{
-		ResourceDatasource, ResourceWorkspace, ResourcePath, ResourceProcess,
-		ResourceNetwork, ResourceChannel, ResourceTask, ResourceSession,
-		ResourceAdmin, ResourceModel, ResourceOperation, ResourceSecret,
-	}
-}
+var ResourceKinds = base.ResourceKinds
 
 // ResourceRef identifies one protected resource target.
-type ResourceRef struct {
-	Kind ResourceKind `json:"kind" yaml:"kind"`
-	ID   string       `json:"id,omitempty" yaml:"id,omitempty"`
-	Name string       `json:"name,omitempty" yaml:"name,omitempty"`
-	Path string       `json:"path,omitempty" yaml:"path,omitempty"`
-}
+type ResourceRef = base.ResourceRef
 
 // Grant gives subjects actions over resources, optionally constrained by trust
 // and invocation scopes.
-type Grant struct {
-	Subjects         []SubjectRef  `json:"subjects,omitempty" yaml:"subjects,omitempty"`
-	Resources        []ResourceRef `json:"resources,omitempty" yaml:"resources,omitempty"`
-	Actions          []Action      `json:"actions,omitempty" yaml:"actions,omitempty"`
-	RequiredTrust    TrustLevel    `json:"required_trust,omitempty" yaml:"required_trust,omitempty"`
-	RequiredScopes   []Scope       `json:"required_scopes,omitempty" yaml:"required_scopes,omitempty"`
-	RequiresApproval bool          `json:"requires_approval,omitempty" yaml:"requires_approval,omitempty"`
-}
+type Grant = base.Grant
 
 // AuthorizationPolicy is an explicit grant list. Empty policy means no
 // authorization policy is configured. Configured policies are default-deny.
-type AuthorizationPolicy struct {
-	Grants []Grant `json:"grants,omitempty" yaml:"grants,omitempty"`
-}
-
-// IsZero reports whether no authorization policy was configured.
-func (p AuthorizationPolicy) IsZero() bool {
-	return len(p.Grants) == 0
-}
+type AuthorizationPolicy = base.AuthorizationPolicy
 
 // AuthorizationRequest asks whether subjects may perform action on resource.
-type AuthorizationRequest struct {
-	Subjects []SubjectRef `json:"subjects,omitempty"`
-	Trust    Trust        `json:"trust,omitempty"`
-	Resource ResourceRef  `json:"resource"`
-	Action   Action       `json:"action"`
-}
+type AuthorizationRequest = base.AuthorizationRequest
 
 // AuthorizationContext is the turn-local policy evaluation context.
-type AuthorizationContext struct {
-	Policy      AuthorizationPolicy `json:"policy,omitempty"`
-	Subjects    []SubjectRef        `json:"subjects,omitempty"`
-	Trust       Trust               `json:"trust,omitempty"`
-	TraceAllows bool                `json:"trace_allows,omitempty"`
-}
-
-type authorizationContextKey struct{}
+type AuthorizationContext = policyauth.AuthorizationContext
 
 // ContextWithAuthorization stores authorization context on ctx.
-func ContextWithAuthorization(ctx context.Context, auth AuthorizationContext) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, authorizationContextKey{}, auth)
-}
+var ContextWithAuthorization = policyauth.ContextWithAuthorization
 
 // AuthorizationFromContext returns authorization context from ctx.
-func AuthorizationFromContext(ctx context.Context) (AuthorizationContext, bool) {
-	if ctx == nil {
-		return AuthorizationContext{}, false
-	}
-	auth, ok := ctx.Value(authorizationContextKey{}).(AuthorizationContext)
-	return auth, ok
-}
+var AuthorizationFromContext = policyauth.AuthorizationFromContext
 
 // EvaluateAuthorization evaluates req against policy. Empty policy denies; use
 // AuthorizationPolicy.IsZero before calling when no policy should be enforced.
-func EvaluateAuthorization(policy AuthorizationPolicy, req AuthorizationRequest) Evaluation {
-	if len(policy.Grants) == 0 {
-		return Evaluation{Decision: DecisionDeny, Reason: "no_grants"}
-	}
-	for _, grant := range policy.Grants {
-		if !grantMatchesSubjects(grant.Subjects, req.Subjects) {
-			continue
-		}
-		if !grantMatchesAction(grant.Actions, req.Action) {
-			continue
-		}
-		if !grantMatchesResource(grant.Resources, req.Resource) {
-			continue
-		}
-		if !TrustSatisfies(req.Trust.Level, grant.RequiredTrust) {
-			continue
-		}
-		if missing := missingScopes(grant.RequiredScopes, req.Trust.Scopes); len(missing) > 0 {
-			return Evaluation{Decision: DecisionDeny, Reason: "missing_scopes", MissingScopes: missing}
-		}
-		if grant.RequiresApproval {
-			return Evaluation{Decision: DecisionApprovalRequired, Reason: "approval_required"}
-		}
-		return Evaluation{Decision: DecisionAllow}
-	}
-	return Evaluation{Decision: DecisionDeny, Reason: "no_matching_grant"}
-}
-
-func grantMatchesSubjects(grantSubjects, actual []SubjectRef) bool {
-	if len(grantSubjects) == 0 || len(actual) == 0 {
-		return false
-	}
-	for _, grant := range grantSubjects {
-		for _, subject := range actual {
-			if grant.Kind == subject.Kind && wildcardMatch(grant.ID, subject.ID) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func grantMatchesAction(grantActions []Action, actual Action) bool {
-	if len(grantActions) == 0 || actual == "" {
-		return false
-	}
-	for _, grant := range grantActions {
-		if actionMatches(string(grant), string(actual)) {
-			return true
-		}
-	}
-	return false
-}
-
-func grantMatchesResource(grantResources []ResourceRef, actual ResourceRef) bool {
-	if len(grantResources) == 0 || actual.Kind == "" {
-		return false
-	}
-	for _, grant := range grantResources {
-		if grant.Kind != actual.Kind {
-			continue
-		}
-		if resourceFieldMatches(grant.ID, actual.ID) &&
-			resourceFieldMatches(grant.Name, actual.Name) &&
-			pathFieldMatches(grant.Path, actual.Path) {
-			return true
-		}
-	}
-	return false
-}
-
-func actionMatches(pattern, actual string) bool {
-	pattern = strings.TrimSpace(pattern)
-	actual = strings.TrimSpace(actual)
-	if pattern == "*" || pattern == actual {
-		return true
-	}
-	if strings.HasSuffix(pattern, ".*") {
-		return strings.HasPrefix(actual, strings.TrimSuffix(pattern, "*"))
-	}
-	return false
-}
-
-func resourceFieldMatches(pattern, actual string) bool {
-	pattern = strings.TrimSpace(pattern)
-	actual = strings.TrimSpace(actual)
-	if pattern == "" {
-		return true
-	}
-	return wildcardMatch(pattern, actual)
-}
-
-func pathFieldMatches(pattern, actualPath string) bool {
-	pattern = strings.TrimSpace(pattern)
-	actualPath = strings.TrimSpace(actualPath)
-	if pattern == "" {
-		return true
-	}
-	if pattern == "**" {
-		return true
-	}
-	if strings.HasSuffix(pattern, "/**") {
-		prefix := strings.TrimSuffix(pattern, "/**")
-		return actualPath == prefix || strings.HasPrefix(actualPath, prefix+"/")
-	}
-	ok, err := path.Match(pattern, actualPath)
-	if err == nil && ok {
-		return true
-	}
-	return pattern == actualPath
-}
-
-func wildcardMatch(pattern, actual string) bool {
-	pattern = strings.TrimSpace(pattern)
-	actual = strings.TrimSpace(actual)
-	return pattern == "*" || pattern == actual
-}
+var EvaluateAuthorization = base.EvaluateAuthorization
