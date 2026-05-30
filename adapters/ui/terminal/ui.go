@@ -25,9 +25,9 @@ import (
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
-	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	runtimehuman "github.com/fluxplane/fluxplane-core/runtime/human"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	coreevent "github.com/fluxplane/fluxplane-event"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -1848,10 +1848,10 @@ type Prompter struct {
 	Out io.Writer
 }
 
-// Clarify implements system.Clarifier.
-func (p Prompter) Clarify(ctx context.Context, req system.ClarifyRequest) (system.ClarifyResult, error) {
+// Clarify implements human.Clarifier.
+func (p Prompter) Clarify(ctx context.Context, req runtimehuman.ClarifyRequest) (runtimehuman.ClarifyResult, error) {
 	if p.In == nil {
-		return system.ClarifyResult{}, fmt.Errorf("terminalui: input is nil")
+		return runtimehuman.ClarifyResult{}, fmt.Errorf("terminalui: input is nil")
 	}
 	out := p.Out
 	if out == nil {
@@ -1864,13 +1864,13 @@ func (p Prompter) Clarify(ctx context.Context, req system.ClarifyRequest) (syste
 		_, _ = fmt.Fprint(out, "> ")
 		text, err := readLine(ctx, reader)
 		if err != nil {
-			return system.ClarifyResult{}, err
+			return runtimehuman.ClarifyResult{}, err
 		}
 		var decoded any
 		if err := json.Unmarshal([]byte(text), &decoded); err == nil {
-			return system.ClarifyResult{Answer: decoded}, nil
+			return runtimehuman.ClarifyResult{Answer: decoded}, nil
 		}
-		return system.ClarifyResult{Answer: text}, nil
+		return runtimehuman.ClarifyResult{Answer: text}, nil
 	}
 	answer := map[string]any{}
 	for _, field := range fields {
@@ -1884,7 +1884,7 @@ func (p Prompter) Clarify(ctx context.Context, req system.ClarifyRequest) (syste
 		_, _ = fmt.Fprintf(out, "%s: ", prompt)
 		text, err := readLine(ctx, reader)
 		if err != nil {
-			return system.ClarifyResult{}, err
+			return runtimehuman.ClarifyResult{}, err
 		}
 		if strings.TrimSpace(text) == "" {
 			if value, ok := req.Defaults[field.Name]; ok {
@@ -1894,7 +1894,7 @@ func (p Prompter) Clarify(ctx context.Context, req system.ClarifyRequest) (syste
 		}
 		answer[field.Name] = text
 	}
-	return system.ClarifyResult{Answer: answer}, nil
+	return runtimehuman.ClarifyResult{Answer: answer}, nil
 }
 
 // Approver collects y/N approval decisions from a terminal.

@@ -113,7 +113,7 @@ func operationForTest(t *testing.T, name string, process system.ProcessManager) 
 
 func operationForTestWithSpeech(t *testing.T, name string, process system.ProcessManager, speak func(string) error) operation.Operation {
 	t.Helper()
-	plugin := NewWithSystem(notifyTestSystem{MemorySystem: systemtest.NewMemory(), process: process})
+	plugin := NewWithSystem(notifyTestSystem{MemorySystem: systemtest.NewMemory(), process: process}, nil)
 	plugin.speak = speak
 	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
 	if err != nil {

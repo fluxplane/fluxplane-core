@@ -2,7 +2,6 @@ package language
 
 import (
 	"context"
-	browser "github.com/fluxplane/fluxplane-browser"
 	"testing"
 	"time"
 
@@ -57,8 +56,6 @@ type fakeSystem struct {
 func (s fakeSystem) Workspace() system.Workspace     { return nil }
 func (s fakeSystem) Network() system.Network         { return nil }
 func (s fakeSystem) Process() system.ProcessManager  { return s.process }
-func (s fakeSystem) Browser() browser.Manager        { return nil }
-func (s fakeSystem) Clarifier() system.Clarifier     { return nil }
 func (s fakeSystem) Environment() system.Environment { return nil }
 
 type fakeProcess struct {

@@ -3,7 +3,6 @@ package gitlab
 import (
 	"context"
 	"encoding/base64"
-	browser "github.com/fluxplane/fluxplane-browser"
 	"regexp"
 	"strconv"
 	"strings"
@@ -3735,10 +3734,6 @@ func (s fakeSystem) Workspace() system.Workspace { return nil }
 func (s fakeSystem) Network() system.Network { return s.network }
 
 func (s fakeSystem) Process() system.ProcessManager { return nil }
-
-func (s fakeSystem) Browser() browser.Manager { return nil }
-
-func (s fakeSystem) Clarifier() system.Clarifier { return nil }
 
 func (s fakeSystem) Environment() system.Environment { return s.env }
 

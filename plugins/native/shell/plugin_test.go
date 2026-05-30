@@ -9,6 +9,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-core/runtime/systemauth"
 	"github.com/fluxplane/fluxplane-event"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -152,7 +153,7 @@ func TestShellInfoWorksWithAuthorizedSystem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	sys := system.WithAuthorization(host, system.AuthorizationConfig{})
+	sys := systemauth.System(host, systemauth.Config{})
 	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)

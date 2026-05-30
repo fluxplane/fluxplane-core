@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	browserapi "github.com/fluxplane/fluxplane-browser"
+	"github.com/fluxplane/fluxplane-browser/cdp"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
@@ -14,7 +16,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 const (
@@ -43,7 +45,27 @@ const (
 
 // Plugin contributes browser automation operations.
 type Plugin struct {
-	system system.System
+	cfg   Config
+	state *state
+}
+
+type state struct {
+	mu      sync.Mutex
+	manager browserapi.Manager
+}
+
+// ManagerFactory creates a browser manager lazily for the plugin instance.
+type ManagerFactory func(context.Context) (browserapi.Manager, error)
+
+// Config configures browser automation for this plugin instance.
+type Config struct {
+	Manager        browserapi.Manager
+	Factory        ManagerFactory
+	AuthorizeURL   browserapi.URLAuthorizer
+	ArtifactWriter browserapi.ArtifactWriter
+	FileSystem     fpsystem.FileSystem
+	ArtifactDir    string
+	Headless       bool
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -52,7 +74,7 @@ var _ pluginhost.ObserverContributor = Plugin{}
 var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
 // New returns a browser plugin.
-func New(sys system.System) Plugin { return Plugin{system: sys} }
+func New(cfg Config) Plugin { return Plugin{cfg: cfg, state: &state{manager: cfg.Manager}} }
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -86,7 +108,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 
 // EnvironmentObservers returns browser availability observers.
 func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
-	return []runtimeevidence.Observer{browserRuntimeObserver(p)}, nil
+	return []runtimeevidence.Observer{browserRuntimeObserver{configured: p.configured()}}, nil
 }
 
 // AssertionDerivers returns browser availability derivers.
@@ -96,9 +118,6 @@ func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimee
 
 // Operations returns executable browser operations.
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
-	if p.system == nil {
-		return nil, fmt.Errorf("browserplugin: system is nil")
-	}
 	return []operation.Operation{
 		operationruntime.NewTypedResult[openInput, map[string]any](specByName(OpenOp), p.open()),
 		operationruntime.NewTypedResult[sessionInput, map[string]any](specByName(NavigateOp), p.navigate()),
@@ -174,7 +193,7 @@ type BrowserRuntimeEvidence struct {
 }
 
 type browserRuntimeObserver struct {
-	system system.System
+	configured bool
 }
 
 func (o browserRuntimeObserver) Spec() coreevidence.ObserverSpec {
@@ -189,9 +208,9 @@ func (o browserRuntimeObserver) Spec() coreevidence.ObserverSpec {
 }
 
 func (o browserRuntimeObserver) Observe(_ context.Context, _ runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
-	evidence := BrowserRuntimeEvidence{Available: o.system != nil && o.system.Browser() != nil}
+	evidence := BrowserRuntimeEvidence{Available: o.configured}
 	if !evidence.Available {
-		evidence.Reason = "browser manager is not configured"
+		evidence.Reason = "browser plugin is not configured"
 	}
 	return []coreevidence.Observation{{
 		ID:          "browser:runtime",
@@ -325,17 +344,55 @@ type scrollInput struct {
 	TimeoutMS int    `json:"timeout_ms,omitempty" jsonschema:"description=Timeout in milliseconds."`
 }
 
-func (p Plugin) browser() (browserapi.Manager, operation.Result) {
-	browser := p.system.Browser()
-	if browser == nil {
-		return nil, operation.Failed("browser_not_configured", "browser manager is not configured", nil)
+func (p *Plugin) configured() bool {
+	return p != nil && (p.state != nil && p.state.manager != nil || p.cfg.Manager != nil || p.cfg.Factory != nil || p.cfg.ArtifactWriter != nil || p.cfg.FileSystem != nil)
+}
+
+func (p *Plugin) browser(ctx context.Context) (browserapi.Manager, operation.Result) {
+	if p == nil || p.state == nil {
+		return nil, operation.Failed("browser_not_configured", "browser plugin is not configured", nil)
 	}
-	return browser, operation.Result{}
+	p.state.mu.Lock()
+	defer p.state.mu.Unlock()
+	if p.state.manager != nil {
+		return p.state.manager, operation.Result{}
+	}
+	factory := p.cfg.Factory
+	if factory == nil {
+		artifactWriter := p.artifactWriter()
+		if artifactWriter == nil {
+			return nil, operation.Failed("browser_not_configured", "browser plugin is not configured", nil)
+		}
+		cfg := p.cfg
+		factory = func(context.Context) (browserapi.Manager, error) {
+			return cdp.New(cdp.Config{
+				AuthorizeURL:   cfg.AuthorizeURL,
+				ArtifactWriter: artifactWriter,
+				Headless:       cfg.Headless,
+			})
+		}
+	}
+	manager, err := factory(ctx)
+	if err != nil {
+		return nil, operation.Failed("browser_not_configured", err.Error(), nil)
+	}
+	p.state.manager = manager
+	return p.state.manager, operation.Result{}
+}
+
+func (p *Plugin) artifactWriter() browserapi.ArtifactWriter {
+	if p.cfg.ArtifactWriter != nil {
+		return p.cfg.ArtifactWriter
+	}
+	if p.cfg.FileSystem == nil {
+		return nil
+	}
+	return fileSystemArtifactWriter{fileSystem: p.cfg.FileSystem, artifactDir: p.cfg.ArtifactDir}
 }
 
 func (p Plugin) open() operationruntime.TypedResultHandler[openInput, map[string]any] {
 	return func(ctx operation.Context, req openInput) operation.Result {
-		browser, failed := p.browser()
+		browser, failed := p.browser(ctx)
 		if browser == nil {
 			return failed
 		}
@@ -350,7 +407,7 @@ func (p Plugin) open() operationruntime.TypedResultHandler[openInput, map[string
 
 func (p Plugin) navigate() operationruntime.TypedResultHandler[sessionInput, map[string]any] {
 	return func(ctx operation.Context, req sessionInput) operation.Result {
-		browser, failed := p.browser()
+		browser, failed := p.browser(ctx)
 		if browser == nil {
 			return failed
 		}
@@ -386,7 +443,7 @@ func (p Plugin) selectorAction(ctx operation.Context, name string, req selectorI
 	if strings.TrimSpace(req.Selector) == "" || strings.TrimSpace(req.SessionID) == "" {
 		return operation.Failed("invalid_browser_input", "session_id and selector are required", nil)
 	}
-	browser, failed := p.browser()
+	browser, failed := p.browser(ctx)
 	if browser == nil {
 		return failed
 	}
@@ -400,7 +457,7 @@ func (p Plugin) selectorAction(ctx operation.Context, name string, req selectorI
 
 func (p Plugin) typ() operationruntime.TypedResultHandler[typeInput, map[string]any] {
 	return func(ctx operation.Context, req typeInput) operation.Result {
-		browser, failed := p.browser()
+		browser, failed := p.browser(ctx)
 		if browser == nil {
 			return failed
 		}
@@ -414,7 +471,7 @@ func (p Plugin) typ() operationruntime.TypedResultHandler[typeInput, map[string]
 
 func (p Plugin) selectOption() operationruntime.TypedResultHandler[selectInput, map[string]any] {
 	return func(ctx operation.Context, req selectInput) operation.Result {
-		browser, failed := p.browser()
+		browser, failed := p.browser(ctx)
 		if browser == nil {
 			return failed
 		}
@@ -428,7 +485,7 @@ func (p Plugin) selectOption() operationruntime.TypedResultHandler[selectInput, 
 
 func (p Plugin) read() operationruntime.TypedResultHandler[readInput, map[string]any] {
 	return func(ctx operation.Context, req readInput) operation.Result {
-		browser, failed := p.browser()
+		browser, failed := p.browser(ctx)
 		if browser == nil {
 			return failed
 		}
@@ -459,7 +516,7 @@ func (p Plugin) pdf() operationruntime.TypedResultHandler[sessionInput, map[stri
 }
 
 func (p Plugin) artifact(ctx operation.Context, name string, req sessionInput, fn func(browserapi.Manager, context.Context, browserapi.SessionRequest) (browserapi.Artifact, error)) operation.Result {
-	browser, failed := p.browser()
+	browser, failed := p.browser(ctx)
 	if browser == nil {
 		return failed
 	}
@@ -474,7 +531,7 @@ func (p Plugin) artifact(ctx operation.Context, name string, req sessionInput, f
 
 func (p Plugin) evaluate() operationruntime.TypedResultHandler[evaluateInput, map[string]any] {
 	return func(ctx operation.Context, req evaluateInput) operation.Result {
-		browser, failed := p.browser()
+		browser, failed := p.browser(ctx)
 		if browser == nil {
 			return failed
 		}
@@ -488,7 +545,7 @@ func (p Plugin) evaluate() operationruntime.TypedResultHandler[evaluateInput, ma
 
 func (p Plugin) wait() operationruntime.TypedResultHandler[waitInput, map[string]any] {
 	return func(ctx operation.Context, req waitInput) operation.Result {
-		browser, failed := p.browser()
+		browser, failed := p.browser(ctx)
 		if browser == nil {
 			return failed
 		}
@@ -502,7 +559,7 @@ func (p Plugin) wait() operationruntime.TypedResultHandler[waitInput, map[string
 
 func (p Plugin) scroll() operationruntime.TypedResultHandler[scrollInput, map[string]any] {
 	return func(ctx operation.Context, req scrollInput) operation.Result {
-		browser, failed := p.browser()
+		browser, failed := p.browser(ctx)
 		if browser == nil {
 			return failed
 		}
@@ -531,7 +588,7 @@ func (p Plugin) forward() operationruntime.TypedResultHandler[sessionInput, map[
 }
 
 func (p Plugin) sessionAction(ctx operation.Context, name string, req sessionInput, fn func(browserapi.Manager, context.Context, browserapi.SessionRequest) (browserapi.PageResult, error)) operation.Result {
-	browser, failed := p.browser()
+	browser, failed := p.browser(ctx)
 	if browser == nil {
 		return failed
 	}
@@ -544,7 +601,7 @@ func (p Plugin) sessionAction(ctx operation.Context, name string, req sessionInp
 
 func (p Plugin) close() operationruntime.TypedResultHandler[sessionInput, map[string]any] {
 	return func(ctx operation.Context, req sessionInput) operation.Result {
-		browser, failed := p.browser()
+		browser, failed := p.browser(ctx)
 		if browser == nil {
 			return failed
 		}

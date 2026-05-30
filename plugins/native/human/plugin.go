@@ -10,6 +10,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	runtimehuman "github.com/fluxplane/fluxplane-core/runtime/human"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-event"
@@ -49,7 +50,7 @@ func (NotificationSent) EventName() event.Name { return EventNotificationSent }
 // Plugin contributes human-in-the-loop operations.
 type Plugin struct {
 	system    system.System
-	clarifier system.Clarifier
+	clarifier runtimehuman.Clarifier
 	speak     func(string) error
 }
 
@@ -57,15 +58,11 @@ var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
 // New returns the human plugin.
-func New(clarifier system.Clarifier) Plugin { return Plugin{clarifier: clarifier} }
+func New(clarifier runtimehuman.Clarifier) Plugin { return Plugin{clarifier: clarifier} }
 
 // NewWithSystem returns the human plugin using the runtime system boundary for
-// OS notifications, audio, and clarification.
-func NewWithSystem(sys system.System) Plugin {
-	var clarifier system.Clarifier
-	if sys != nil {
-		clarifier = sys.Clarifier()
-	}
+// OS notifications and audio.
+func NewWithSystem(sys system.System, clarifier runtimehuman.Clarifier) Plugin {
 	return Plugin{system: sys, clarifier: clarifier}
 }
 
@@ -515,7 +512,7 @@ func (p Plugin) clarify(ctx operation.Context, req clarifyInput) operation.Resul
 	if p.clarifier == nil {
 		return operation.Failed("clarify_not_connected", "clarify requires a channel adapter capable of collecting user input", map[string]any{"prompt": req.Prompt})
 	}
-	result, err := p.clarifier.Clarify(ctx, system.ClarifyRequest{Prompt: req.Prompt, Schema: req.Schema, Defaults: req.Defaults})
+	result, err := p.clarifier.Clarify(ctx, runtimehuman.ClarifyRequest{Prompt: req.Prompt, Schema: req.Schema, Defaults: req.Defaults})
 	if err != nil {
 		return operation.Failed("clarify_failed", err.Error(), map[string]any{"prompt": req.Prompt})
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/native/shell"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 const Name = "coding"
@@ -32,6 +33,11 @@ const AgentsContextProvider = "agents.md"
 type Plugin struct {
 	system  system.System
 	plugins []pluginhost.Plugin
+}
+
+type Options struct {
+	Browser *browser.Plugin
+	Human   *human.Plugin
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -44,17 +50,29 @@ var _ pluginhost.ReactionContributor = Plugin{}
 
 // New returns a standard coding plugin bundle.
 func New(sys system.System) Plugin {
+	return NewWithOptions(sys, Options{})
+}
+
+func NewWithOptions(sys system.System, opts Options) Plugin {
+	browserPlugin := browser.New(browser.Config{})
+	if opts.Browser != nil {
+		browserPlugin = *opts.Browser
+	}
+	humanPlugin := human.NewWithSystem(sys, nil)
+	if opts.Human != nil {
+		humanPlugin = *opts.Human
+	}
 	return Plugin{system: sys, plugins: []pluginhost.Plugin{
 		project.New(sys),
 		filesystem.New(sys),
 		golang.New(sys),
 		markdown.New(sys),
 		web.New(sys),
-		browser.New(sys),
+		browserPlugin,
 		git.New(sys),
 		shell.New(sys),
 		code.New(sys),
-		human.NewWithSystem(sys),
+		humanPlugin,
 	}}
 }
 
@@ -207,7 +225,15 @@ func (p agentsContextProvider) Build(ctx context.Context, _ corecontext.Request)
 	if p.workspace == nil {
 		return nil, nil
 	}
-	data, truncated, resolved, err := p.workspace.ReadFile(ctx, "AGENTS.md", 64*1024)
+	resolved, err := p.workspace.ResolveExisting(ctx, "AGENTS.md")
+	if err != nil {
+		return nil, nil
+	}
+	fsys, err := system.WorkspaceFileSystem(p.workspace)
+	if err != nil {
+		return nil, nil
+	}
+	data, truncated, err := fpsystem.ReadFileLimit(ctx, fsys, system.WorkspacePathName(resolved), 64*1024)
 	if err != nil {
 		return nil, nil
 	}
