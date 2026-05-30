@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"testing"
@@ -27,7 +28,7 @@ func TestAuthMethodsDeclareTokenAPITokenAndOAuth(t *testing.T) {
 	if methods[1].Name != APITokenMethod || methods[1].Method != coresecret.AuthMethodStored || methods[1].Kind != coresecret.KindBasic {
 		t.Fatalf("api token method = %#v", methods[1])
 	}
-	if len(methods[1].SetupFields) != 5 || methods[1].SetupFields[0].Name != apiEmailField || methods[1].SetupFields[1].Name != apiTokenField {
+	if len(methods[1].SetupFields) != 5 || coresecret.SetupFieldName(methods[1].SetupFields[0]) != apiEmailField || coresecret.SetupFieldName(methods[1].SetupFields[1]) != apiTokenField {
 		t.Fatalf("api token setup fields = %#v", methods[1].SetupFields)
 	}
 	if methods[1].SetupFields[2].RequiredGroup != "" {
@@ -50,7 +51,7 @@ func TestAuthMethodsDeclareTokenAPITokenAndOAuth(t *testing.T) {
 }
 
 func TestStoreOAuthTokenPersistsSiteMetadataAndRefreshSecret(t *testing.T) {
-	store := runtimesecret.NewFileStore(t.TempDir())
+	store := sharedsecret.NewFileStore(t.TempDir())
 	product := Product{Name: "jira", DisplayName: "Jira Cloud", ResourcePath: "jira"}
 	ref := resource.PluginRef{Name: "jira", Instance: "main"}
 	err := StoreOAuthToken(context.Background(), store, "jira", ref, product, OAuthToken{AccessToken: "access", RefreshToken: "refresh"}, Site{
@@ -98,7 +99,7 @@ func TestResolveTokenDiscoversSiteURLForCloudID(t *testing.T) {
 	}}
 	session, err := ResolveWithResolver(context.Background(), fakeSystem{
 		network: network,
-	}, runtimesecret.NewFileStore(t.TempDir()), runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{"JIRA_TOKEN": "token"}}}, "jira", ref, product, Config{
+	}, sharedsecret.NewFileStore(t.TempDir()), runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{"JIRA_TOKEN": "token"}}}, "jira", ref, product, Config{
 		CloudID: "cloud-1",
 		Auth:    AuthConfig{Method: TokenMethod},
 	})
@@ -116,7 +117,7 @@ func TestResolveTokenDiscoversSiteURLForCloudID(t *testing.T) {
 func TestResolveAPITokenUsesGenericAtlassianEnv(t *testing.T) {
 	product := Product{Name: "jira", DisplayName: "Jira Cloud", ResourcePath: "jira"}
 	ref := resource.PluginRef{Name: "jira", Instance: "main"}
-	session, err := ResolveWithResolver(context.Background(), fakeSystem{}, runtimesecret.NewFileStore(t.TempDir()), runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
+	session, err := ResolveWithResolver(context.Background(), fakeSystem{}, sharedsecret.NewFileStore(t.TempDir()), runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
 		"ATLASSIAN_API_TOKEN": "api-token",
 		"ATLASSIAN_EMAIL":     "user@example.invalid",
 		"ATLASSIAN_CLOUD_ID":  "cloud-1",
@@ -136,7 +137,7 @@ func TestResolveAPITokenUsesGenericAtlassianEnv(t *testing.T) {
 func TestResolveAPITokenRejectsCloudIDWithoutSiteURL(t *testing.T) {
 	product := Product{Name: "jira", DisplayName: "Jira Cloud", ResourcePath: "jira"}
 	ref := resource.PluginRef{Name: "jira", Instance: "main"}
-	_, err := ResolveWithResolver(context.Background(), fakeSystem{}, runtimesecret.NewFileStore(t.TempDir()), runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
+	_, err := ResolveWithResolver(context.Background(), fakeSystem{}, sharedsecret.NewFileStore(t.TempDir()), runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
 		"ATLASSIAN_API_TOKEN": "api-token",
 		"ATLASSIAN_EMAIL":     "user@example.invalid",
 		"ATLASSIAN_CLOUD_ID":  "atlassian-cloud",
@@ -153,7 +154,7 @@ func TestResolveWithResolverUsesCLIResolverForAPIToken(t *testing.T) {
 	ref := resource.PluginRef{Name: "jira", Instance: "main"}
 	session, err := ResolveWithResolver(context.Background(), fakeSystem{
 		env: fakeEnvironment{},
-	}, runtimesecret.NewFileStore(t.TempDir()), runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
+	}, sharedsecret.NewFileStore(t.TempDir()), runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
 		"ATLASSIAN_API_TOKEN": "api-token",
 		"ATLASSIAN_EMAIL":     "user@example.invalid",
 		"ATLASSIAN_CLOUD_ID":  "cloud-1",
@@ -173,7 +174,7 @@ func TestResolveWithResolverUsesCLIResolverForAPIToken(t *testing.T) {
 func TestResolveAPITokenPrefersProductEnv(t *testing.T) {
 	product := Product{Name: "jira", DisplayName: "Jira Cloud", ResourcePath: "jira"}
 	ref := resource.PluginRef{Name: "jira", Instance: "main"}
-	session, err := ResolveWithResolver(context.Background(), fakeSystem{}, runtimesecret.NewFileStore(t.TempDir()), runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
+	session, err := ResolveWithResolver(context.Background(), fakeSystem{}, sharedsecret.NewFileStore(t.TempDir()), runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
 		"JIRA_API_TOKEN":      "jira-token",
 		"JIRA_EMAIL":          "jira@example.com",
 		"ATLASSIAN_API_TOKEN": "atlassian-token",
@@ -194,11 +195,11 @@ func TestResolveAPITokenPrefersProductEnv(t *testing.T) {
 func TestResolveAPITokenUsesStoredFields(t *testing.T) {
 	product := Product{Name: "confluence", DisplayName: "Confluence Cloud", ResourcePath: "confluence", RESTPath: "/wiki/api/v2"}
 	ref := resource.PluginRef{Name: "confluence", Instance: "main"}
-	store := runtimesecret.NewFileStore(t.TempDir())
-	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{Ref: coresecret.Plugin("confluence", "main", apiEmailField), Value: "stored@example.com"}); err != nil {
+	store := sharedsecret.NewFileStore(t.TempDir())
+	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{Ref: coresecret.Plugin("confluence", "main", apiEmailField), Value: "stored@example.com"}); err != nil {
 		t.Fatalf("SaveSecret email: %v", err)
 	}
-	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{Ref: coresecret.Plugin("confluence", "main", apiTokenField), Value: "stored-token"}); err != nil {
+	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{Ref: coresecret.Plugin("confluence", "main", apiTokenField), Value: "stored-token"}); err != nil {
 		t.Fatalf("SaveSecret token: %v", err)
 	}
 	session, err := Resolve(context.Background(), fakeSystem{env: fakeEnvironment{}}, store, "confluence", ref, product, Config{
@@ -217,7 +218,7 @@ func TestResolveAPITokenUsesStoredFields(t *testing.T) {
 func TestResolveLegacyTokenKeepsBearerForSlackBotShape(t *testing.T) {
 	product := Product{Name: "jira", DisplayName: "Jira Cloud", ResourcePath: "jira"}
 	ref := resource.PluginRef{Name: "jira", Instance: "main"}
-	session, err := ResolveWithResolver(context.Background(), fakeSystem{}, runtimesecret.NewFileStore(t.TempDir()), runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{"JIRA_API_TOKEN": "service-token"}}}, "jira", ref, product, Config{
+	session, err := ResolveWithResolver(context.Background(), fakeSystem{}, sharedsecret.NewFileStore(t.TempDir()), runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{"JIRA_API_TOKEN": "service-token"}}}, "jira", ref, product, Config{
 		CloudID: "cloud-1",
 		Auth: AuthConfig{
 			Method:   TokenMethod,

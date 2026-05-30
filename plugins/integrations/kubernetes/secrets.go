@@ -20,7 +20,7 @@ func (r kubernetesSecretResolver) ResolveSecret(ctx context.Context, ref coresec
 	}
 	namespace := ref.Plugin
 	secretName := ref.Instance
-	key := ref.Name
+	key := string(ref.Slot)
 	if namespace == "" || secretName == "" || key == "" {
 		return coresecret.Material{}, false, fmt.Errorf("kubernetes secret ref must include namespace, secret name, and key")
 	}
@@ -42,7 +42,7 @@ func (r kubernetesSecretResolver) ResolveSecret(ctx context.Context, ref coresec
 	if len(value) == 0 {
 		return coresecret.Material{}, false, nil
 	}
-	return coresecret.Material{Kind: coresecret.KindBasic, Value: string(value)}, true, nil
+	return coresecret.Material{Kind: coresecret.KindBasic, Value: value}, true, nil
 }
 
 func (p Plugin) policyFromConfigOnly() namespacePolicy {

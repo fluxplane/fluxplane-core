@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"testing"
@@ -93,9 +94,9 @@ func TestPluginDeclaresOAuthAndTokenAuthMethods(t *testing.T) {
 }
 
 func TestIssueSearchAccessUsesStoredCloudID(t *testing.T) {
-	store := runtimesecret.NewFileStore(t.TempDir())
+	store := sharedsecret.NewFileStore(t.TempDir())
 	ref := resource.PluginRef{Name: Name, Instance: "main"}
-	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
+	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{
 		Ref:      atlassian.OAuthSecretRef(Name, ref),
 		Kind:     coresecret.KindOAuth2Token,
 		Value:    "access",
@@ -490,7 +491,7 @@ func (s fakeSystem) Clock() fpsystem.Clock {
 
 func newTestPlugin(t *testing.T, network fpsystem.Network, env map[string]string) Plugin {
 	t.Helper()
-	store := runtimesecret.NewFileStore(t.TempDir())
+	store := sharedsecret.NewFileStore(t.TempDir())
 	resolver := runtimesecret.ChainResolver{
 		store,
 		runtimesecret.EnvResolver{Environment: fakeEnvironment{values: env}},

@@ -52,10 +52,10 @@ func tokenScopeClient(ctx context.Context, network fpsystem.Network, resolver ru
 	}
 	switch auth.Material.Kind {
 	case coresecret.KindAPIKey:
-		return gitlab.NewClient(auth.Material.Value, options...)
+		return gitlab.NewClient(auth.Material.String(), options...)
 	case coresecret.KindBearerToken, coresecret.KindOAuth2Token:
 		return gitlab.NewAuthSourceClient(gitlab.OAuthTokenSource{
-			TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: auth.Material.Value}),
+			TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: auth.Material.String()}),
 		}, options...)
 	default:
 		return nil, fmt.Errorf("gitlabplugin: unsupported auth material kind %q", auth.Material.Kind)

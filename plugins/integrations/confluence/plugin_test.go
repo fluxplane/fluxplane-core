@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 	"testing"
@@ -306,7 +307,7 @@ func (s fakeSystem) Clock() fpsystem.Clock {
 
 func newTestPlugin(t *testing.T, network fpsystem.Network, env map[string]string) Plugin {
 	t.Helper()
-	store := runtimesecret.NewFileStore(t.TempDir())
+	store := sharedsecret.NewFileStore(t.TempDir())
 	resolver := runtimesecret.ChainResolver{
 		store,
 		runtimesecret.EnvResolver{Environment: fakeEnvironment{values: env}},

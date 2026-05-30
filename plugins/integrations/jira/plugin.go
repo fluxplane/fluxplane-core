@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"net/http"
 	"net/url"
@@ -42,7 +43,7 @@ type AuthConfig = atlassian.AuthConfig
 type Plugin struct {
 	pluginhost.Configurable[atlassian.Config]
 	network  fpsystem.Network
-	store    runtimesecret.FileStore
+	store    sharedsecret.FileStore
 	resolver runtimesecret.Resolver
 	ref      resource.PluginRef
 	cfg      atlassian.Config
@@ -55,15 +56,15 @@ var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
 var _ pluginhost.AuthTestContributor = Plugin{}
 
-func New(sys fpsystem.System, stores ...runtimesecret.FileStore) Plugin {
-	store := runtimesecret.NewFileStore(atlassian.DefaultAuthStorePath)
+func New(sys fpsystem.System, stores ...sharedsecret.FileStore) Plugin {
+	store := sharedsecret.NewFileStore(atlassian.DefaultAuthStorePath)
 	if len(stores) > 0 {
 		store = stores[0]
 	}
 	return NewWithResolver(sys, store, store)
 }
 
-func NewWithResolver(sys fpsystem.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver) Plugin {
+func NewWithResolver(sys fpsystem.System, store sharedsecret.FileStore, resolver runtimesecret.Resolver) Plugin {
 	if resolver == nil {
 		resolver = store
 	}

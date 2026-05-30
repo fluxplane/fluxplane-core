@@ -358,7 +358,7 @@ func TestLaunchOpensWebSearchDatasourceThroughCodingPlugin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	plugins := []pluginhost.Plugin{coding.New(sys, sys.Workspace())}
+	plugins := []pluginhost.Plugin{coding.New(coding.Config{Workspace: sys.Workspace(), Process: sys.Process(), Environment: sys.Environment(), Network: sys.Network()})}
 
 	registry, err := datasourceRegistry(ctx, bundles, plugins, root)
 	if err != nil {
@@ -393,12 +393,12 @@ func TestDatasourceIndexRuntimePassesProcessAuthEnvToPluginFactory(t *testing.T)
 		PluginFactory: func(factoryCtx PluginFactoryContext) []pluginhost.Plugin {
 			material, ok, err := factoryCtx.NativeAuthResolver.ResolveSecret(ctx, coresecret.Ref{
 				Scheme: coresecret.SchemeEnv,
-				Name:   "DATASOURCE_INDEX_TEST_SECRET",
+				Slot:   "DATASOURCE_INDEX_TEST_SECRET",
 			})
 			if err != nil {
 				t.Fatalf("ResolveSecret: %v", err)
 			}
-			resolved = ok && material.Value == "from-process"
+			resolved = ok && material.String() == "from-process"
 			return nil
 		},
 	})

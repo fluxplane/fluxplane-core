@@ -155,15 +155,13 @@ func TestValidateAuthMethodRejectsInvalidSpecs(t *testing.T) {
 		spec AuthMethodSpec
 		want string
 	}{
-		{name: "empty name", spec: AuthMethodSpec{}, want: "secret auth method name is empty"},
-		{name: "empty method", spec: AuthMethodSpec{Name: "token"}, want: `secret auth method "token" method is empty`},
-		{name: "empty kind", spec: AuthMethodSpec{Name: "token", Method: AuthMethodEnv}, want: `secret auth method "token" kind is empty`},
-		{name: "env empty", spec: AuthMethodSpec{Name: "token", Method: AuthMethodEnv, Kind: KindAPIKey}, want: `secret auth method "token" env config is empty`},
-		{name: "oauth authorize empty", spec: AuthMethodSpec{Name: "oauth", Method: AuthMethodOAuth2, Kind: KindOAuth2Token, OAuth2: OAuth2Spec{TokenURL: "https://example/token"}, Secret: Env("TOKEN")}, want: `secret auth method "oauth" oauth2 authorize_url is empty`},
-		{name: "oauth token empty", spec: AuthMethodSpec{Name: "oauth", Method: AuthMethodOAuth2, Kind: KindOAuth2Token, OAuth2: OAuth2Spec{AuthorizeURL: "https://example/auth"}, Secret: Env("TOKEN")}, want: `secret auth method "oauth" oauth2 token_url is empty`},
-		{name: "oauth secret empty", spec: AuthMethodSpec{Name: "oauth", Method: AuthMethodOAuth2, Kind: KindOAuth2Token, OAuth2: OAuth2Spec{AuthorizeURL: "https://example/auth", TokenURL: "https://example/token"}}, want: `secret auth method "oauth" secret ref is empty`},
-		{name: "stored secret empty", spec: AuthMethodSpec{Name: "stored", Method: AuthMethodStored, Kind: KindAPIKey}, want: `secret auth method "stored" secret ref is empty`},
-		{name: "unsupported", spec: AuthMethodSpec{Name: "webauthn", Method: "webauthn", Kind: KindAPIKey}, want: `secret auth method "webauthn" method "webauthn" is unsupported`},
+		{name: "empty name", spec: AuthMethodSpec{}, want: "auth method name is empty"},
+		{name: "empty method", spec: AuthMethodSpec{Name: "token"}, want: `auth method "token" method is empty`},
+		{name: "env empty", spec: AuthMethodSpec{Name: "token", Method: AuthMethodEnv, Kind: KindAPIKey}, want: `auth method "token" env config is empty`},
+		{name: "oauth authorize empty", spec: AuthMethodSpec{Name: "oauth", Method: AuthMethodOAuth2, Kind: KindOAuth2Token, OAuth2: OAuth2Spec{TokenURL: "https://example/token"}, Secret: Env("TOKEN")}, want: `auth method "oauth" oauth2 authorize_url is empty`},
+		{name: "oauth token empty", spec: AuthMethodSpec{Name: "oauth", Method: AuthMethodOAuth2, Kind: KindOAuth2Token, OAuth2: OAuth2Spec{AuthorizeURL: "https://example/auth"}, Secret: Env("TOKEN")}, want: `auth method "oauth" oauth2 token_url is empty`},
+		{name: "stored secret empty", spec: AuthMethodSpec{Name: "stored", Method: AuthMethodStored, Kind: KindAPIKey}, want: `auth method "stored" secret ref or setup_fields is required`},
+		{name: "unsupported", spec: AuthMethodSpec{Name: "webauthn", Method: "webauthn", Kind: KindAPIKey}, want: `auth method "webauthn" method "webauthn" is unsupported`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -2,6 +2,7 @@ package launch
 
 import (
 	"context"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"io"
 	"strings"
 	"testing"
@@ -16,18 +17,17 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	orchestrationsession "github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/plugins/integrations/slack"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 )
 
 func TestServeChannelsUsesNativeSlackInstance(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	store := runtimesecret.NewFileStore(dir)
+	store := sharedsecret.NewFileStore(dir)
 	ref := resource.PluginRef{Name: slack.Name, Instance: "workspace-prod"}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.BotTokenSecretRef(ref), Value: "slack-bot-token"}); err != nil {
+	if err := store.SaveSecret(ctx, sharedsecret.StoredSecret{Ref: slack.BotTokenSecretRef(ref), Value: "slack-bot-token"}); err != nil {
 		t.Fatalf("Save bot token: %v", err)
 	}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "slack-app-token"}); err != nil {
+	if err := store.SaveSecret(ctx, sharedsecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "slack-app-token"}); err != nil {
 		t.Fatalf("Save app token: %v", err)
 	}
 
@@ -48,12 +48,12 @@ func TestServeChannelsUsesNativeSlackInstance(t *testing.T) {
 func TestServeChannelsAllowsNativeSlackUserTokenInstance(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	store := runtimesecret.NewFileStore(dir)
+	store := sharedsecret.NewFileStore(dir)
 	ref := resource.PluginRef{Name: slack.Name, Instance: "workspace-prod"}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.UserTokenSecretRef(ref), Value: "slack-user-token"}); err != nil {
+	if err := store.SaveSecret(ctx, sharedsecret.StoredSecret{Ref: slack.UserTokenSecretRef(ref), Value: "slack-user-token"}); err != nil {
 		t.Fatalf("Save user token: %v", err)
 	}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "slack-app-token"}); err != nil {
+	if err := store.SaveSecret(ctx, sharedsecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "slack-app-token"}); err != nil {
 		t.Fatalf("Save app token: %v", err)
 	}
 
@@ -74,12 +74,12 @@ func TestServeChannelsAllowsNativeSlackUserTokenInstance(t *testing.T) {
 func TestServeChannelsHonorsSlackChannelTokenPreference(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	store := runtimesecret.NewFileStore(dir)
+	store := sharedsecret.NewFileStore(dir)
 	ref := resource.PluginRef{Name: slack.Name, Instance: "workspace-prod"}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.UserTokenSecretRef(ref), Value: "slack-user-token"}); err != nil {
+	if err := store.SaveSecret(ctx, sharedsecret.StoredSecret{Ref: slack.UserTokenSecretRef(ref), Value: "slack-user-token"}); err != nil {
 		t.Fatalf("Save user token: %v", err)
 	}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "slack-app-token"}); err != nil {
+	if err := store.SaveSecret(ctx, sharedsecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "slack-app-token"}); err != nil {
 		t.Fatalf("Save app token: %v", err)
 	}
 

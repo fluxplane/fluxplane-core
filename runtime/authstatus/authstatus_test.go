@@ -2,6 +2,7 @@ package authstatus
 
 import (
 	"context"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"testing"
 
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
@@ -12,9 +13,9 @@ import (
 )
 
 func TestEvaluateUsesRequiredGroupSetupField(t *testing.T) {
-	store := runtimesecret.NewFileStore(t.TempDir())
+	store := sharedsecret.NewFileStore(t.TempDir())
 	ref := resource.PluginRef{Name: "slack", Instance: "work"}
-	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
+	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{
 		Ref:   coresecret.Plugin("slack", "work", "user_token"),
 		Kind:  coresecret.KindBearerToken,
 		Value: "slack-user-token",
@@ -28,8 +29,8 @@ func TestEvaluateUsesRequiredGroupSetupField(t *testing.T) {
 			Method: coresecret.AuthMethodStored,
 			Kind:   coresecret.KindBearerToken,
 			SetupFields: []coresecret.SetupFieldSpec{
-				{Name: "bot_token", RequiredGroup: "api_token"},
-				{Name: "user_token", RequiredGroup: "api_token"},
+				{Slot: "bot_token", RequiredGroup: "api_token"},
+				{Slot: "user_token", RequiredGroup: "api_token"},
 			},
 		}},
 	})
@@ -39,9 +40,9 @@ func TestEvaluateUsesRequiredGroupSetupField(t *testing.T) {
 }
 
 func TestEvaluateReportsPartialRequiredGroupFields(t *testing.T) {
-	store := runtimesecret.NewFileStore(t.TempDir())
+	store := sharedsecret.NewFileStore(t.TempDir())
 	ref := resource.PluginRef{Name: "jira", Instance: "work"}
-	for _, secret := range []runtimesecret.StoredSecret{
+	for _, secret := range []sharedsecret.StoredSecret{
 		{Ref: coresecret.Plugin("jira", "work", "email"), Kind: coresecret.KindBasic, Value: "user@example.invalid"},
 		{Ref: coresecret.Plugin("jira", "work", "token"), Kind: coresecret.KindBasic, Value: "api-token"},
 	} {
@@ -56,11 +57,11 @@ func TestEvaluateReportsPartialRequiredGroupFields(t *testing.T) {
 			Method: coresecret.AuthMethodStored,
 			Kind:   coresecret.KindBasic,
 			SetupFields: []coresecret.SetupFieldSpec{
-				{Name: "email", Required: true},
-				{Name: "token", Required: true},
-				{Name: "cloud_id"},
-				{Name: "site_url", RequiredGroup: "site_locator"},
-				{Name: "base_url", RequiredGroup: "site_locator"},
+				{Slot: "email", Required: true},
+				{Slot: "token", Required: true},
+				{Slot: "cloud_id"},
+				{Slot: "site_url", RequiredGroup: "site_locator"},
+				{Slot: "base_url", RequiredGroup: "site_locator"},
 			},
 		}},
 	})

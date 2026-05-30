@@ -180,7 +180,7 @@ func TestKubernetesSecretResolverResolvesSecretKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSecret() error = %v", err)
 	}
-	if !ok || material.Value != "mysql://user:pass@mysql.latest.svc:3306/app" {
+	if !ok || material.String() != "mysql://user:pass@mysql.latest.svc:3306/app" {
 		t.Fatalf("ResolveSecret() = %#v, %v; want dsn", material, ok)
 	}
 }

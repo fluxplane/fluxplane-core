@@ -2,6 +2,7 @@ package slack
 
 import (
 	"context"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 
@@ -43,7 +44,7 @@ type Plugin struct {
 	pluginhost.Configurable[Config]
 	network       fpsystem.Network
 	environment   fpsystem.Environment
-	store         runtimesecret.FileStore
+	store         sharedsecret.FileStore
 	secrets       runtimesecret.Resolver
 	ref           resource.PluginRef
 	cfg           Config
@@ -57,19 +58,19 @@ var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
 var _ pluginhost.AuthTestContributor = Plugin{}
 
-func New(sys fpsystem.System, stores ...runtimesecret.FileStore) Plugin {
+func New(sys fpsystem.System, stores ...sharedsecret.FileStore) Plugin {
 	return NewWithDispatcher(sys, nil, stores...)
 }
 
-func NewWithDispatcher(sys fpsystem.System, dispatcher *Dispatcher, stores ...runtimesecret.FileStore) Plugin {
+func NewWithDispatcher(sys fpsystem.System, dispatcher *Dispatcher, stores ...sharedsecret.FileStore) Plugin {
 	return NewWithResolver(sys, dispatcher, nil, stores...)
 }
 
-func NewWithResolver(sys fpsystem.System, dispatcher *Dispatcher, resolver runtimesecret.Resolver, stores ...runtimesecret.FileStore) Plugin {
+func NewWithResolver(sys fpsystem.System, dispatcher *Dispatcher, resolver runtimesecret.Resolver, stores ...sharedsecret.FileStore) Plugin {
 	if dispatcher == nil {
 		dispatcher = NewDispatcher()
 	}
-	store := runtimesecret.NewFileStore(DefaultAuthStorePath)
+	store := sharedsecret.NewFileStore(DefaultAuthStorePath)
 	if len(stores) > 0 {
 		store = stores[0]
 	}

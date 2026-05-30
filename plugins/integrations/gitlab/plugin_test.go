@@ -326,14 +326,14 @@ func TestPluginDeclaresAuthMethods(t *testing.T) {
 	if len(method.SetupFields) != 2 {
 		t.Fatalf("setup fields = %#v, want token and url", method.SetupFields)
 	}
-	if method.SetupFields[0].Name != gitlabTokenField || !method.SetupFields[0].Required || !method.SetupFields[0].Sensitive || method.SetupFields[0].Env.Name != gitlabPersonalAccessTokenEnv {
+	if method.SetupFields[0].Slot != gitlabTokenField || !method.SetupFields[0].Required || !method.SetupFields[0].Sensitive || method.SetupFields[0].Env.Name != gitlabPersonalAccessTokenEnv {
 		t.Fatalf("token field = %#v", method.SetupFields[0])
 	}
-	if method.SetupFields[1].Name != gitlabURLField || !method.SetupFields[1].Required || method.SetupFields[1].Sensitive || method.SetupFields[1].Env.Name != gitlabURLEnv {
+	if method.SetupFields[1].Slot != gitlabURLField || !method.SetupFields[1].Required || method.SetupFields[1].Sensitive || method.SetupFields[1].Env.Name != gitlabURLEnv {
 		t.Fatalf("url field = %#v", method.SetupFields[1])
 	}
 	oauth := methods[1]
-	if oauth.Name != oauth2Method || oauth.Method != "oauth2" || oauth.Kind != "oauth2_token" {
+	if oauth.Name != oauth2Method || oauth.Method != coresecret.AuthMethodOAuth2 || oauth.Kind != coresecret.KindOAuth2Token {
 		t.Fatalf("oauth method = %#v", oauth)
 	}
 	if oauth.Secret.ResourceName() != "plugin/gitlab/company-a/oauth2_token" {

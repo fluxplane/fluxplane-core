@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/examples/echo"
-	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 )
 
 func TestOperationRunCommandRunsConfiguredOperation(t *testing.T) {
@@ -78,8 +78,8 @@ func TestOperationRunCommandPassesAuthPathToPluginFactory(t *testing.T) {
 	writeOperationRunManifest(t, dir)
 	authPath := t.TempDir()
 	ref := coresecret.Plugin("test", "main", "token")
-	store := runtimesecret.NewFileStore(authPath)
-	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{Ref: ref, Kind: coresecret.KindAPIKey, Value: "stored-token"}); err != nil {
+	store := sharedsecret.NewFileStore(authPath)
+	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{Ref: ref, Kind: coresecret.KindAPIKey, Value: "stored-token"}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
 	}
 	var resolved bool
@@ -89,7 +89,7 @@ func TestOperationRunCommandPassesAuthPathToPluginFactory(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ResolveSecret: %v", err)
 		}
-		resolved = ok && material.Value == "stored-token"
+		resolved = ok && material.String() == "stored-token"
 		return append(availablePluginsWithAuth(ctx.System, nil, ctx.Dispatcher, ctx.TaskRunner, ctx.NativeAuthStore, ctx.NativeAuthResolver), echo.New())
 	})
 	out := bytes.Buffer{}
@@ -124,7 +124,7 @@ func TestOperationRunCommandProcessAuthEnvRequiresOptIn(t *testing.T) {
 				if err != nil {
 					t.Fatalf("ResolveSecret: %v", err)
 				}
-				found = ok && material.Value == "from-process"
+				found = ok && material.String() == "from-process"
 				return append(availablePluginsWithAuth(ctx.System, nil, ctx.Dispatcher, ctx.TaskRunner, ctx.NativeAuthStore, ctx.NativeAuthResolver), echo.New())
 			})
 			out := bytes.Buffer{}

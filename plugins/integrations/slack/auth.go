@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 	"fmt"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 )
 
 const (
-	DefaultAuthStorePath = runtimesecret.DefaultFileStorePath
+	DefaultAuthStorePath = sharedsecret.DefaultFileStorePath
 
 	TokenMethod  = "token"
 	EnvMethod    = "env"
@@ -102,7 +103,7 @@ func AuthMethods(ref resource.PluginRef, cfg Config) []coresecret.AuthMethodSpec
 	return out
 }
 
-func Resolve(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, ref resource.PluginRef, cfg Config) (Session, error) {
+func Resolve(ctx context.Context, sys fpsystem.System, store sharedsecret.FileStore, ref resource.PluginRef, cfg Config) (Session, error) {
 	return resolve(ctx, sys, store, ref, cfg)
 }
 
@@ -112,7 +113,7 @@ func ResolveWithResolver(ctx context.Context, sys fpsystem.System, resolver runt
 
 func ResolveWithEnvironment(ctx context.Context, environment fpsystem.Environment, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
 	if resolver == nil {
-		return resolveWithEnvironment(ctx, environment, runtimesecret.NewFileStore(DefaultAuthStorePath), ref, cfg)
+		return resolveWithEnvironment(ctx, environment, sharedsecret.NewFileStore(DefaultAuthStorePath), ref, cfg)
 	}
 	cfg = NormalizeConfig(cfg)
 	method := cfg.Auth.Method
@@ -128,11 +129,11 @@ func ResolveWithEnvironment(ctx context.Context, environment fpsystem.Environmen
 	}
 }
 
-func resolve(ctx context.Context, sys fpsystem.System, store runtimesecret.FileStore, ref resource.PluginRef, cfg Config) (Session, error) {
+func resolve(ctx context.Context, sys fpsystem.System, store sharedsecret.FileStore, ref resource.PluginRef, cfg Config) (Session, error) {
 	return resolveWithEnvironment(ctx, environmentFromSystem(sys), store, ref, cfg)
 }
 
-func resolveWithEnvironment(ctx context.Context, environment fpsystem.Environment, store runtimesecret.FileStore, ref resource.PluginRef, cfg Config) (Session, error) {
+func resolveWithEnvironment(ctx context.Context, environment fpsystem.Environment, store sharedsecret.FileStore, ref resource.PluginRef, cfg Config) (Session, error) {
 	return ResolveWithEnvironment(ctx, environment, store, ref, cfg)
 }
 
@@ -154,7 +155,7 @@ func storedTokenAuthMethod(ref resource.PluginRef) coresecret.AuthMethodSpec {
 		Header:      coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
 		SetupFields: []coresecret.SetupFieldSpec{
 			{
-				Name:          BotTokenPurpose,
+				Slot:          BotTokenPurpose,
 				DisplayName:   "Bot token",
 				Description:   "Slack xoxb bot token.",
 				RequiredGroup: "api_token",
@@ -162,14 +163,14 @@ func storedTokenAuthMethod(ref resource.PluginRef) coresecret.AuthMethodSpec {
 				Env:           coresecret.EnvSpec{Name: defaultBotTokenEnv},
 			},
 			{
-				Name:        AppTokenPurpose,
+				Slot:        AppTokenPurpose,
 				DisplayName: "App token",
 				Description: "Slack xapp app-level token. Required for daemon channels using Socket Mode.",
 				Sensitive:   true,
 				Env:         coresecret.EnvSpec{Name: defaultAppTokenEnv},
 			},
 			{
-				Name:          UserTokenPurpose,
+				Slot:          UserTokenPurpose,
 				DisplayName:   "User token",
 				Description:   "Slack xoxp user token. Required when bot token is omitted.",
 				RequiredGroup: "api_token",
@@ -194,9 +195,9 @@ func envAuthMethod(cfg Config) coresecret.AuthMethodSpec {
 		},
 		Header: coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
 		SetupFields: []coresecret.SetupFieldSpec{
-			{Name: "bot_token_env", DisplayName: "Bot token env", Env: coresecret.EnvSpec{Name: defaultBotTokenEnv}},
-			{Name: "app_token_env", DisplayName: "App token env", Env: coresecret.EnvSpec{Name: defaultAppTokenEnv}},
-			{Name: "user_token_env", DisplayName: "User token env", Env: coresecret.EnvSpec{Name: defaultUserTokenEnv}},
+			{Slot: "bot_token_env", DisplayName: "Bot token env", Env: coresecret.EnvSpec{Name: defaultBotTokenEnv}},
+			{Slot: "app_token_env", DisplayName: "App token env", Env: coresecret.EnvSpec{Name: defaultAppTokenEnv}},
+			{Slot: "user_token_env", DisplayName: "User token env", Env: coresecret.EnvSpec{Name: defaultUserTokenEnv}},
 		},
 	}
 }
@@ -215,8 +216,8 @@ func oauth2AuthMethod(ref resource.PluginRef) coresecret.AuthMethodSpec {
 			Scopes:       append([]string(nil), defaultOAuthScopes...),
 		},
 		SetupFields: []coresecret.SetupFieldSpec{
-			{Name: "client_id", DisplayName: "Client ID", Required: true, Env: coresecret.EnvSpec{Name: "SLACK_CLIENT_ID"}},
-			{Name: "client_secret", DisplayName: "Client secret", Required: true, Sensitive: true, Env: coresecret.EnvSpec{Name: "SLACK_CLIENT_SECRET"}},
+			{Slot: "client_id", DisplayName: "Client ID", Required: true, Env: coresecret.EnvSpec{Name: "SLACK_CLIENT_ID"}},
+			{Slot: "client_secret", DisplayName: "Client secret", Required: true, Sensitive: true, Env: coresecret.EnvSpec{Name: "SLACK_CLIENT_SECRET"}},
 		},
 	}
 }
@@ -292,7 +293,7 @@ func loadResolvedValue(ctx context.Context, resolver runtimesecret.Resolver, ref
 	if err != nil || !ok {
 		return ""
 	}
-	return strings.TrimSpace(material.Value)
+	return strings.TrimSpace(material.String())
 }
 
 func BotTokenSecretRef(ref resource.PluginRef) coresecret.Ref {

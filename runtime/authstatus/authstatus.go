@@ -117,7 +117,7 @@ func setupFieldsConfigured(ctx context.Context, resolver runtimesecret.Resolver,
 	statuses := make([]FieldStatus, 0, len(fields))
 	anySet := false
 	for _, field := range fields {
-		name := strings.TrimSpace(field.Name)
+		name := strings.TrimSpace(coresecret.SetupFieldName(field))
 		if name == "" {
 			continue
 		}
@@ -127,7 +127,7 @@ func setupFieldsConfigured(ctx context.Context, resolver runtimesecret.Resolver,
 		statuses = append(statuses, FieldStatus{Name: name, Set: set})
 	}
 	for _, field := range fields {
-		name := strings.TrimSpace(field.Name)
+		name := strings.TrimSpace(coresecret.SetupFieldName(field))
 		if field.Required && !configured[name] {
 			return false, statuses
 		}
@@ -205,7 +205,7 @@ func requiredGroups(fields []coresecret.SetupFieldSpec) map[string][]string {
 	groups := map[string][]string{}
 	for _, field := range fields {
 		group := strings.TrimSpace(field.RequiredGroup)
-		name := strings.TrimSpace(field.Name)
+		name := strings.TrimSpace(coresecret.SetupFieldName(field))
 		if group == "" || name == "" {
 			continue
 		}

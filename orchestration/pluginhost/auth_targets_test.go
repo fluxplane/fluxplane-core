@@ -29,7 +29,7 @@ func TestResolveAuthTargetsPreservesInstancesAndConfig(t *testing.T) {
 	if targets[0].Plugin.Manifest().Name != "a/company-a" {
 		t.Fatalf("resolved plugin name = %q, want a/company-a", targets[0].Plugin.Manifest().Name)
 	}
-	if targets[0].Methods[0].Secret.Name != "company-a_token" {
+	if targets[0].Methods[0].Secret.Slot != "company-a_token" {
 		t.Fatalf("secret = %#v, want company-a_token", targets[0].Methods[0].Secret)
 	}
 }

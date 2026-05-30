@@ -3,6 +3,7 @@ package authconnect
 import (
 	"bytes"
 	"context"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"strings"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestCollectFieldsRejectsSensitivePromptOnNonTerminal(t *testing.T) {
 		in:  strings.NewReader("secret\n"),
 		out: bytes.NewBuffer(nil),
 	}, []coresecret.SetupFieldSpec{{
-		Name:      "client_secret",
+		Slot:      "client_secret",
 		Required:  true,
 		Sensitive: true,
 	}})
@@ -32,7 +33,7 @@ func TestCollectFieldsUsesEnvironmentForSensitiveField(t *testing.T) {
 		in:  strings.NewReader(""),
 		out: bytes.NewBuffer(nil),
 	}, []coresecret.SetupFieldSpec{{
-		Name:      "client_secret",
+		Slot:      "client_secret",
 		Required:  true,
 		Sensitive: true,
 		Env:       coresecret.EnvSpec{Aliases: []string{"TEST_CLIENT_SECRET"}},
@@ -59,15 +60,15 @@ func TestRunStoredWritesSetupFieldsToNativeSecretStore(t *testing.T) {
 		Kind:   coresecret.KindBearerToken,
 		Secret: coresecret.Plugin("chat", "main", "bot_token"),
 		SetupFields: []coresecret.SetupFieldSpec{
-			{Name: "bot_token", RequiredGroup: "api_token", Sensitive: true},
-			{Name: "user_token", RequiredGroup: "api_token", Sensitive: true},
-			{Name: "app_token", Sensitive: true},
+			{Slot: "bot_token", RequiredGroup: "api_token", Sensitive: true},
+			{Slot: "user_token", RequiredGroup: "api_token", Sensitive: true},
+			{Slot: "app_token", Sensitive: true},
 		},
 	})
 	if err != nil {
 		t.Fatalf("runStored: %v", err)
 	}
-	store := runtimesecret.NewFileStore(dir)
+	store := sharedsecret.NewFileStore(dir)
 	bot, ok, err := store.LoadSecret(context.Background(), coresecret.Plugin("chat", "main", "bot_token"))
 	if err != nil || !ok || bot.Value != "chat-bot-token" {
 		t.Fatalf("bot secret = %#v ok=%v err=%v", bot, ok, err)
@@ -87,8 +88,8 @@ func TestCollectFieldsAcceptsRequiredGroupAlternative(t *testing.T) {
 		in:     strings.NewReader(""),
 		out:    bytes.NewBuffer(nil),
 	}, []coresecret.SetupFieldSpec{
-		{Name: "bot_token", RequiredGroup: "api_token", Sensitive: true},
-		{Name: "user_token", RequiredGroup: "api_token", Sensitive: true},
+		{Slot: "bot_token", RequiredGroup: "api_token", Sensitive: true},
+		{Slot: "user_token", RequiredGroup: "api_token", Sensitive: true},
 	})
 	if err != nil {
 		t.Fatalf("collectFields: %v", err)
@@ -146,8 +147,8 @@ func TestTargetsForRejectsUndeclaredInstance(t *testing.T) {
 
 func TestRunStatusSummarizesPluginReadiness(t *testing.T) {
 	dir := t.TempDir()
-	store := runtimesecret.NewFileStore(dir)
-	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
+	store := sharedsecret.NewFileStore(dir)
+	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{
 		Ref:   coresecret.Plugin("chat", "team-chat", "user_token"),
 		Kind:  coresecret.KindBearerToken,
 		Value: "chat-user-token",
@@ -172,8 +173,8 @@ func TestRunStatusSummarizesPluginReadiness(t *testing.T) {
 
 func TestRunStatusPrintsResolvedFieldsAndRedactsSensitiveValues(t *testing.T) {
 	dir := t.TempDir()
-	store := runtimesecret.NewFileStore(dir)
-	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
+	store := sharedsecret.NewFileStore(dir)
+	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{
 		Ref:   coresecret.Plugin("chat", "team-chat", "user_token"),
 		Kind:  coresecret.KindBearerToken,
 		Value: "sensitive-test-token",
@@ -204,7 +205,7 @@ func TestPrintResolvedFieldsShowsEnvSourceAndResolvedValue(t *testing.T) {
 		Name:   "token",
 		Method: coresecret.AuthMethodEnv,
 		SetupFields: []coresecret.SetupFieldSpec{{
-			Name: "email_env",
+			Slot: "email_env",
 			Env:  coresecret.EnvSpec{Aliases: []string{"SERVICE_EMAIL"}},
 		}},
 	})
@@ -216,8 +217,8 @@ func TestPrintResolvedFieldsShowsEnvSourceAndResolvedValue(t *testing.T) {
 
 func TestRunStatusRunsConnectivityByDefault(t *testing.T) {
 	dir := t.TempDir()
-	store := runtimesecret.NewFileStore(dir)
-	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
+	store := sharedsecret.NewFileStore(dir)
+	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{
 		Ref:   coresecret.Plugin("chat", "chat", "bot_token"),
 		Kind:  coresecret.KindBearerToken,
 		Value: "chat-bot-token",
@@ -240,8 +241,8 @@ func TestRunStatusRunsConnectivityByDefault(t *testing.T) {
 
 func TestRunStatusNoTestSkipsConnectivity(t *testing.T) {
 	dir := t.TempDir()
-	store := runtimesecret.NewFileStore(dir)
-	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
+	store := sharedsecret.NewFileStore(dir)
+	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{
 		Ref:   coresecret.Plugin("chat", "chat", "bot_token"),
 		Kind:  coresecret.KindBearerToken,
 		Value: "chat-bot-token",
@@ -281,8 +282,8 @@ func TestRunStatusDoesNotListMissingOptionalMethods(t *testing.T) {
 
 func TestRunStatusShowsPartialRequiredFields(t *testing.T) {
 	dir := t.TempDir()
-	store := runtimesecret.NewFileStore(dir)
-	for _, secret := range []runtimesecret.StoredSecret{
+	store := sharedsecret.NewFileStore(dir)
+	for _, secret := range []sharedsecret.StoredSecret{
 		{Ref: coresecret.Plugin("issues", "issues", "email"), Kind: coresecret.KindBasic, Value: "user@example.invalid"},
 		{Ref: coresecret.Plugin("issues", "issues", "token"), Kind: coresecret.KindBasic, Value: "api-token"},
 	} {
@@ -340,7 +341,7 @@ func TestPrintNativeInfoShowsMethodName(t *testing.T) {
 		Method:      coresecret.AuthMethodStored,
 		DisplayName: "Chat token",
 		Description: "Chat token credentials.",
-		Metadata:    map[string]string{"auth_scheme": "Bearer"},
+		Annotations: map[string]string{"auth_scheme": "Bearer"},
 	}})
 	got := out.String()
 	if !strings.Contains(got, "token - Chat token (stored)") || !strings.Contains(got, "auth_scheme=Bearer") || !strings.Contains(got, "Chat token credentials.") {
@@ -388,11 +389,11 @@ func (p partialAuthPlugin) AuthMethods(context.Context, pluginhost.Context) ([]c
 		Kind:   coresecret.KindBasic,
 		Secret: coresecret.Plugin(p.name, p.name, "token"),
 		SetupFields: []coresecret.SetupFieldSpec{
-			{Name: "email", Required: true},
-			{Name: "token", Required: true},
-			{Name: "cloud_id"},
-			{Name: "site_url", RequiredGroup: "site_locator"},
-			{Name: "base_url", RequiredGroup: "site_locator"},
+			{Slot: "email", Required: true},
+			{Slot: "token", Required: true},
+			{Slot: "cloud_id"},
+			{Slot: "site_url", RequiredGroup: "site_locator"},
+			{Slot: "base_url", RequiredGroup: "site_locator"},
 		},
 	}}, nil
 }
@@ -417,9 +418,9 @@ func (p fakePlugin) AuthMethods(context.Context, pluginhost.Context) ([]coresecr
 			Kind:   coresecret.KindBearerToken,
 			Secret: coresecret.Plugin(p.name, p.name, "bot_token"),
 			SetupFields: []coresecret.SetupFieldSpec{
-				{Name: "bot_token", RequiredGroup: "api_token", Sensitive: true},
-				{Name: "user_token", RequiredGroup: "api_token", Sensitive: true},
-				{Name: "app_token", Sensitive: true},
+				{Slot: "bot_token", RequiredGroup: "api_token", Sensitive: true},
+				{Slot: "user_token", RequiredGroup: "api_token", Sensitive: true},
+				{Slot: "app_token", Sensitive: true},
 			},
 		},
 		{

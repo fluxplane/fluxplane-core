@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"fmt"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"log/slog"
 	"os"
@@ -123,7 +124,7 @@ type PluginFactoryContext struct {
 	Workspace          runtimeworkspace.Workspace
 	Dispatcher         *slack.Dispatcher
 	TaskRunner         task.TaskRunner
-	NativeAuthStore    runtimesecret.FileStore
+	NativeAuthStore    sharedsecret.FileStore
 	NativeAuthResolver runtimesecret.Resolver
 }
 
@@ -644,11 +645,11 @@ func availablePlugins(hostSystem fpsystem.System, ws runtimeworkspace.Workspace,
 	return availablePluginsWithAuth(hostSystem, ws, dispatcher, taskRunner, auth.Store, auth.Resolver)
 }
 
-func availablePluginsWithAuth(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver) []pluginhost.Plugin {
+func availablePluginsWithAuth(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver runtimesecret.Resolver) []pluginhost.Plugin {
 	return availablePluginsWithOptions(hostSystem, ws, dispatcher, taskRunner, nativeStore, nativeResolver, nativePluginOptions{})
 }
 
-func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver, opts nativePluginOptions) []pluginhost.Plugin {
+func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver runtimesecret.Resolver, opts nativePluginOptions) []pluginhost.Plugin {
 	var process fpsystem.ProcessManager
 	var environment fpsystem.Environment
 	var network fpsystem.Network

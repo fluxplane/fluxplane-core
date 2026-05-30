@@ -80,7 +80,7 @@ func (p Plugin) runQuery(ctx operation.Context, in QueryInput) (QueryOutput, err
 	if err != nil {
 		return QueryOutput{}, err
 	}
-	target, err := mysqlTargetFrom(endpoint, material.Value, firstNonEmpty(in.Database, p.cfg.Database))
+	target, err := mysqlTargetFrom(endpoint, material.String(), firstNonEmpty(in.Database, p.cfg.Database))
 	if err != nil {
 		return QueryOutput{}, err
 	}

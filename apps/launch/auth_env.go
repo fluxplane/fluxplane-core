@@ -2,6 +2,7 @@ package launch
 
 import (
 	"context"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"os"
 	"strings"
@@ -21,7 +22,7 @@ type PluginAuthOptions struct {
 // plugin construction, auth evidence, channel identity, and direct operation
 // execution.
 type PluginAuthContext struct {
-	Store    runtimesecret.FileStore
+	Store    sharedsecret.FileStore
 	Resolver runtimesecret.Resolver
 }
 
@@ -29,7 +30,7 @@ type PluginAuthContext struct {
 // runtime surfaces. Process environment credentials are included only when
 // explicitly allowed.
 func NewPluginAuthContext(opts PluginAuthOptions) PluginAuthContext {
-	store := runtimesecret.NewFileStore(pluginAuthPath(opts.AuthPath))
+	store := sharedsecret.NewFileStore(pluginAuthPath(opts.AuthPath))
 	return PluginAuthContext{
 		Store:    store,
 		Resolver: pluginAuthResolver(opts.Environment, store, opts.AllowPluginAuthEnv),
@@ -38,12 +39,12 @@ func NewPluginAuthContext(opts PluginAuthOptions) PluginAuthContext {
 
 func pluginAuthPath(path string) string {
 	if strings.TrimSpace(path) == "" {
-		return runtimesecret.DefaultFileStorePath
+		return sharedsecret.DefaultFileStorePath
 	}
 	return path
 }
 
-func pluginAuthResolver(env fpsystem.Environment, store runtimesecret.FileStore, allowProcessEnvironment bool) runtimesecret.Resolver {
+func pluginAuthResolver(env fpsystem.Environment, store sharedsecret.FileStore, allowProcessEnvironment bool) runtimesecret.Resolver {
 	resolver := runtimesecret.ChainResolver{store}
 	if env != nil {
 		resolver = append(resolver, runtimesecret.EnvResolver{Environment: env})

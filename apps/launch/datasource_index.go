@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"path/filepath"
 	"regexp"
@@ -153,7 +154,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	return DatasourceIndexRuntime{Registry: registry, Index: index, Data: dataStore, Sources: dataSources, Config: datasourceIndexFromBundles(bundles), Close: closeFn}, nil
 }
 
-func datasourceIndexPlugins(hostSystem fpsystem.System, dispatcher *slack.Dispatcher, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver) []pluginhost.Plugin {
+func datasourceIndexPlugins(hostSystem fpsystem.System, dispatcher *slack.Dispatcher, nativeStore sharedsecret.FileStore, nativeResolver runtimesecret.Resolver) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
 		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
 		task.New(),

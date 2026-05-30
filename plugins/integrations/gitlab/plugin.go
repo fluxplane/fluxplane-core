@@ -497,14 +497,14 @@ func personalAccessTokenAuthMethod(ref resource.PluginRef, tokenEnv, baseURL str
 		Header:      coresecret.HeaderSpec{Name: "Private-Token"},
 		SetupFields: []coresecret.SetupFieldSpec{
 			{
-				Name:        gitlabTokenField,
+				Slot:        gitlabTokenField,
 				DisplayName: "GitLab token",
 				Required:    true,
 				Sensitive:   true,
 				Env:         env,
 			},
 			{
-				Name:        gitlabURLField,
+				Slot:        gitlabURLField,
 				DisplayName: "GitLab URL",
 				Required:    urlRequired,
 				Env:         coresecret.EnvSpec{Name: gitlabURLEnv},
@@ -575,10 +575,10 @@ func newOfficialClientFromAuth(network fpsystem.Network, cfg Config, auth resolv
 	var err error
 	switch auth.Material.Kind {
 	case coresecret.KindAPIKey:
-		client, err = gitlab.NewClient(auth.Material.Value, options...)
+		client, err = gitlab.NewClient(auth.Material.String(), options...)
 	case coresecret.KindBearerToken, coresecret.KindOAuth2Token:
 		client, err = gitlab.NewAuthSourceClient(gitlab.OAuthTokenSource{
-			TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: auth.Material.Value}),
+			TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: auth.Material.String()}),
 		}, options...)
 	default:
 		return nil, fmt.Errorf("gitlabplugin: unsupported auth material kind %q", auth.Material.Kind)
@@ -622,7 +622,7 @@ func authFromResolver(ctx context.Context, resolver runtimesecret.Resolver, ref 
 		if err != nil {
 			return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: use auth secret: %w", err)
 		}
-		if ok && strings.TrimSpace(resolution.Material.Value) != "" {
+		if ok && strings.TrimSpace(resolution.Material.String()) != "" {
 			return resolvedGitLabAuth{Resolution: resolution, BaseURL: cfg.baseURL()}, nil
 		}
 	}
@@ -649,7 +649,7 @@ func tokenAuthFromSetupFields(ctx context.Context, broker *runtimesecret.Broker,
 	if err != nil {
 		return resolvedGitLabAuth{}, false, err
 	}
-	if !ok || strings.TrimSpace(token.Value) == "" {
+	if !ok || strings.TrimSpace(token.String()) == "" {
 		if cfg.Auth.TokenEnv == "" {
 			return resolvedGitLabAuth{}, false, nil
 		}
@@ -664,7 +664,7 @@ func tokenAuthFromSetupFields(ctx context.Context, broker *runtimesecret.Broker,
 		if err != nil {
 			return resolvedGitLabAuth{}, false, err
 		}
-		baseURL = normalizeBaseURL(urlMaterial.Value)
+		baseURL = normalizeBaseURL(urlMaterial.String())
 		if !urlOK || baseURL == "" {
 			return resolvedGitLabAuth{}, true, fmt.Errorf("gitlabplugin: gitlab url is not configured; set %s or provide field %q", gitlabURLEnv, gitlabURLField)
 		}
@@ -697,7 +697,7 @@ func resolveSetupField(ctx context.Context, resolver runtimesecret.Resolver, ref
 
 func setupField(fields []coresecret.SetupFieldSpec, name string) (coresecret.SetupFieldSpec, bool) {
 	for _, field := range fields {
-		if strings.EqualFold(strings.TrimSpace(field.Name), strings.TrimSpace(name)) {
+		if strings.EqualFold(strings.TrimSpace(coresecret.SetupFieldName(field)), strings.TrimSpace(name)) {
 			return field, true
 		}
 	}

@@ -167,7 +167,7 @@ func (o openAPIOperation) applyAuth(ctx operation.Context, req *http.Request, in
 		if err != nil {
 			return fmt.Errorf("openapi use auth secret: %w", err)
 		}
-		if !ok || strings.TrimSpace(resolution.Material.Value) == "" {
+		if !ok || strings.TrimSpace(resolution.Material.String()) == "" {
 			return fmt.Errorf("openapi auth secret is not configured for scheme %s", schemeName)
 		}
 		o.applyAuthMaterial(req, in, schemeName, resolution.Material)
@@ -177,7 +177,7 @@ func (o openAPIOperation) applyAuth(ctx operation.Context, req *http.Request, in
 
 func (o openAPIOperation) applyAuthMaterial(req *http.Request, in requestInput, schemeName string, material coresecret.Material) {
 	scheme := o.def.SecuritySchemes[schemeName]
-	value := material.Value
+	value := material.String()
 	if scheme == nil {
 		return
 	}

@@ -57,7 +57,7 @@ func TestAllCoversPluginContributedEventTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("human contributions: %v", err)
 	}
-	projectBundle, err := project.New(nil).Contributions(context.Background(), pluginhost.Context{})
+	projectBundle, err := project.New(project.Config{}).Contributions(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("project contributions: %v", err)
 	}
