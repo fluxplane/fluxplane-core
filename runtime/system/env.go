@@ -34,6 +34,26 @@ var processOverrideEnvKeys = map[string]bool{
 	"GOPATH":      true,
 }
 
+// HostEnvironment implements Environment using an explicitly allowed env set.
+type HostEnvironment struct {
+	values map[string]string
+}
+
+// Lookup returns an allowed environment variable value for key.
+func (e HostEnvironment) Lookup(_ context.Context, key string) (string, bool, error) {
+	value, ok := e.values[strings.TrimSpace(key)]
+	return value, ok, nil
+}
+
+// ResolveExecutable resolves an executable using the environment PATH.
+func (e HostEnvironment) ResolveExecutable(ctx context.Context, name string) (string, bool, error) {
+	pathValue, ok, err := e.Lookup(ctx, "PATH")
+	if err != nil || !ok {
+		return "", false, err
+	}
+	return resolveExecutableInPath(name, pathValue)
+}
+
 type WorkspaceEnvironment struct {
 	root HostEnvironment
 	sets map[string]map[string]string
