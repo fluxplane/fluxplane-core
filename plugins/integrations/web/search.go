@@ -83,7 +83,7 @@ func (p Plugin) search() operationruntime.TypedResultHandler[searchInput, search
 			return operation.Failed("invalid_web_search_input", "at least one query is required", nil)
 		}
 		max := normalizeSearchMax(req.Max)
-		providers, errors := selectSearchProviders(context.Context(ctx), p.system, req.Providers)
+		providers, errors := selectSearchProviders(context.Context(ctx), p.network, p.environment, req.Providers)
 		if len(providers) == 0 {
 			if len(errors) > 0 {
 				return operation.Failed("web_search_provider_unavailable", errors[0].Message, nil)
@@ -211,19 +211,19 @@ func networkAccess(target string) operationruntime.AccessDescriptor {
 	return operationruntime.NetworkDescriptor(target, policy.ActionNetworkFetch)
 }
 
-func searchProviders(ctx context.Context, sys fpsystem.System) []SearchProvider {
+func searchProviders(ctx context.Context, network fpsystem.Network, environment fpsystem.Environment) []SearchProvider {
 	var providers []SearchProvider
-	if tavily := newTavilySearchProvider(ctx, sys); tavily.Available(ctx) {
+	if tavily := newTavilySearchProvider(ctx, network, environment); tavily.Available(ctx) {
 		providers = append(providers, tavily)
 	}
-	if duckduckgo := newDuckDuckGoSearchProvider(sys); duckduckgo.Available(ctx) {
+	if duckduckgo := newDuckDuckGoSearchProvider(network); duckduckgo.Available(ctx) {
 		providers = append(providers, duckduckgo)
 	}
 	return providers
 }
 
-func selectSearchProviders(ctx context.Context, sys fpsystem.System, requested []string) ([]SearchProvider, []searchError) {
-	available := searchProviders(ctx, sys)
+func selectSearchProviders(ctx context.Context, network fpsystem.Network, environment fpsystem.Environment, requested []string) ([]SearchProvider, []searchError) {
+	available := searchProviders(ctx, network, environment)
 	if len(requested) == 0 {
 		return available, nil
 	}
@@ -330,11 +330,11 @@ func renderSearchResults(out searchOutput) string {
 	return strings.TrimSpace(b.String())
 }
 
-func env(ctx context.Context, sys fpsystem.System, key string) string {
-	if sys == nil || sys.Environment() == nil {
+func env(ctx context.Context, environment fpsystem.Environment, key string) string {
+	if environment == nil {
 		return ""
 	}
-	value, ok, err := sys.Environment().Lookup(ctx, key)
+	value, ok, err := environment.Lookup(ctx, key)
 	if err != nil || !ok {
 		return ""
 	}

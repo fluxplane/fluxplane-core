@@ -38,11 +38,12 @@ type datasourceConfig struct {
 
 // DatasourceProviders returns web-backed datasource providers.
 func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]coredatasource.Provider, error) {
-	return []coredatasource.Provider{webSearchProvider(p)}, nil
+	return []coredatasource.Provider{webSearchProvider{network: p.network, environment: p.environment}}, nil
 }
 
 type webSearchProvider struct {
-	system fpsystem.System
+	network     fpsystem.Network
+	environment fpsystem.Environment
 }
 
 func (p webSearchProvider) Entities() []coredatasource.EntitySpec {
@@ -58,16 +59,17 @@ func (p webSearchProvider) Open(_ context.Context, spec coredatasource.Spec) (co
 	if spec.Kind != "web" && spec.Kind != "websearch" && spec.Kind != "web_search" {
 		return nil, fmt.Errorf("unsupported datasource kind %q", spec.Kind)
 	}
-	if p.system == nil {
-		return nil, fmt.Errorf("web datasource system is nil")
+	if p.network == nil {
+		return nil, fmt.Errorf("web datasource network is nil")
 	}
-	return &webSearchAccessor{system: p.system, spec: spec, entity: p.Entities()[0]}, nil
+	return &webSearchAccessor{network: p.network, environment: p.environment, spec: spec, entity: p.Entities()[0]}, nil
 }
 
 type webSearchAccessor struct {
-	system fpsystem.System
-	spec   coredatasource.Spec
-	entity coredatasource.EntitySpec
+	network     fpsystem.Network
+	environment fpsystem.Environment
+	spec        coredatasource.Spec
+	entity      coredatasource.EntitySpec
 }
 
 func (a *webSearchAccessor) Spec() coredatasource.Spec { return a.spec }
@@ -88,7 +90,7 @@ func (a *webSearchAccessor) Search(ctx context.Context, req coredatasource.Searc
 	if limit <= 0 {
 		limit = 10
 	}
-	providers, errors := selectSearchProviders(ctx, a.system, datasourceSearchProviders(a.spec.Config["providers"]))
+	providers, errors := selectSearchProviders(ctx, a.network, a.environment, datasourceSearchProviders(a.spec.Config["providers"]))
 	out := runProviderSearches(ctx, []string{query}, providers, limit, errors)
 	if len(out.Results) == 0 {
 		message := "web search returned no results"

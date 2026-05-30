@@ -28,14 +28,33 @@ const (
 
 // Plugin contributes outbound web operations.
 type Plugin struct {
-	system fpsystem.System
+	network     fpsystem.Network
+	environment fpsystem.Environment
+}
+
+// Boundaries are the host capabilities used by the web plugin.
+type Boundaries struct {
+	Network     fpsystem.Network
+	Environment fpsystem.Environment
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
 // New returns a web plugin.
-func New(sys fpsystem.System) Plugin { return Plugin{system: sys} }
+func New(sys fpsystem.System) Plugin { return NewWithBoundaries(boundariesFromSystem(sys)) }
+
+// NewWithBoundaries returns a web plugin using explicit host boundaries.
+func NewWithBoundaries(boundaries Boundaries) Plugin {
+	return Plugin{network: boundaries.Network, environment: boundaries.Environment}
+}
+
+func boundariesFromSystem(sys fpsystem.System) Boundaries {
+	if sys == nil {
+		return Boundaries{}
+	}
+	return Boundaries{Network: sys.Network(), Environment: sys.Environment()}
+}
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -55,8 +74,8 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 
 // Operations returns executable web operations.
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
-	if p.system == nil {
-		return nil, fmt.Errorf("webplugin: system is nil")
+	if p.network == nil {
+		return nil, fmt.Errorf("webplugin: network is nil")
 	}
 	return []operation.Operation{
 		operationruntime.NewTypedResult[requestInput, map[string]any](requestSpec(), p.request(), operationruntime.WithIntent(requestIntent), operationruntime.WithAccess(requestAccess)),
@@ -132,7 +151,7 @@ func (p Plugin) request() operationruntime.TypedResultHandler[requestInput, map[
 		if maxBytes <= 0 || maxBytes > maxBodyBytes {
 			maxBytes = 512 * 1024
 		}
-		resp, err := systemkit.DoHTTP(ctx, p.system.Network(), systemkit.HTTPRequest{
+		resp, err := systemkit.DoHTTP(ctx, p.network, systemkit.HTTPRequest{
 			URL: req.URL, Method: method, Headers: req.Headers, Body: []byte(req.Body),
 			Timeout: timeout, MaxBytes: maxBytes, UserAgent: "fluxplane/0.1",
 		})

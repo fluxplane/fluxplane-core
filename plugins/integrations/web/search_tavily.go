@@ -14,18 +14,18 @@ import (
 const tavilySearchURL = "https://api.tavily.com/search"
 
 type tavilySearchProvider struct {
-	system fpsystem.System
-	apiKey string
+	network fpsystem.Network
+	apiKey  string
 }
 
-func newTavilySearchProvider(ctx context.Context, sys fpsystem.System) tavilySearchProvider {
-	return tavilySearchProvider{system: sys, apiKey: env(ctx, sys, "TAVILY_API_KEY")}
+func newTavilySearchProvider(ctx context.Context, network fpsystem.Network, environment fpsystem.Environment) tavilySearchProvider {
+	return tavilySearchProvider{network: network, apiKey: env(ctx, environment, "TAVILY_API_KEY")}
 }
 
 func (p tavilySearchProvider) Name() string { return SearchProviderTavily }
 
 func (p tavilySearchProvider) Available(context.Context) bool {
-	return strings.TrimSpace(p.apiKey) != "" && p.system != nil && p.system.Network() != nil
+	return strings.TrimSpace(p.apiKey) != "" && p.network != nil
 }
 
 func (p tavilySearchProvider) Search(ctx context.Context, req SearchProviderRequest) (SearchProviderResult, error) {
@@ -49,7 +49,7 @@ func (p tavilySearchProvider) Search(ctx context.Context, req SearchProviderRequ
 	if err != nil {
 		return SearchProviderResult{}, err
 	}
-	resp, err := systemkit.DoHTTP(ctx, p.system.Network(), systemkit.HTTPRequest{
+	resp, err := systemkit.DoHTTP(ctx, p.network, systemkit.HTTPRequest{
 		URL:    tavilySearchURL,
 		Method: "POST",
 		Headers: map[string]string{

@@ -15,18 +15,18 @@ import (
 var duckDuckGoSearchURLTemplate = "https://html.duckduckgo.com/html/?q={query}"
 
 type duckDuckGoSearchProvider struct {
-	system   fpsystem.System
+	network  fpsystem.Network
 	template string
 }
 
-func newDuckDuckGoSearchProvider(sys fpsystem.System) duckDuckGoSearchProvider {
-	return duckDuckGoSearchProvider{system: sys, template: duckDuckGoSearchURLTemplate}
+func newDuckDuckGoSearchProvider(network fpsystem.Network) duckDuckGoSearchProvider {
+	return duckDuckGoSearchProvider{network: network, template: duckDuckGoSearchURLTemplate}
 }
 
 func (p duckDuckGoSearchProvider) Name() string { return SearchProviderDuckDuckGo }
 
 func (p duckDuckGoSearchProvider) Available(context.Context) bool {
-	return p.system != nil && p.system.Network() != nil
+	return p.network != nil
 }
 
 func (p duckDuckGoSearchProvider) Search(ctx context.Context, req SearchProviderRequest) (SearchProviderResult, error) {
@@ -37,7 +37,7 @@ func (p duckDuckGoSearchProvider) Search(ctx context.Context, req SearchProvider
 	if !p.Available(ctx) {
 		return SearchProviderResult{}, fmt.Errorf("web search provider %q is not available; network is not configured", SearchProviderDuckDuckGo)
 	}
-	resp, err := systemkit.DoHTTP(ctx, p.system.Network(), systemkit.HTTPRequest{
+	resp, err := systemkit.DoHTTP(ctx, p.network, systemkit.HTTPRequest{
 		URL:       duckDuckGoSearchURL(p.template, query),
 		Method:    "GET",
 		Timeout:   30 * time.Second,
