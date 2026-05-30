@@ -3,7 +3,6 @@ package systemauth
 import (
 	"context"
 	"fmt"
-	"github.com/fluxplane/fluxplane-core/core/policyevent"
 	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"net"
 	"os"
@@ -354,7 +353,7 @@ func Authorize(ctx context.Context, cfg Config, resource policy.ResourceRef, act
 		Action:   action,
 	}
 	evaluation := policy.EvaluateAuthorization(auth.Policy, req)
-	policyevent.EmitAuthorizationDecision(ctx, auth, req, evaluation)
+	policyauth.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 	if evaluation.Decision == policy.DecisionAllow {
 		return nil
 	}

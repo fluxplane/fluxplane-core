@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/fluxplane/fluxplane-core/core/policyevent"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"io"
 	"math"
 	"sort"
@@ -203,7 +203,7 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	case fpsystem.ProcessEvent:
 		r.flushContent()
 		renderProcessEvent(out, payload)
-	case policyevent.AuthorizationDecision:
+	case policyauth.AuthorizationDecision:
 		r.flushContent()
 		renderAuthorizationDecision(out, payload)
 	case operationruntime.ApprovalRequested:
@@ -1146,7 +1146,7 @@ func renderProcessEvent(out io.Writer, event fpsystem.ProcessEvent) {
 	}
 }
 
-func renderAuthorizationDecision(out io.Writer, decision policyevent.AuthorizationDecision) {
+func renderAuthorizationDecision(out io.Writer, decision policyauth.AuthorizationDecision) {
 	color := ansiYellow
 	switch decision.Decision {
 	case policy.DecisionDeny:

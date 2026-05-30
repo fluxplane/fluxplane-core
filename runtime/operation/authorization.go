@@ -3,7 +3,6 @@ package operationruntime
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/fluxplane/fluxplane-core/core/policyevent"
 	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"strings"
 
@@ -54,16 +53,16 @@ func (AuthorizationGate) Authorize(ctx operation.Context, op operation.Operation
 		}
 		evaluation := policy.EvaluateAuthorization(auth.Policy, req)
 		if evaluation.Decision == policy.DecisionAllow {
-			policyevent.EmitAuthorizationDecision(ctx, auth, req, evaluation)
+			policyauth.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 			continue
 		}
 		if evaluation.Decision == policy.DecisionApprovalRequired {
-			policyevent.EmitAuthorizationDecision(ctx, auth, req, evaluation)
+			policyauth.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 			return AuthorizationApprovalRequired{Subjects: auth.Subjects, Resource: target.Resource, Action: target.Action, Reason: evaluation.Reason}
 		}
 		if target.Resource.Kind == policy.ResourceDatasource && target.Resource.Name == "*" {
 			fallback := authorizeAnyDatasource(auth, target.Action)
-			policyevent.EmitAuthorizationDecision(ctx, auth, req, fallback)
+			policyauth.EmitAuthorizationDecision(ctx, auth, req, fallback)
 			switch fallback.Decision {
 			case policy.DecisionAllow:
 				continue
@@ -71,7 +70,7 @@ func (AuthorizationGate) Authorize(ctx operation.Context, op operation.Operation
 				return AuthorizationApprovalRequired{Subjects: auth.Subjects, Resource: target.Resource, Action: target.Action, Reason: fallback.Reason}
 			}
 		}
-		policyevent.EmitAuthorizationDecision(ctx, auth, req, evaluation)
+		policyauth.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 		return fmt.Errorf("%s: %s %s", evaluation.Reason, target.Action, resourceLabel(target.Resource))
 	}
 	return nil

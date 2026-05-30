@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"github.com/fluxplane/fluxplane-core/core/policyevent"
 	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"strings"
 	"sync"
@@ -316,7 +315,7 @@ func authorize(ctx context.Context, ref coresecret.Ref) error {
 		Action:   policy.ActionSecretUse,
 	}
 	evaluation := policy.EvaluateAuthorization(auth.Policy, req)
-	policyevent.EmitAuthorizationDecision(ctx, auth, req, evaluation)
+	policyauth.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 	if evaluation.Decision == policy.DecisionAllow {
 		return nil
 	}
