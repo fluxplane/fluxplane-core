@@ -12,8 +12,8 @@ import (
 	coreproject "github.com/fluxplane/fluxplane-core/core/project"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	coreevent "github.com/fluxplane/fluxplane-event"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )

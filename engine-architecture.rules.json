@@ -85,7 +85,7 @@
         {"import": "os/exec", "symbol": "Command"},
         {"import": "os/exec", "symbol": "CommandContext"}
       ],
-      "reason": "plugin host side effects must go through runtime/system.System unless explicitly allowed"
+      "reason": "plugin host side effects must go through injected fluxplane-system boundaries unless explicitly allowed"
     }
   ],
   "coupling": {
@@ -109,6 +109,6 @@
     {"kind": "architecture_runtime_host_io", "package": "runtime/operation", "reason": "operation runtime validates file-backed operation inputs and schemas"},
     {"kind": "architecture_runtime_host_io", "package": "runtime/secret", "reason": "secret runtime implements file-backed secret storage"},
     {"kind": "architecture_runtime_host_io", "package": "runtime/sqlclient", "reason": "SQL runtime owns database client integration"},
-    {"kind": "architecture_runtime_host_io", "package": "runtime/system", "reason": "system runtime is the central host side-effect and in-memory fixture boundary"}
+    {"kind": "architecture_runtime_host_io", "package": "runtime/workspace", "reason": "workspace runtime implements confined workspace filesystem, env, process, and in-memory fixture helpers"}
   ]
 }

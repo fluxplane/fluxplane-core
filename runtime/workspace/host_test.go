@@ -1,22 +1,16 @@
-package system
+package workspace
 
 import (
 	"bytes"
 	"context"
 	"fmt"
-	"net"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
-	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 func TestHostWorkspaceRejectsSymlinkEscape(t *testing.T) {
@@ -747,30 +741,6 @@ func TestHostWorkspaceCreateScratchUsesConfiguredRoot(t *testing.T) {
 	}
 }
 
-func TestHostNetworkUsesRequestTLSConfig(t *testing.T) {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("ok"))
-	}))
-	defer server.Close()
-
-	transport, ok := server.Client().Transport.(*http.Transport)
-	if !ok {
-		t.Fatalf("test client transport = %T, want *http.Transport", server.Client().Transport)
-	}
-	network := &HostNetwork{allowPrivate: true}
-	resp, err := systemkit.DoHTTP(context.Background(), network, systemkit.HTTPRequest{
-		URL:       server.URL,
-		Method:    http.MethodGet,
-		TLSConfig: transport.TLSClientConfig,
-	})
-	if err != nil {
-		t.Fatalf("DoHTTP: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-}
-
 func TestHostSettersEnvironmentResolverAndNetworkGuards(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "bin"), 0755); err != nil {
@@ -799,40 +769,24 @@ func TestHostSettersEnvironmentResolverAndNetworkGuards(t *testing.T) {
 	if got := DefaultProcessEnv(); got == nil {
 		t.Fatal("DefaultProcessEnv returned nil")
 	}
-	if !systemkit.AllowedHTTPMethod(http.MethodPatch) || systemkit.AllowedHTTPMethod("TRACE") {
-		t.Fatal("AllowedHTTPMethod returned unexpected method decisions")
-	}
-	loopback, _ := url.Parse("http://127.0.0.1")
-	if err := ValidatePublicURL(loopback, false); err == nil || !strings.Contains(err.Error(), "private") {
-		t.Fatalf("ValidatePublicURL loopback error = %v, want private target rejection", err)
-	}
-	if err := ValidatePublicURL(loopback, true); err != nil {
-		t.Fatalf("ValidatePublicURL allow private: %v", err)
-	}
-	if _, err := PublicNetworkTransport(false).(*http.Transport).DialContext(context.Background(), "tcp", "127.0.0.1:1"); err == nil || !strings.Contains(err.Error(), "private") {
-		t.Fatalf("PublicNetworkTransport dial error = %v, want private target rejection", err)
-	}
-	if !blockedIP(nil) || !blockedIP(net.ParseIP("127.0.0.1")) || blockedIP(net.ParseIP("8.8.8.8")) {
-		t.Fatal("blockedIP returned unexpected decisions")
-	}
 	if !matchFilterPattern("*.go", "nested/file.go", false) || matchFilterPattern("[", "file.go", false) {
 		t.Fatal("matchFilterPattern returned unexpected decisions")
 	}
 }
 
 type testSystemBoundary struct {
-	workspace runtimeworkspace.Workspace
+	workspace Workspace
 	network   fpsystem.Network
 	process   fpsystem.ProcessManager
 	env       fpsystem.Environment
 }
 
-func (s testSystemBoundary) Workspace() runtimeworkspace.Workspace { return s.workspace }
-func (s testSystemBoundary) Network() fpsystem.Network             { return s.network }
-func (s testSystemBoundary) Process() fpsystem.ProcessManager      { return s.process }
-func (s testSystemBoundary) Environment() fpsystem.Environment     { return s.env }
+func (s testSystemBoundary) Workspace() Workspace              { return s.workspace }
+func (s testSystemBoundary) Network() fpsystem.Network         { return s.network }
+func (s testSystemBoundary) Process() fpsystem.ProcessManager  { return s.process }
+func (s testSystemBoundary) Environment() fpsystem.Environment { return s.env }
 
-func resolvedContains(paths []runtimeworkspace.ResolvedPath, rel string) bool {
+func resolvedContains(paths []ResolvedPath, rel string) bool {
 	for _, path := range paths {
 		if path.Rel == rel {
 			return true

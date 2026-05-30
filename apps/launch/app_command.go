@@ -19,7 +19,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/spf13/cobra"
 )
 
@@ -432,11 +431,11 @@ func configSchemaAvailablePlugins(appDir string) []pluginhost.Plugin {
 	return appendPluginIfMissing(available, datasource.New(nil))
 }
 
-func configSchemaSystem(appDir string) *system.Host {
+func configSchemaSystem(appDir string) *hostSystem {
 	if strings.TrimSpace(appDir) == "" {
 		appDir = "."
 	}
-	hostSystem, err := system.NewHost(system.Config{Root: appDir, AllowPrivateNetwork: true})
+	hostSystem, err := newHost(hostConfig{Root: appDir, AllowPrivateNetwork: true})
 	if err != nil {
 		return nil
 	}

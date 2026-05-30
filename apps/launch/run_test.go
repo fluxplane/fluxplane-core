@@ -35,7 +35,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-event"
 	fpsystem "github.com/fluxplane/fluxplane-system"
@@ -355,7 +354,7 @@ func TestLaunchOpensWebSearchDatasourceThroughCodingPlugin(t *testing.T) {
 			Entities:    []coredatasource.EntityType{web.SearchResultEntity},
 		}},
 	}}
-	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	sys, err := newHost(hostConfig{Root: root, AllowPrivateNetwork: true})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}

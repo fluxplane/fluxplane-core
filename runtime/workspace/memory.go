@@ -1,12 +1,11 @@
 // Memory-backed runtime system implementations for tests and lightweight fixtures.
-package system
+package workspace
 
 import (
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -31,10 +30,10 @@ func NewMemory() *MemorySystem {
 	return &MemorySystem{WorkspaceValue: NewMemoryWorkspace()}
 }
 
-func (s *MemorySystem) Workspace() runtimeworkspace.Workspace { return s.WorkspaceValue }
-func (s *MemorySystem) Network() fpsystem.Network             { return network{} }
-func (s *MemorySystem) Process() fpsystem.ProcessManager      { return nil }
-func (s *MemorySystem) Environment() fpsystem.Environment     { return environment{} }
+func (s *MemorySystem) Workspace() Workspace              { return s.WorkspaceValue }
+func (s *MemorySystem) Network() fpsystem.Network         { return network{} }
+func (s *MemorySystem) Process() fpsystem.ProcessManager  { return nil }
+func (s *MemorySystem) Environment() fpsystem.Environment { return environment{} }
 func (s *MemorySystem) FileSystem() fpsystem.FileSystem {
 	return s.WorkspaceValue.System().FileSystem()
 }
@@ -80,49 +79,49 @@ func (w *MemoryWorkspace) System() fpsystem.System {
 }
 
 // Roots returns the single in-memory workspace root.
-func (w *MemoryWorkspace) Roots() []runtimeworkspace.Root {
+func (w *MemoryWorkspace) Roots() []Root {
 	if w == nil {
 		return nil
 	}
-	return []runtimeworkspace.Root{{Path: w.root, Rel: ".", Read: true, Write: true}}
+	return []Root{{Path: w.root, Rel: ".", Read: true, Write: true}}
 }
 
-func (w *MemoryWorkspace) ResolveExisting(_ context.Context, raw string) (runtimeworkspace.ResolvedPath, error) {
+func (w *MemoryWorkspace) ResolveExisting(_ context.Context, raw string) (ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
 	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, err
+		return ResolvedPath{}, err
 	}
 	if _, ok := w.nodes[rel]; !ok {
-		return runtimeworkspace.ResolvedPath{}, fs.ErrNotExist
+		return ResolvedPath{}, fs.ErrNotExist
 	}
 	return w.resolved(raw, rel), nil
 }
 
-func (w *MemoryWorkspace) ResolveCreate(_ context.Context, raw string) (runtimeworkspace.ResolvedPath, error) {
+func (w *MemoryWorkspace) ResolveCreate(_ context.Context, raw string) (ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
 	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, err
+		return ResolvedPath{}, err
 	}
 	return w.resolved(raw, rel), nil
 }
 
-func (w *MemoryWorkspace) ReadFile(_ context.Context, raw string, maxBytes int64) ([]byte, bool, runtimeworkspace.ResolvedPath, error) {
+func (w *MemoryWorkspace) ReadFile(_ context.Context, raw string, maxBytes int64) ([]byte, bool, ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
 	if err != nil {
-		return nil, false, runtimeworkspace.ResolvedPath{}, err
+		return nil, false, ResolvedPath{}, err
 	}
 	n, ok := w.nodes[rel]
 	if !ok {
-		return nil, false, runtimeworkspace.ResolvedPath{}, fs.ErrNotExist
+		return nil, false, ResolvedPath{}, fs.ErrNotExist
 	}
 	if n.dir {
-		return nil, false, runtimeworkspace.ResolvedPath{}, fmt.Errorf("path is a directory")
+		return nil, false, ResolvedPath{}, fmt.Errorf("path is a directory")
 	}
 	data := append([]byte(nil), n.data...)
 	if maxBytes <= 0 {
@@ -135,10 +134,10 @@ func (w *MemoryWorkspace) ReadFile(_ context.Context, raw string, maxBytes int64
 	return data, truncated, w.resolved(raw, rel), nil
 }
 
-func (w *MemoryWorkspace) ReadFileLines(ctx context.Context, raw string, start, end int, maxBytes int64) ([]byte, int, bool, runtimeworkspace.ResolvedPath, error) {
+func (w *MemoryWorkspace) ReadFileLines(ctx context.Context, raw string, start, end int, maxBytes int64) ([]byte, int, bool, ResolvedPath, error) {
 	data, _, resolved, err := w.ReadFile(ctx, raw, 0)
 	if err != nil {
-		return nil, 0, false, runtimeworkspace.ResolvedPath{}, err
+		return nil, 0, false, ResolvedPath{}, err
 	}
 	if start <= 0 {
 		start = 1
@@ -162,50 +161,50 @@ func (w *MemoryWorkspace) ReadFileLines(ctx context.Context, raw string, start, 
 	return out.Bytes(), start, false, resolved, nil
 }
 
-func (w *MemoryWorkspace) WriteFile(_ context.Context, raw string, data []byte, mode os.FileMode, overwrite bool) (runtimeworkspace.ResolvedPath, error) {
+func (w *MemoryWorkspace) WriteFile(_ context.Context, raw string, data []byte, mode os.FileMode, overwrite bool) (ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
 	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, err
+		return ResolvedPath{}, err
 	}
 	if rel == "" {
-		return runtimeworkspace.ResolvedPath{}, fmt.Errorf("path is a directory")
+		return ResolvedPath{}, fmt.Errorf("path is a directory")
 	}
 	if _, ok := w.nodes[rel]; ok && !overwrite {
-		return runtimeworkspace.ResolvedPath{}, fmt.Errorf("path already exists")
+		return ResolvedPath{}, fmt.Errorf("path already exists")
 	}
 	if err := w.ensureParentDirs(rel); err != nil {
-		return runtimeworkspace.ResolvedPath{}, err
+		return ResolvedPath{}, err
 	}
 	w.nodes[rel] = &node{data: append([]byte(nil), data...), mode: mode, modTime: w.tick()}
 	return w.resolved(raw, rel), nil
 }
 
-func (w *MemoryWorkspace) CopyFile(ctx context.Context, src, dst string, overwrite bool) (runtimeworkspace.ResolvedPath, runtimeworkspace.ResolvedPath, int64, error) {
+func (w *MemoryWorkspace) CopyFile(ctx context.Context, src, dst string, overwrite bool) (ResolvedPath, ResolvedPath, int64, error) {
 	data, _, srcResolved, err := w.ReadFile(ctx, src, 0)
 	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
+		return ResolvedPath{}, ResolvedPath{}, 0, err
 	}
 	dstResolved, err := w.WriteFile(ctx, dst, data, 0644, overwrite)
 	return srcResolved, dstResolved, int64(len(data)), err
 }
 
-func (w *MemoryWorkspace) MoveFile(ctx context.Context, src, dst string, overwrite bool) (runtimeworkspace.ResolvedPath, runtimeworkspace.ResolvedPath, int64, error) {
+func (w *MemoryWorkspace) MoveFile(ctx context.Context, src, dst string, overwrite bool) (ResolvedPath, ResolvedPath, int64, error) {
 	srcResolved, dstResolved, n, err := w.CopyFile(ctx, src, dst, overwrite)
 	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, runtimeworkspace.ResolvedPath{}, 0, err
+		return ResolvedPath{}, ResolvedPath{}, 0, err
 	}
 	_, _ = w.Remove(ctx, src)
 	return srcResolved, dstResolved, n, nil
 }
 
-func (w *MemoryWorkspace) MkdirAll(_ context.Context, raw string, mode os.FileMode) (runtimeworkspace.ResolvedPath, error) {
+func (w *MemoryWorkspace) MkdirAll(_ context.Context, raw string, mode os.FileMode) (ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
 	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, err
+		return ResolvedPath{}, err
 	}
 	if rel != "" {
 		for _, dir := range prefixes(rel) {
@@ -215,22 +214,22 @@ func (w *MemoryWorkspace) MkdirAll(_ context.Context, raw string, mode os.FileMo
 	return w.resolved(raw, rel), nil
 }
 
-func (w *MemoryWorkspace) Remove(_ context.Context, raw string) (runtimeworkspace.ResolvedPath, error) {
+func (w *MemoryWorkspace) Remove(_ context.Context, raw string) (ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
 	if err != nil {
-		return runtimeworkspace.ResolvedPath{}, err
+		return ResolvedPath{}, err
 	}
 	if rel == "" {
-		return runtimeworkspace.ResolvedPath{}, fmt.Errorf("cannot remove workspace root")
+		return ResolvedPath{}, fmt.Errorf("cannot remove workspace root")
 	}
 	if _, ok := w.nodes[rel]; !ok {
-		return runtimeworkspace.ResolvedPath{}, fs.ErrNotExist
+		return ResolvedPath{}, fs.ErrNotExist
 	}
 	for path := range w.nodes {
 		if strings.HasPrefix(path, rel+"/") {
-			return runtimeworkspace.ResolvedPath{}, fmt.Errorf("directory not empty")
+			return ResolvedPath{}, fmt.Errorf("directory not empty")
 		}
 	}
 	resolved := w.resolved(raw, rel)
@@ -238,33 +237,33 @@ func (w *MemoryWorkspace) Remove(_ context.Context, raw string) (runtimeworkspac
 	return resolved, nil
 }
 
-func (w *MemoryWorkspace) Stat(_ context.Context, raw string) (fs.FileInfo, runtimeworkspace.ResolvedPath, error) {
+func (w *MemoryWorkspace) Stat(_ context.Context, raw string) (fs.FileInfo, ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
 	if err != nil {
-		return nil, runtimeworkspace.ResolvedPath{}, err
+		return nil, ResolvedPath{}, err
 	}
 	n, ok := w.nodes[rel]
 	if !ok {
-		return nil, runtimeworkspace.ResolvedPath{}, fs.ErrNotExist
+		return nil, ResolvedPath{}, fs.ErrNotExist
 	}
 	return fileInfo{name: base(rel), node: n}, w.resolved(raw, rel), nil
 }
 
-func (w *MemoryWorkspace) ReadDir(_ context.Context, raw string) ([]fs.DirEntry, runtimeworkspace.ResolvedPath, error) {
+func (w *MemoryWorkspace) ReadDir(_ context.Context, raw string) ([]fs.DirEntry, ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
 	if err != nil {
-		return nil, runtimeworkspace.ResolvedPath{}, err
+		return nil, ResolvedPath{}, err
 	}
 	n, ok := w.nodes[rel]
 	if !ok {
-		return nil, runtimeworkspace.ResolvedPath{}, fs.ErrNotExist
+		return nil, ResolvedPath{}, fs.ErrNotExist
 	}
 	if !n.dir {
-		return nil, runtimeworkspace.ResolvedPath{}, fmt.Errorf("path is not a directory")
+		return nil, ResolvedPath{}, fmt.Errorf("path is not a directory")
 	}
 	prefix := ""
 	if rel != "" {
@@ -291,16 +290,16 @@ func (w *MemoryWorkspace) ReadDir(_ context.Context, raw string) ([]fs.DirEntry,
 	return out, w.resolved(raw, rel), nil
 }
 
-func (w *MemoryWorkspace) Walk(_ context.Context, raw string, opts WalkOptions) ([]WalkEntry, runtimeworkspace.ResolvedPath, bool, error) {
+func (w *MemoryWorkspace) Walk(_ context.Context, raw string, opts WalkOptions) ([]WalkEntry, ResolvedPath, bool, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	root, err := w.clean(raw)
 	if err != nil {
-		return nil, runtimeworkspace.ResolvedPath{}, false, err
+		return nil, ResolvedPath{}, false, err
 	}
 	rootNode, ok := w.nodes[root]
 	if !ok {
-		return nil, runtimeworkspace.ResolvedPath{}, false, fs.ErrNotExist
+		return nil, ResolvedPath{}, false, fs.ErrNotExist
 	}
 	if !rootNode.dir {
 		return []WalkEntry{w.walkEntry(root, rootNode, 0)}, w.resolved(raw, root), false, nil
@@ -362,7 +361,7 @@ func skippedByDir(rel string, skipDirs map[string]bool) bool {
 	return false
 }
 
-func (w *MemoryWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptions) ([]runtimeworkspace.ResolvedPath, bool, error) {
+func (w *MemoryWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptions) ([]ResolvedPath, bool, error) {
 	compiled, err := pathpattern.Compile(pattern)
 	if err != nil {
 		return nil, false, err
@@ -379,7 +378,7 @@ func (w *MemoryWorkspace) Glob(ctx context.Context, pattern string, opts GlobOpt
 	if err != nil {
 		return nil, false, err
 	}
-	out := make([]runtimeworkspace.ResolvedPath, 0)
+	out := make([]ResolvedPath, 0)
 	resultsTruncated := false
 	for _, entry := range entries {
 		rel := entry.Path.Rel
@@ -398,7 +397,7 @@ func (w *MemoryWorkspace) Glob(ctx context.Context, pattern string, opts GlobOpt
 	return out, truncated || resultsTruncated, nil
 }
 
-func (w *MemoryWorkspace) CreateScratch(context.Context, string) (runtimeworkspace.ScratchDir, error) {
+func (w *MemoryWorkspace) CreateScratch(context.Context, string) (ScratchDir, error) {
 	return nil, errors.ErrUnsupported
 }
 
@@ -435,12 +434,12 @@ func (w *MemoryWorkspace) ensureParentDirs(rel string) error {
 	return nil
 }
 
-func (w *MemoryWorkspace) resolved(input, rel string) runtimeworkspace.ResolvedPath {
+func (w *MemoryWorkspace) resolved(input, rel string) ResolvedPath {
 	abs := w.root
 	if rel != "" {
 		abs = filepath.Join(w.root, filepath.FromSlash(rel))
 	}
-	return runtimeworkspace.ResolvedPath{Input: input, Abs: abs, Rel: rel}
+	return ResolvedPath{Input: input, Abs: abs, Rel: rel}
 }
 
 func (w *MemoryWorkspace) walkEntry(rel string, n *node, level int) WalkEntry {
@@ -634,4 +633,4 @@ func hidden(rel string) bool {
 }
 
 var _ fpsystem.System = (*MemorySystem)(nil)
-var _ runtimeworkspace.Workspace = (*MemoryWorkspace)(nil)
+var _ Workspace = (*MemoryWorkspace)(nil)

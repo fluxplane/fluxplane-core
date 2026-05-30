@@ -30,7 +30,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-event"
 )
 
@@ -69,7 +68,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	if err != nil {
 		return DatasourceIndexRuntime{}, err
 	}
-	hostSystem, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	hostSystem, err := newHost(hostConfig{Root: root, AllowPrivateNetwork: true})
 	if err != nil {
 		return DatasourceIndexRuntime{}, err
 	}

@@ -1,4 +1,4 @@
-package system
+package workspace
 
 import (
 	"bufio"
@@ -85,7 +85,7 @@ func LoadEnvFiles(root string, patterns []string) (EnvFileSet, error) {
 	return EnvFileSet{Files: files, Values: values}, nil
 }
 
-func newWorkspaceEnvironment(workspace *HostWorkspace) (*WorkspaceEnvironment, error) {
+func NewEnvironment(workspace *HostWorkspace) (*WorkspaceEnvironment, error) {
 	sets := map[string]map[string]string{}
 	for _, root := range workspace.roots {
 		values := defaultHostEnv()

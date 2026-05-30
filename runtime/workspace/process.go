@@ -1,4 +1,4 @@
-package system
+package workspace
 
 import (
 	"context"
@@ -19,15 +19,15 @@ type HostProcess struct {
 }
 
 // NewHostProcess returns a host process manager.
-func NewHostProcess(workspace *HostWorkspace) *HostProcess {
-	env, _ := newWorkspaceEnvironment(workspace)
-	return NewHostProcessWithEnvironment(workspace, env)
+func NewProcessManager(workspace *HostWorkspace) *HostProcess {
+	env, _ := NewEnvironment(workspace)
+	return NewProcessManagerWithEnvironment(workspace, env)
 }
 
 // NewHostProcessWithEnvironment returns a host process manager using env.
-func NewHostProcessWithEnvironment(workspace *HostWorkspace, env *WorkspaceEnvironment) *HostProcess {
+func NewProcessManagerWithEnvironment(workspace *HostWorkspace, env *WorkspaceEnvironment) *HostProcess {
 	if env == nil {
-		env, _ = newWorkspaceEnvironment(workspace)
+		env, _ = NewEnvironment(workspace)
 	}
 	return &HostProcess{
 		workspace: workspace,

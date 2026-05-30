@@ -1,8 +1,9 @@
-package system
+package security
 
 import (
 	"context"
 	"github.com/fluxplane/fluxplane-policy/policyauth"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-policy"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
@@ -21,10 +23,7 @@ func TestSystemEnforcesWorkspaceActions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("docs"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	host, err := NewHost(Config{Root: root})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
+	host := newAuthTestHost(t, root, runtimeworkspace.WorkspaceConfig{})
 	workspace := WorkspaceWithAuthorization(host.Workspace(), AuthConfig{})
 	ctx := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
@@ -35,7 +34,7 @@ func TestSystemEnforcesWorkspaceActions(t *testing.T) {
 	if _, err := workspace.ResolveExisting(ctx, "README.md"); err != nil {
 		t.Fatalf("ResolveExisting denied: %v", err)
 	}
-	_, err = workspace.ResolveCreate(ctx, "out.txt")
+	_, err := workspace.ResolveCreate(ctx, "out.txt")
 	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
 		t.Fatalf("ResolveCreate error = %v, want authorization deny", err)
 	}
@@ -46,21 +45,15 @@ func TestWorkspaceAllowsSemanticOperations(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("line1\nline2\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	host, err := NewHost(Config{
-		Root: root,
-		Workspace: WorkspaceConfig{
-			Roots: []WorkspaceRootConfig{{
-				Name:   "scratch",
-				Path:   filepath.Join(root, "scratch-root"),
-				Access: WorkspaceAccessReadWrite,
-				Create: true,
-			}},
-			ScratchRoot: "scratch",
-		},
+	host := newAuthTestHost(t, root, runtimeworkspace.WorkspaceConfig{
+		Roots: []runtimeworkspace.WorkspaceRootConfig{{
+			Name:   "scratch",
+			Path:   filepath.Join(root, "scratch-root"),
+			Access: runtimeworkspace.WorkspaceAccessReadWrite,
+			Create: true,
+		}},
+		ScratchRoot: "scratch",
 	})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
 	sys := WithAuthorization(host, AuthConfig{})
 	_ = sys
 	workspace := WorkspaceWithAuthorization(host.Workspace(), AuthConfig{})
@@ -115,10 +108,7 @@ func TestSystemAuthorizesCanonicalWorkspacePath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "secret.txt"), []byte("secret"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	host, err := NewHost(Config{Root: root})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
+	host := newAuthTestHost(t, root, runtimeworkspace.WorkspaceConfig{})
 	sys := WithAuthorization(host, AuthConfig{})
 	_ = sys
 	workspace := WorkspaceWithAuthorization(host.Workspace(), AuthConfig{})
@@ -131,7 +121,7 @@ func TestSystemAuthorizesCanonicalWorkspacePath(t *testing.T) {
 	if _, err := workspace.ResolveExisting(ctx, "docs/README.md"); err != nil {
 		t.Fatalf("ResolveExisting docs/README.md denied: %v", err)
 	}
-	_, err = workspace.ResolveExisting(ctx, "docs/../secret.txt")
+	_, err := workspace.ResolveExisting(ctx, "docs/../secret.txt")
 	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
 		t.Fatalf("ResolveExisting traversal error = %v, want authorization deny", err)
 	}
@@ -142,10 +132,7 @@ func TestSystemEnforcesEnvironmentSecretRead(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("FLUXPLANE_SYSTEM_TEST_SECRET=secret\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	host, err := NewHost(Config{Root: root, Workspace: WorkspaceConfig{EnvFiles: []string{".env"}}})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
+	host := newAuthTestHost(t, root, runtimeworkspace.WorkspaceConfig{EnvFiles: []string{".env"}})
 	sys := WithAuthorization(host, AuthConfig{})
 	workspace := WorkspaceWithAuthorization(host.Workspace(), AuthConfig{})
 	_ = workspace
@@ -176,10 +163,7 @@ func TestSystemEnforcesNetworkActions(t *testing.T) {
 		_, _ = w.Write([]byte("ok"))
 	}))
 	defer server.Close()
-	host, err := NewHost(Config{Root: t.TempDir(), AllowPrivateNetwork: true})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
+	host := newAuthTestHost(t, t.TempDir(), runtimeworkspace.WorkspaceConfig{})
 	sys := WithAuthorization(host, AuthConfig{})
 	ctx := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
@@ -224,27 +208,21 @@ func TestNetworkURLAuthorizerEnforcesNetworkAccess(t *testing.T) {
 }
 
 func TestSystemEnforcesProcessExec(t *testing.T) {
-	host, err := NewHost(Config{Root: t.TempDir()})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
+	host := newAuthTestHost(t, t.TempDir(), runtimeworkspace.WorkspaceConfig{})
 	sys := WithAuthorization(host, AuthConfig{})
 	ctx := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
 		Actions:   []policy.Action{policy.ActionWorkspaceRead},
 	}})
-	_, err = sys.Process().Run(ctx, fpsystem.ProcessRequest{Command: "go", Args: []string{"version"}, Timeout: time.Second})
+	_, err := sys.Process().Run(ctx, fpsystem.ProcessRequest{Command: "go", Args: []string{"version"}, Timeout: time.Second})
 	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
 		t.Fatalf("Run error = %v, want authorization deny", err)
 	}
 }
 
 func TestProcessManagerAllowsManagedLifecycle(t *testing.T) {
-	host, err := NewHost(Config{Root: t.TempDir()})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
+	host := newAuthTestHost(t, t.TempDir(), runtimeworkspace.WorkspaceConfig{})
 	sys := WithAuthorization(host, AuthConfig{})
 	ctx := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
@@ -303,10 +281,7 @@ func TestProcessManagerAllowsManagedLifecycle(t *testing.T) {
 }
 
 func TestProcessHandleRequiresAdminForControl(t *testing.T) {
-	host, err := NewHost(Config{Root: t.TempDir()})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
+	host := newAuthTestHost(t, t.TempDir(), runtimeworkspace.WorkspaceConfig{})
 	manager := WithAuthorization(host, AuthConfig{}).Process()
 	execOnly := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
@@ -330,6 +305,47 @@ func TestProcessHandleRequiresAdminForControl(t *testing.T) {
 	}
 	_, _ = handle.Wait(admin)
 }
+
+type authTestHost struct {
+	workspace *runtimeworkspace.HostWorkspace
+	network   fpsystem.Network
+	process   fpsystem.ProcessManager
+	env       fpsystem.Environment
+}
+
+func newAuthTestHost(t *testing.T, root string, cfg runtimeworkspace.WorkspaceConfig) *authTestHost {
+	t.Helper()
+	ws, err := runtimeworkspace.NewHostWorkspace(root, cfg)
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	env, err := runtimeworkspace.NewEnvironment(ws)
+	if err != nil {
+		t.Fatalf("NewEnvironment: %v", err)
+	}
+	return &authTestHost{
+		workspace: ws,
+		network:   authTestNetwork{},
+		process:   runtimeworkspace.NewProcessManagerWithEnvironment(ws, env),
+		env:       env,
+	}
+}
+
+func (h *authTestHost) Workspace() runtimeworkspace.Workspace { return h.workspace }
+func (h *authTestHost) FileSystem() fpsystem.FileSystem       { return h.workspace.System().FileSystem() }
+func (h *authTestHost) Network() fpsystem.Network             { return h.network }
+func (h *authTestHost) Process() fpsystem.ProcessManager      { return h.process }
+func (h *authTestHost) Environment() fpsystem.Environment     { return h.env }
+func (h *authTestHost) Clock() fpsystem.Clock                 { return h.workspace.System().Clock() }
+
+type authTestNetwork struct{}
+
+func (authTestNetwork) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	var dialer net.Dialer
+	return dialer.DialContext(ctx, network, address)
+}
+
+func (authTestNetwork) Resolver() fpsystem.Resolver { return nil }
 
 func authorizedTestContext(grants []policy.Grant) context.Context {
 	return policyauth.ContextWithAuthorization(context.Background(), policyauth.AuthorizationContext{

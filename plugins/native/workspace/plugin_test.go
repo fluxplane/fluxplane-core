@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
+	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 )
 
 func TestSummaryProviderRendersWorkspaceRoots(t *testing.T) {

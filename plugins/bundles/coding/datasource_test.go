@@ -6,7 +6,7 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/integrations/web"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
+	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 )
 
 func TestCodingPluginForwardsWebDatasourceProviders(t *testing.T) {

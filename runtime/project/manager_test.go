@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	coreproject "github.com/fluxplane/fluxplane-core/core/project"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 

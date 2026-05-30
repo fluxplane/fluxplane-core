@@ -1,6 +1,6 @@
 //go:build !linux
 
-package system
+package human
 
 import (
 	"context"

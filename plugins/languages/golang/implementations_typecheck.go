@@ -12,7 +12,7 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/language"
 	"github.com/fluxplane/fluxplane-core/core/language/golang"
-	runtimesystem "github.com/fluxplane/fluxplane-core/runtime/system"
+	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -56,7 +56,7 @@ func (p Plugin) typeCheckedImplementationIndex(ctx context.Context, req golang.I
 	if strings.TrimSpace(root) == "" {
 		return typeCheckedImplementationIndex{}, false
 	}
-	if _, ok := p.workspace.(*runtimesystem.HostWorkspace); !ok {
+	if _, ok := p.workspace.(*runtimeworkspace.HostWorkspace); !ok {
 		return typeCheckedImplementationIndex{}, false
 	}
 	root = filepath.Clean(root)

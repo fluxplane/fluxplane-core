@@ -13,7 +13,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimehuman "github.com/fluxplane/fluxplane-core/runtime/human"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-event"
 )
 
@@ -372,7 +371,7 @@ func (p Plugin) speakMessage(ctx context.Context, text string) error {
 	if p.speak != nil {
 		return p.speak(text)
 	}
-	return system.SpeakPiperBackground(ctx, text)
+	return SpeakPiperBackground(ctx, text)
 }
 
 func speechText(value string) string {

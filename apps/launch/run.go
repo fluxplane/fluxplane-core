@@ -32,6 +32,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	orchestrationidentity "github.com/fluxplane/fluxplane-core/orchestration/identity"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	security "github.com/fluxplane/fluxplane-core/orchestration/security"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/taskexecutor"
 	"github.com/fluxplane/fluxplane-core/plugins/bundles/coding"
@@ -59,7 +60,6 @@ import (
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-event"
@@ -281,7 +281,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
-	hostSystem, err := system.NewHost(system.Config{
+	hostSystem, err := newHost(hostConfig{
 		Root:                root,
 		Workspace:           systemWorkspaceConfig(opts.Launch.Workspace),
 		AllowPrivateNetwork: opts.AllowPrivateNetwork,
@@ -289,11 +289,11 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
-	runtimeSystem := system.WithAuthorization(hostSystem, system.AuthConfig{TraceAllows: opts.Debug})
-	runtimeWorkspace := system.WorkspaceWithAuthorization(hostSystem.Workspace(), system.AuthConfig{TraceAllows: opts.Debug})
+	runtimeSystem := security.WithAuthorization(hostSystem, security.AuthConfig{TraceAllows: opts.Debug})
+	runtimeWorkspace := security.WorkspaceWithAuthorization(hostSystem.Workspace(), security.AuthConfig{TraceAllows: opts.Debug})
 	clarifier := terminal.Prompter{In: os.Stdin, Out: os.Stderr}
 	browserPlugin := browserplugin.New(browserplugin.Config{
-		AuthorizeURL: system.NetworkURLAuthorizer(system.AuthConfig{TraceAllows: opts.Debug}),
+		AuthorizeURL: security.NetworkURLAuthorizer(security.AuthConfig{TraceAllows: opts.Debug}),
 		FileSystem:   runtimeWorkspace.System().FileSystem(),
 		Headless:     browserHeadless(),
 	})
@@ -541,16 +541,16 @@ func defaultToolProjection() fluxplane.ToolProjectionConfig {
 	}
 }
 
-func systemWorkspaceConfig(cfg distribution.WorkspaceConfig) system.WorkspaceConfig {
-	out := system.WorkspaceConfig{
+func systemWorkspaceConfig(cfg distribution.WorkspaceConfig) runtimeworkspace.WorkspaceConfig {
+	out := runtimeworkspace.WorkspaceConfig{
 		ScratchRoot: strings.TrimSpace(cfg.ScratchRoot),
 		EnvFiles:    trimLaunchStrings(cfg.EnvFiles),
 	}
 	for _, root := range cfg.Roots {
-		out.Roots = append(out.Roots, system.WorkspaceRootConfig{
+		out.Roots = append(out.Roots, runtimeworkspace.WorkspaceRootConfig{
 			Name:     strings.TrimSpace(root.Name),
 			Path:     strings.TrimSpace(root.Path),
-			Access:   system.WorkspaceAccess(strings.TrimSpace(root.Access)),
+			Access:   runtimeworkspace.WorkspaceAccess(strings.TrimSpace(root.Access)),
 			Create:   root.Create,
 			EnvFiles: trimLaunchStrings(root.EnvFiles),
 		})
@@ -687,7 +687,7 @@ func ManifestAuthTargetRegistry(loader Loader) func(context.Context) ([]pluginho
 		if strings.TrimSpace(loaded.Manifest) == "" {
 			return nil, fmt.Errorf("auth: no app manifest found in %s", loaded.Root)
 		}
-		hostSystem, err := system.NewHost(system.Config{Root: loaded.Root, AllowPrivateNetwork: true})
+		hostSystem, err := newHost(hostConfig{Root: loaded.Root, AllowPrivateNetwork: true})
 		if err != nil {
 			return nil, err
 		}

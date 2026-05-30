@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	coreworkspace "github.com/fluxplane/fluxplane-core/core/workspace"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	. "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 )
 
 func TestParseDeclarationsObject(t *testing.T) {
