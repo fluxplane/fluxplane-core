@@ -1,4 +1,4 @@
-package launch
+package network
 
 import (
 	"context"
@@ -12,17 +12,22 @@ import (
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
-// HostNetwork implements primitive network access with target guards.
-type HostNetwork struct {
+// Host implements primitive host network access with target guards.
+type Host struct {
 	allowPrivate bool
 }
 
-func (n *HostNetwork) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+// NewHost returns a host-backed network boundary.
+func NewHost(allowPrivate bool) *Host {
+	return &Host{allowPrivate: allowPrivate}
+}
+
+func (n *Host) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, err
 	}
-	ip, err := resolvePublicIP(ctx, host, n.allowPrivate)
+	ip, err := ResolvePublicIP(ctx, host, n.allowPrivate)
 	if err != nil {
 		return nil, err
 	}
@@ -30,33 +35,34 @@ func (n *HostNetwork) DialContext(ctx context.Context, network, address string) 
 	return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 }
 
-func (n *HostNetwork) Resolver() fpsystem.Resolver {
-	return hostResolver{}
+func (n *Host) Resolver() fpsystem.Resolver {
+	return Resolver{}
 }
 
-type hostResolver struct{}
+// Resolver delegates DNS lookups to net.DefaultResolver.
+type Resolver struct{}
 
-func (hostResolver) LookupHost(ctx context.Context, host string) ([]string, error) {
+func (Resolver) LookupHost(ctx context.Context, host string) ([]string, error) {
 	return net.DefaultResolver.LookupHost(ctx, host)
 }
 
-func (hostResolver) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+func (Resolver) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
 	return net.DefaultResolver.LookupIPAddr(ctx, host)
 }
 
-func (hostResolver) LookupCNAME(ctx context.Context, host string) (string, error) {
+func (Resolver) LookupCNAME(ctx context.Context, host string) (string, error) {
 	return net.DefaultResolver.LookupCNAME(ctx, host)
 }
 
-func (hostResolver) LookupMX(ctx context.Context, name string) ([]*net.MX, error) {
+func (Resolver) LookupMX(ctx context.Context, name string) ([]*net.MX, error) {
 	return net.DefaultResolver.LookupMX(ctx, name)
 }
 
-func (hostResolver) LookupSRV(ctx context.Context, service, proto, name string) (string, []*net.SRV, error) {
+func (Resolver) LookupSRV(ctx context.Context, service, proto, name string) (string, []*net.SRV, error) {
 	return net.DefaultResolver.LookupSRV(ctx, service, proto, name)
 }
 
-func (hostResolver) LookupTXT(ctx context.Context, name string) ([]string, error) {
+func (Resolver) LookupTXT(ctx context.Context, name string) ([]string, error) {
 	return net.DefaultResolver.LookupTXT(ctx, name)
 }
 
@@ -69,20 +75,20 @@ func ValidatePublicURL(parsed *url.URL, allowPrivate bool) error {
 	if host == "" {
 		return fmt.Errorf("url host is empty")
 	}
-	if ip := net.ParseIP(host); ip != nil && !allowPrivate && blockedIP(ip) {
+	if ip := net.ParseIP(host); ip != nil && !allowPrivate && BlockedIP(ip) {
 		return fmt.Errorf("private, local, multicast, and metadata network targets are blocked")
 	}
 	return nil
 }
 
-// PublicNetworkTransport returns a guarded HTTP transport.
-func PublicNetworkTransport(allowPrivate bool) http.RoundTripper {
-	return PublicNetworkTransportWithTLS(allowPrivate, nil)
+// PublicTransport returns a guarded HTTP transport.
+func PublicTransport(allowPrivate bool) http.RoundTripper {
+	return PublicTransportWithTLS(allowPrivate, nil)
 }
 
-// PublicNetworkTransportWithTLS returns a guarded HTTP transport with optional
+// PublicTransportWithTLS returns a guarded HTTP transport with optional
 // caller-provided TLS settings.
-func PublicNetworkTransportWithTLS(allowPrivate bool, cfg *tls.Config) http.RoundTripper {
+func PublicTransportWithTLS(allowPrivate bool, cfg *tls.Config) http.RoundTripper {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	return &http.Transport{
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -90,17 +96,18 @@ func PublicNetworkTransportWithTLS(allowPrivate bool, cfg *tls.Config) http.Roun
 			if err != nil {
 				return nil, err
 			}
-			ip, err := resolvePublicIP(ctx, host, allowPrivate)
+			ip, err := ResolvePublicIP(ctx, host, allowPrivate)
 			if err != nil {
 				return nil, err
 			}
 			return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 		},
-		TLSClientConfig: secureTLSConfig(cfg),
+		TLSClientConfig: SecureTLSConfig(cfg),
 	}
 }
 
-func secureTLSConfig(cfg *tls.Config) *tls.Config {
+// SecureTLSConfig returns cfg with at least TLS 1.2 enforced.
+func SecureTLSConfig(cfg *tls.Config) *tls.Config {
 	if cfg == nil {
 		return &tls.Config{MinVersion: tls.VersionTLS12}
 	}
@@ -111,9 +118,10 @@ func secureTLSConfig(cfg *tls.Config) *tls.Config {
 	return out
 }
 
-func resolvePublicIP(ctx context.Context, host string, allowPrivate bool) (net.IP, error) {
+// ResolvePublicIP resolves host to an IP accepted by the allowPrivate policy.
+func ResolvePublicIP(ctx context.Context, host string, allowPrivate bool) (net.IP, error) {
 	if ip := net.ParseIP(host); ip != nil {
-		if !allowPrivate && blockedIP(ip) {
+		if !allowPrivate && BlockedIP(ip) {
 			return nil, fmt.Errorf("private, local, multicast, and metadata network targets are blocked")
 		}
 		return ip, nil
@@ -123,14 +131,15 @@ func resolvePublicIP(ctx context.Context, host string, allowPrivate bool) (net.I
 		return nil, err
 	}
 	for _, addr := range addrs {
-		if allowPrivate || !blockedIP(addr.IP) {
+		if allowPrivate || !BlockedIP(addr.IP) {
 			return addr.IP, nil
 		}
 	}
 	return nil, fmt.Errorf("host resolves only to private, local, multicast, or metadata addresses")
 }
 
-func blockedIP(ip net.IP) bool {
+// BlockedIP reports whether ip is unsafe for public-only network access.
+func BlockedIP(ip net.IP) bool {
 	if ip == nil {
 		return true
 	}
@@ -142,3 +151,6 @@ func blockedIP(ip net.IP) bool {
 		ip.IsUnspecified() ||
 		ip.Equal(net.ParseIP("169.254.169.254"))
 }
+
+var _ fpsystem.Network = (*Host)(nil)
+var _ fpsystem.Resolver = Resolver{}

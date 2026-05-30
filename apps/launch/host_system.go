@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	runtimenetwork "github.com/fluxplane/fluxplane-core/runtime/network"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -21,7 +22,7 @@ type hostConfig struct {
 // Host is the default host-guarded system implementation.
 type hostSystem struct {
 	workspace *runtimeworkspace.HostWorkspace
-	network   *HostNetwork
+	network   *runtimenetwork.Host
 	process   *runtimeworkspace.HostProcess
 	env       *runtimeworkspace.WorkspaceEnvironment
 }
@@ -54,7 +55,7 @@ func newHost(cfg hostConfig) (*hostSystem, error) {
 	}
 	return &hostSystem{
 		workspace: workspace,
-		network:   &HostNetwork{allowPrivate: cfg.AllowPrivateNetwork},
+		network:   runtimenetwork.NewHost(cfg.AllowPrivateNetwork),
 		process:   runtimeworkspace.NewProcessManagerWithEnvironment(workspace, env),
 		env:       env,
 	}, nil
