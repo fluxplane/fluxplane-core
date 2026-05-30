@@ -10,6 +10,8 @@ import (
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
+	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
 
 func TestAuthMethodsDeclareTokenAPITokenAndOAuth(t *testing.T) {
@@ -88,7 +90,7 @@ func TestBaseURLUsesProductRESTPath(t *testing.T) {
 func TestResolveTokenDiscoversSiteURLForCloudID(t *testing.T) {
 	product := Product{Name: "jira", DisplayName: "Jira Cloud", ResourcePath: "jira"}
 	ref := resource.PluginRef{Name: "jira", Instance: "main"}
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`[{"id":"cloud-1","url":"https://example.atlassian.invalid","name":"Company"}]`),
@@ -243,11 +245,12 @@ func (s fakeSystem) Clarifier() system.Clarifier     { return nil }
 func (s fakeSystem) Environment() system.Environment { return s.env }
 
 type recordingNetwork struct {
-	request  system.HTTPRequest
-	response system.HTTPResponse
+	fpsystemtest.UnsupportedNetwork
+	request  systemkit.HTTPRequest
+	response systemkit.HTTPResponse
 }
 
-func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+func (n *recordingNetwork) DoHTTP(_ context.Context, req systemkit.HTTPRequest) (systemkit.HTTPResponse, error) {
 	n.request = req
 	return n.response, nil
 }

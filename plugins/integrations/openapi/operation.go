@@ -17,6 +17,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
@@ -36,7 +37,7 @@ func (o openAPIOperation) Run(ctx operation.Context, input operation.Value) oper
 	if err != nil {
 		return operation.Failed(o.def.Name+"_failed", err.Error(), nil)
 	}
-	client := system.NewHTTPClient(o.system.Network())
+	client := systemkit.NewHTTPClient(o.system.Network())
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return operation.Failed(o.def.Name+"_failed", err.Error(), nil)

@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-event"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 func TestShellExecStreamsProcessEvents(t *testing.T) {
@@ -32,7 +33,7 @@ func TestShellExecStreamsProcessEvents(t *testing.T) {
 	}
 	var sawOutput bool
 	for _, evt := range events {
-		if proc, ok := evt.(system.ProcessEvent); ok && proc.Kind == "output" && strings.Contains(proc.Data, "hello") {
+		if proc, ok := evt.(fpsystem.ProcessEvent); ok && proc.Kind == fpsystem.ProcessEventOutput && strings.Contains(proc.Data, "hello") {
 			sawOutput = true
 		}
 	}

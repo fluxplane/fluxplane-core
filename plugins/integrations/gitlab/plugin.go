@@ -16,6 +16,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"golang.org/x/oauth2"
 )
@@ -553,7 +554,7 @@ func newOfficialClientFromAuth(sys system.System, cfg Config, auth resolvedGitLa
 	}
 	options := []gitlab.ClientOptionFunc{
 		gitlab.WithBaseURL(firstNonEmpty(auth.BaseURL, cfg.baseURL())),
-		gitlab.WithHTTPClient(system.NewHTTPClient(sys.Network())),
+		gitlab.WithHTTPClient(systemkit.NewHTTPClient(sys.Network())),
 		gitlab.WithoutRetries(),
 	}
 	var client *gitlab.Client

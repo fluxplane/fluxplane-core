@@ -13,6 +13,8 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/internal/atlassian"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
+	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
 
 func TestPluginContributesConfluenceDatasourceEntities(t *testing.T) {
@@ -74,7 +76,7 @@ func TestConfluenceDatasourceDefaultsToAllEntities(t *testing.T) {
 }
 
 func TestPageListUsesConfluenceV1BaseAndTokenAuth(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"results":[{"id":"123","title":"Runbook","status":"current","space":{"id":42,"key":"ENG"},"version":{"number":7},"body":{"storage":{"value":"<p>Hello &amp; welcome</p>"}},"_links":{"webui":"/wiki/spaces/ENG/pages/123/Runbook"}}],"_links":{"next":"/wiki/rest/api/content?start=1"}}`),
@@ -117,7 +119,7 @@ func TestPageListUsesConfluenceV1BaseAndTokenAuth(t *testing.T) {
 }
 
 func TestPageListUsesAtlassianBasicAPITokenAuth(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"results":[],"_links":{}}`),
@@ -149,7 +151,7 @@ func TestPageListUsesAtlassianBasicAPITokenAuth(t *testing.T) {
 }
 
 func TestConnectionReportsCurrentConfluenceUser(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"accountId":"abc-123","displayName":"Timo Friedl","publicName":"Timo"}`),
@@ -175,7 +177,7 @@ func TestConnectionReportsCurrentConfluenceUser(t *testing.T) {
 }
 
 func TestPageListUsesDiscoveredSiteURLForCanonicalLinks(t *testing.T) {
-	network := &sequenceNetwork{responses: []system.HTTPResponse{
+	network := &sequenceNetwork{responses: []systemkit.HTTPResponse{
 		{
 			StatusCode: 200,
 			Headers:    map[string][]string{"Content-Type": {"application/json"}},
@@ -211,7 +213,7 @@ func TestPageListUsesDiscoveredSiteURLForCanonicalLinks(t *testing.T) {
 }
 
 func TestSpaceGetUsesConfluenceV1BaseAndTokenAuth(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"results":[{"id":42,"key":"ENG","name":"Engineering","type":"global","status":"current","description":{"plain":{"value":"Team docs"}},"_links":{"webui":"/wiki/spaces/ENG"}}]}`),
@@ -242,7 +244,7 @@ func TestSpaceGetUsesConfluenceV1BaseAndTokenAuth(t *testing.T) {
 }
 
 func TestSpaceGetSupportsDetectedSpaceKeys(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"results":[{"id":42,"key":"ENG","name":"Engineering","description":{"plain":{"value":"Team docs"}}}],"_links":{}}`),
@@ -309,24 +311,26 @@ func newTestPlugin(t *testing.T, network system.Network, env map[string]string) 
 }
 
 type recordingNetwork struct {
-	request  system.HTTPRequest
-	response system.HTTPResponse
+	fpsystemtest.UnsupportedNetwork
+	request  systemkit.HTTPRequest
+	response systemkit.HTTPResponse
 }
 
-func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+func (n *recordingNetwork) DoHTTP(_ context.Context, req systemkit.HTTPRequest) (systemkit.HTTPResponse, error) {
 	n.request = req
 	return n.response, nil
 }
 
 type sequenceNetwork struct {
-	requests  []system.HTTPRequest
-	responses []system.HTTPResponse
+	fpsystemtest.UnsupportedNetwork
+	requests  []systemkit.HTTPRequest
+	responses []systemkit.HTTPResponse
 }
 
-func (n *sequenceNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+func (n *sequenceNetwork) DoHTTP(_ context.Context, req systemkit.HTTPRequest) (systemkit.HTTPResponse, error) {
 	n.requests = append(n.requests, req)
 	if len(n.responses) == 0 {
-		return system.HTTPResponse{StatusCode: 500, Body: []byte(`unexpected request`)}, nil
+		return systemkit.HTTPResponse{StatusCode: 500, Body: []byte(`unexpected request`)}, nil
 	}
 	resp := n.responses[0]
 	n.responses = n.responses[1:]

@@ -25,6 +25,8 @@ import (
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
+	"github.com/fluxplane/fluxplane-system/systemkit"
+	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
 
 func TestPortForwardUsesManagedKubectlProcess(t *testing.T) {
@@ -170,7 +172,7 @@ func findOperation(t *testing.T, ops []operation.Operation, name string) operati
 
 func TestKubernetesRestHTTPClientUsesSystemNetworkBoundary(t *testing.T) {
 	network := &recordingNetwork{
-		response: system.HTTPResponse{StatusCode: http.StatusOK, Body: []byte("ok")},
+		response: systemkit.HTTPResponse{StatusCode: http.StatusOK, Body: []byte("ok")},
 	}
 	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), network: network})
 	client, err := plugin.httpClientForRestConfig(&rest.Config{
@@ -723,15 +725,16 @@ type recordingProcess struct {
 }
 
 type recordingNetwork struct {
-	requests []system.HTTPRequest
-	response system.HTTPResponse
+	fpsystemtest.UnsupportedNetwork
+	requests []systemkit.HTTPRequest
+	response systemkit.HTTPResponse
 	err      error
 }
 
-func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+func (n *recordingNetwork) DoHTTP(_ context.Context, req systemkit.HTTPRequest) (systemkit.HTTPResponse, error) {
 	n.requests = append(n.requests, req)
 	if n.err != nil {
-		return system.HTTPResponse{}, n.err
+		return systemkit.HTTPResponse{}, n.err
 	}
 	return n.response, nil
 }

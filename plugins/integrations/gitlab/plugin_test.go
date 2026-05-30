@@ -19,6 +19,8 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
+	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
@@ -414,7 +416,7 @@ func TestPluginMROperationUsesInjectedClient(t *testing.T) {
 
 func TestOfficialClientUsesSystemNetworkAndPersonalAccessTokenEnv(t *testing.T) {
 	network := &recordingNetwork{
-		response: system.HTTPResponse{
+		response: systemkit.HTTPResponse{
 			StatusCode: 200,
 			Headers:    map[string][]string{"Content-Type": {"application/json"}},
 			Body:       []byte(`[{"id":12,"name":"runtime","path_with_namespace":"fluxplane/runtime","web_url":"https://gitlab.example/fluxplane/runtime"}]`),
@@ -447,7 +449,7 @@ func TestOfficialClientUsesSystemNetworkAndPersonalAccessTokenEnv(t *testing.T) 
 }
 
 func TestOfficialClientProbesAliasesWhenTokenEnvUnset(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`[]`),
@@ -471,7 +473,7 @@ func TestOfficialClientProbesAliasesWhenTokenEnvUnset(t *testing.T) {
 }
 
 func TestOfficialClientUsesGitLabURLEnv(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`[]`),
@@ -496,7 +498,7 @@ func TestOfficialClientUsesGitLabURLEnv(t *testing.T) {
 }
 
 func TestOfficialClientConfiguredTokenEnvDoesNotProbeAliases(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`[]`),
@@ -565,7 +567,7 @@ func TestDatasourceProviderSearchesProjects(t *testing.T) {
 }
 
 func TestDatasourceProviderUsesInjectedSecretResolver(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`[{"id":12,"name":"runtime","path_with_namespace":"fluxplane/runtime","web_url":"https://gitlab.example/fluxplane/runtime"}]`),
@@ -3740,11 +3742,12 @@ func (s fakeSystem) Clarifier() system.Clarifier { return nil }
 func (s fakeSystem) Environment() system.Environment { return s.env }
 
 type recordingNetwork struct {
-	request  system.HTTPRequest
-	response system.HTTPResponse
+	fpsystemtest.UnsupportedNetwork
+	request  systemkit.HTTPRequest
+	response systemkit.HTTPResponse
 }
 
-func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+func (n *recordingNetwork) DoHTTP(_ context.Context, req systemkit.HTTPRequest) (systemkit.HTTPResponse, error) {
 	n.request = req
 	return n.response, nil
 }

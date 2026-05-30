@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 type lokiClient struct {
@@ -133,13 +134,13 @@ func (c lokiClient) queryRange(ctx context.Context, query string, start, end tim
 	return decoded, resp.Truncated, nil
 }
 
-func (c lokiClient) get(ctx context.Context, path string, values url.Values, maxBytes int) (system.HTTPResponse, error) {
+func (c lokiClient) get(ctx context.Context, path string, values url.Values, maxBytes int) (systemkit.HTTPResponse, error) {
 	if c.system == nil || c.system.Network() == nil {
-		return system.HTTPResponse{}, fmt.Errorf("loki system network is nil")
+		return systemkit.HTTPResponse{}, fmt.Errorf("loki system network is nil")
 	}
 	base := strings.TrimRight(strings.TrimSpace(c.baseURL), "/")
 	if base == "" {
-		return system.HTTPResponse{}, fmt.Errorf("loki url is empty")
+		return systemkit.HTTPResponse{}, fmt.Errorf("loki url is empty")
 	}
 	target := base + path
 	if len(values) > 0 {
@@ -153,7 +154,7 @@ func (c lokiClient) get(ctx context.Context, path string, values url.Values, max
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	return c.system.Network().DoHTTP(ctx, system.HTTPRequest{
+	return systemkit.DoHTTP(ctx, c.system.Network(), systemkit.HTTPRequest{
 		URL:       target,
 		Method:    http.MethodGet,
 		Headers:   headers,

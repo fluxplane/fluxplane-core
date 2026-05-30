@@ -13,6 +13,8 @@ import (
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
+	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
 
 func TestPluginGeneratesOperationsDatasourceAndAuthMethods(t *testing.T) {
@@ -54,7 +56,7 @@ func TestGeneratedOperationExecutesWithBearerAuth(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	writeFixture(t, dir)
-	network := &recordingNetwork{response: system.HTTPResponse{StatusCode: 200, Headers: map[string][]string{"Content-Type": {"application/json"}}, Body: []byte(`{"id":"42","name":"Ada"}`)}}
+	network := &recordingNetwork{response: systemkit.HTTPResponse{StatusCode: 200, Headers: map[string][]string{"Content-Type": {"application/json"}}, Body: []byte(`{"id":"42","name":"Ada"}`)}}
 	sys := newTestSystem(t, dir, network, map[string]string{"TESTUSER_PASSWORD": "secret-token"})
 	host, err := pluginhost.New(New(sys))
 	if err != nil {
@@ -84,7 +86,7 @@ func TestGeneratedOperationExecutesWithOAuthBearerAuth(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	writeOAuthFixture(t, dir)
-	network := &recordingNetwork{response: system.HTTPResponse{StatusCode: 200, Body: []byte(`{}`)}}
+	network := &recordingNetwork{response: systemkit.HTTPResponse{StatusCode: 200, Body: []byte(`{}`)}}
 	sys := newTestSystem(t, dir, network, map[string]string{"OAUTH_API_TOKEN": "oauth-token"})
 	host, err := pluginhost.New(New(sys))
 	if err != nil {
@@ -347,7 +349,7 @@ func newTestSystem(t *testing.T, dir string, network system.Network, env map[str
 		t.Fatalf("NewHost: %v", err)
 	}
 	if network == nil {
-		network = &recordingNetwork{response: system.HTTPResponse{StatusCode: 200, Body: []byte(`{}`)}}
+		network = &recordingNetwork{response: systemkit.HTTPResponse{StatusCode: 200, Body: []byte(`{}`)}}
 	}
 	return testSystem{workspace: host.Workspace(), network: network, env: testEnv{values: env}}
 }
@@ -369,11 +371,12 @@ func (e testEnv) Lookup(_ context.Context, key string) (string, bool, error) {
 }
 
 type recordingNetwork struct {
-	request  system.HTTPRequest
-	response system.HTTPResponse
+	fpsystemtest.UnsupportedNetwork
+	request  systemkit.HTTPRequest
+	response systemkit.HTTPResponse
 }
 
-func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+func (n *recordingNetwork) DoHTTP(_ context.Context, req systemkit.HTTPRequest) (systemkit.HTTPResponse, error) {
 	n.request = req
 	if n.response.StatusCode == 0 {
 		n.response.StatusCode = 200

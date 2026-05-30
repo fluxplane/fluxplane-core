@@ -29,6 +29,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 const (
@@ -599,11 +600,11 @@ func (p Plugin) httpClientForRestConfig(cfg *rest.Config) (*http.Client, error) 
 	if err != nil {
 		return nil, err
 	}
-	boundaryTransport := system.NewRoundTripper(
+	boundaryTransport := systemkit.NewRoundTripper(
 		p.system.Network(),
-		system.WithHTTPClientTimeout(30*time.Second),
-		system.WithHTTPClientMaxBytes(10*1024*1024),
-		system.WithHTTPClientTLSConfig(tlsConfig),
+		systemkit.WithHTTPClientTimeout(30*time.Second),
+		systemkit.WithHTTPClientMaxBytes(10*1024*1024),
+		systemkit.WithHTTPClientTLSConfig(tlsConfig),
 	)
 	wrappedTransport, err := rest.HTTPWrappersForConfig(cfg, boundaryTransport)
 	if err != nil {

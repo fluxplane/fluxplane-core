@@ -10,6 +10,7 @@ import (
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 func TestWebRequestConvertsHTMLToMarkdown(t *testing.T) {
@@ -68,7 +69,7 @@ func TestWebRequestIntentUsesTypedURLTarget(t *testing.T) {
 }
 
 func TestWebDatasourceSearchesHTMLResults(t *testing.T) {
-	network := &testNetwork{response: system.HTTPResponse{
+	network := &testNetwork{response: systemkit.HTTPResponse{
 		Status:     "200 OK",
 		StatusCode: 200,
 		Body: []byte(`
@@ -120,7 +121,7 @@ func TestWebDatasourceSearchesHTMLResults(t *testing.T) {
 
 func TestWebSearchUsesTavilyProvider(t *testing.T) {
 	sys := testSystem{
-		network: &testNetwork{response: system.HTTPResponse{
+		network: &testNetwork{response: systemkit.HTTPResponse{
 			Status:     "200 OK",
 			StatusCode: 200,
 			Body: []byte(`{
@@ -160,7 +161,8 @@ func TestWebSearchUsesTavilyProvider(t *testing.T) {
 	if req.Headers["Authorization"] != "Bearer tvly-test" || req.Headers["Content-Type"] != "application/json" {
 		t.Fatalf("headers = %#v, want Tavily bearer/json", req.Headers)
 	}
-	if !strings.Contains(req.Body, `"query":"agent runtime"`) || !strings.Contains(req.Body, `"max_results":3`) || !strings.Contains(req.Body, `"search_depth":"basic"`) {
+	body := string(req.Body)
+	if !strings.Contains(body, `"query":"agent runtime"`) || !strings.Contains(body, `"max_results":3`) || !strings.Contains(body, `"search_depth":"basic"`) {
 		t.Fatalf("body = %s, want Tavily low-cost payload", req.Body)
 	}
 	rendered, ok := result.Output.(operation.Rendered)
@@ -195,7 +197,7 @@ func TestWebSearchExplicitTavilyRequiresAPIKey(t *testing.T) {
 
 func TestWebSearchUsesDuckDuckGoByDefaultWithoutTavily(t *testing.T) {
 	sys := testSystem{
-		network: &testNetwork{response: system.HTTPResponse{
+		network: &testNetwork{response: systemkit.HTTPResponse{
 			Status:     "200 OK",
 			StatusCode: 200,
 			Body: []byte(`
@@ -242,7 +244,7 @@ func TestWebSearchUsesDuckDuckGoByDefaultWithoutTavily(t *testing.T) {
 
 func TestWebSearchFiltersDuckDuckGoProvider(t *testing.T) {
 	sys := testSystem{
-		network: &testNetwork{response: system.HTTPResponse{
+		network: &testNetwork{response: systemkit.HTTPResponse{
 			Status:     "200 OK",
 			StatusCode: 200,
 			Body: []byte(`<html><body>

@@ -19,10 +19,10 @@ import (
 	coreworkflow "github.com/fluxplane/fluxplane-core/core/workflow"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
-	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
-	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-event"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 // Config describes event payload types visible to an app.
@@ -102,9 +102,9 @@ func defaultEventTypes() []event.Event {
 		llmagent.ModelStreamed{},
 		llmagent.ModelCompleted{},
 		llmagent.ModelFailed{},
-		system.ProcessEvent{Kind: "started"},
-		system.ProcessEvent{Kind: "output"},
-		system.ProcessEvent{Kind: "exited"},
+		fpsystem.ProcessEvent{Kind: fpsystem.ProcessEventStarted},
+		fpsystem.ProcessEvent{Kind: fpsystem.ProcessEventOutput},
+		fpsystem.ProcessEvent{Kind: fpsystem.ProcessEventExited},
 		sessionagent.Requested{},
 		sessionagent.Started{},
 		sessionagent.Progressed{},

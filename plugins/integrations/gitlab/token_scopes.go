@@ -8,6 +8,7 @@ import (
 	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"golang.org/x/oauth2"
 )
@@ -45,7 +46,7 @@ func tokenScopeClient(ctx context.Context, sys system.System, resolver runtimese
 	}
 	options := []gitlab.ClientOptionFunc{
 		gitlab.WithBaseURL(firstNonEmpty(auth.BaseURL, cfg.baseURL())),
-		gitlab.WithHTTPClient(system.NewHTTPClient(sys.Network())),
+		gitlab.WithHTTPClient(systemkit.NewHTTPClient(sys.Network())),
 		gitlab.WithoutRetries(),
 	}
 	switch auth.Material.Kind {

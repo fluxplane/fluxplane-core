@@ -22,6 +22,8 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-system/systemkit"
+	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
 
 func TestLokiQueryAddsNamespaceAndBoundsLimit(t *testing.T) {
@@ -339,22 +341,23 @@ func (s lokiFakeSystem) Network() system.Network {
 }
 
 type lokiPortForwardNetwork struct {
-	requests []system.HTTPRequest
+	fpsystemtest.UnsupportedNetwork
+	requests []systemkit.HTTPRequest
 }
 
-func (n *lokiPortForwardNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+func (n *lokiPortForwardNetwork) DoHTTP(_ context.Context, req systemkit.HTTPRequest) (systemkit.HTTPResponse, error) {
 	n.requests = append(n.requests, req)
 	parsed, _ := url.Parse(req.URL)
 	if parsed.Hostname() != "127.0.0.1" {
-		return system.HTTPResponse{}, errors.New("cluster service DNS is not locally reachable")
+		return systemkit.HTTPResponse{}, errors.New("cluster service DNS is not locally reachable")
 	}
 	switch parsed.Path {
 	case "/ready":
-		return system.HTTPResponse{StatusCode: http.StatusOK, Status: "200 OK", Body: []byte("ready")}, nil
+		return systemkit.HTTPResponse{StatusCode: http.StatusOK, Status: "200 OK", Body: []byte("ready")}, nil
 	case "/loki/api/v1/status/buildinfo":
-		return system.HTTPResponse{StatusCode: http.StatusOK, Status: "200 OK", Body: []byte(`{"status":"success","data":{"version":"3.5.7"}}`)}, nil
+		return systemkit.HTTPResponse{StatusCode: http.StatusOK, Status: "200 OK", Body: []byte(`{"status":"success","data":{"version":"3.5.7"}}`)}, nil
 	default:
-		return system.HTTPResponse{StatusCode: http.StatusNotFound, Status: "404 Not Found"}, nil
+		return systemkit.HTTPResponse{StatusCode: http.StatusNotFound, Status: "404 Not Found"}, nil
 	}
 }
 

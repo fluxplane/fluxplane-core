@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 const tavilySearchURL = "https://api.tavily.com/search"
@@ -48,14 +49,14 @@ func (p tavilySearchProvider) Search(ctx context.Context, req SearchProviderRequ
 	if err != nil {
 		return SearchProviderResult{}, err
 	}
-	resp, err := p.system.Network().DoHTTP(ctx, system.HTTPRequest{
+	resp, err := systemkit.DoHTTP(ctx, p.system.Network(), systemkit.HTTPRequest{
 		URL:    tavilySearchURL,
 		Method: "POST",
 		Headers: map[string]string{
 			"Authorization": "Bearer " + p.apiKey,
 			"Content-Type":  "application/json",
 		},
-		Body:      string(body),
+		Body:      body,
 		Timeout:   30 * time.Second,
 		MaxBytes:  1024 * 1024,
 		UserAgent: "fluxplane/0.1",

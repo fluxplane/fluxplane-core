@@ -16,6 +16,8 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
+	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
 
 func TestPluginContributesJiraDatasourceEntities(t *testing.T) {
@@ -130,7 +132,7 @@ func TestJiraDatasourceDefaultsToAllEntities(t *testing.T) {
 }
 
 func TestIssueSearchUsesNativeHTTPAndTokenAuth(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"issues":[{"id":"100","key":"DEV-381","self":"https://api.example/issue/100","fields":{"summary":"Native Jira","status":{"name":"Open"},"description":"Useful"}}],"total":1}`),
@@ -158,7 +160,7 @@ func TestIssueSearchUsesNativeHTTPAndTokenAuth(t *testing.T) {
 }
 
 func TestIssueCreateUsesNativeHTTPAndTokenAuth(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 201,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"id":"101","key":"DEV-488","self":"https://api.example/issue/101"}`),
@@ -198,7 +200,7 @@ func TestIssueCreateUsesNativeHTTPAndTokenAuth(t *testing.T) {
 }
 
 func TestIssueCommentUsesMarkdownConverter(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 201,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"id":"10042"}`),
@@ -232,7 +234,7 @@ func TestIssueCommentUsesMarkdownConverter(t *testing.T) {
 }
 
 func TestJiraMarkdownToADFLinkifiesKnownIssueKeys(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"values":[{"key":"DEV","name":"Development"}],"total":1}`),
@@ -254,7 +256,7 @@ func TestJiraMarkdownToADFLinkifiesKnownIssueKeys(t *testing.T) {
 }
 
 func TestIssueSearchUsesAtlassianServiceAccountAPITokenAuth(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"issues":[],"total":0}`),
@@ -279,7 +281,7 @@ func TestIssueSearchUsesAtlassianServiceAccountAPITokenAuth(t *testing.T) {
 }
 
 func TestIssueSearchUsesAtlassianBasicAPITokenAuth(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"issues":[],"total":0}`),
@@ -308,7 +310,7 @@ func TestIssueSearchUsesAtlassianBasicAPITokenAuth(t *testing.T) {
 }
 
 func TestConnectionReportsCurrentJiraUser(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"accountId":"abc-123","displayName":"Timo Friedl","emailAddress":"user@example.invalid"}`),
@@ -334,7 +336,7 @@ func TestConnectionReportsCurrentJiraUser(t *testing.T) {
 }
 
 func TestIssueGetUsesDiscoveredCanonicalWebURL(t *testing.T) {
-	network := &sequenceNetwork{responses: []system.HTTPResponse{
+	network := &sequenceNetwork{responses: []systemkit.HTTPResponse{
 		{
 			StatusCode: 200,
 			Headers:    map[string][]string{"Content-Type": {"application/json"}},
@@ -373,7 +375,7 @@ func TestIssueGetUsesDiscoveredCanonicalWebURL(t *testing.T) {
 }
 
 func TestIssueGetLeavesURLBlankWhenSiteDiscoveryDoesNotMatch(t *testing.T) {
-	network := &sequenceNetwork{responses: []system.HTTPResponse{
+	network := &sequenceNetwork{responses: []systemkit.HTTPResponse{
 		{
 			StatusCode: 200,
 			Headers:    map[string][]string{"Content-Type": {"application/json"}},
@@ -409,7 +411,7 @@ func TestIssueGetLeavesURLBlankWhenSiteDiscoveryDoesNotMatch(t *testing.T) {
 }
 
 func TestProjectGetUsesCanonicalWebURL(t *testing.T) {
-	network := &recordingNetwork{response: system.HTTPResponse{
+	network := &recordingNetwork{response: systemkit.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"id":"10000","key":"DEV","name":"Development","projectTypeKey":"software","self":"https://api.example/rest/api/3/project/10000"}`),
@@ -493,24 +495,26 @@ func newTestPlugin(t *testing.T, network system.Network, env map[string]string) 
 }
 
 type recordingNetwork struct {
-	request  system.HTTPRequest
-	response system.HTTPResponse
+	fpsystemtest.UnsupportedNetwork
+	request  systemkit.HTTPRequest
+	response systemkit.HTTPResponse
 }
 
-func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+func (n *recordingNetwork) DoHTTP(_ context.Context, req systemkit.HTTPRequest) (systemkit.HTTPResponse, error) {
 	n.request = req
 	return n.response, nil
 }
 
 type sequenceNetwork struct {
-	requests  []system.HTTPRequest
-	responses []system.HTTPResponse
+	fpsystemtest.UnsupportedNetwork
+	requests  []systemkit.HTTPRequest
+	responses []systemkit.HTTPResponse
 }
 
-func (n *sequenceNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+func (n *sequenceNetwork) DoHTTP(_ context.Context, req systemkit.HTTPRequest) (systemkit.HTTPResponse, error) {
 	n.requests = append(n.requests, req)
 	if len(n.responses) == 0 {
-		return system.HTTPResponse{StatusCode: 500, Body: []byte(`unexpected request`)}, nil
+		return systemkit.HTTPResponse{StatusCode: 500, Body: []byte(`unexpected request`)}, nil
 	}
 	resp := n.responses[0]
 	n.responses = n.responses[1:]

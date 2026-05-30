@@ -13,6 +13,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 	"github.com/slack-go/slack"
 )
 
@@ -225,7 +226,7 @@ func (p Plugin) newClient(token, appToken string) *slack.Client {
 		options = append(options, slack.OptionAppLevelToken(appToken))
 	}
 	if p.system != nil && p.system.Network() != nil {
-		options = append(options, slack.OptionHTTPClient(system.NewHTTPClient(p.system.Network())))
+		options = append(options, slack.OptionHTTPClient(systemkit.NewHTTPClient(p.system.Network())))
 	}
 	return slack.New(token, options...)
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 var duckDuckGoSearchURLTemplate = "https://html.duckduckgo.com/html/?q={query}"
@@ -36,7 +37,7 @@ func (p duckDuckGoSearchProvider) Search(ctx context.Context, req SearchProvider
 	if !p.Available(ctx) {
 		return SearchProviderResult{}, fmt.Errorf("web search provider %q is not available; network is not configured", SearchProviderDuckDuckGo)
 	}
-	resp, err := p.system.Network().DoHTTP(ctx, system.HTTPRequest{
+	resp, err := systemkit.DoHTTP(ctx, p.system.Network(), systemkit.HTTPRequest{
 		URL:       duckDuckGoSearchURL(p.template, query),
 		Method:    "GET",
 		Timeout:   30 * time.Second,

@@ -16,6 +16,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 const (
@@ -131,8 +132,8 @@ func (p Plugin) request() operationruntime.TypedResultHandler[requestInput, map[
 		if maxBytes <= 0 || maxBytes > maxBodyBytes {
 			maxBytes = 512 * 1024
 		}
-		resp, err := p.system.Network().DoHTTP(ctx, system.HTTPRequest{
-			URL: req.URL, Method: method, Headers: req.Headers, Body: req.Body,
+		resp, err := systemkit.DoHTTP(ctx, p.system.Network(), systemkit.HTTPRequest{
+			URL: req.URL, Method: method, Headers: req.Headers, Body: []byte(req.Body),
 			Timeout: timeout, MaxBytes: maxBytes, UserAgent: "fluxplane/0.1",
 		})
 		if err != nil {

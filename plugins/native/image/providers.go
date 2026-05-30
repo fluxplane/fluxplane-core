@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 type pollinationsProvider struct{}
@@ -35,7 +36,7 @@ func (pollinationsProvider) Generate(ctx context.Context, sys system.System, req
 		width,
 		height,
 	)
-	resp, err := sys.Network().DoHTTP(ctx, system.HTTPRequest{
+	resp, err := systemkit.DoHTTP(ctx, sys.Network(), systemkit.HTTPRequest{
 		URL:       target,
 		Method:    "GET",
 		Timeout:   60 * time.Second,
@@ -119,7 +120,7 @@ func (openAIImageProvider) Generate(ctx context.Context, sys system.System, req 
 	if decoded.Data[0].URL == "" {
 		return GenerateResult{}, fmt.Errorf("openai: response did not include b64_json or url image data")
 	}
-	imageResp, err := sys.Network().DoHTTP(ctx, system.HTTPRequest{
+	imageResp, err := systemkit.DoHTTP(ctx, sys.Network(), systemkit.HTTPRequest{
 		URL:       decoded.Data[0].URL,
 		Method:    "GET",
 		Timeout:   60 * time.Second,
@@ -211,7 +212,7 @@ func (anthropicUnderstandingProvider) Understand(ctx context.Context, sys system
 	if err != nil {
 		return UnderstandResult{}, err
 	}
-	resp, err := sys.Network().DoHTTP(ctx, system.HTTPRequest{
+	resp, err := systemkit.DoHTTP(ctx, sys.Network(), systemkit.HTTPRequest{
 		URL:    "https://api.anthropic.com/v1/messages",
 		Method: "POST",
 		Headers: map[string]string{
@@ -219,7 +220,7 @@ func (anthropicUnderstandingProvider) Understand(ctx context.Context, sys system
 			"anthropic-version": "2023-06-01",
 			"content-type":      "application/json",
 		},
-		Body:      string(data),
+		Body:      data,
 		Timeout:   60 * time.Second,
 		MaxBytes:  4 * 1024 * 1024,
 		UserAgent: "fluxplane/0.1",

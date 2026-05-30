@@ -28,6 +28,8 @@ import (
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	coreevent "github.com/fluxplane/fluxplane-event"
+	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
 const (
@@ -197,7 +199,7 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	switch payload := event.Runtime.Payload.(type) {
 	case llmagent.ModelStreamed:
 		r.renderModelStream(payload.Event)
-	case system.ProcessEvent:
+	case fpsystem.ProcessEvent:
 		r.flushContent()
 		renderProcessEvent(out, payload)
 	case policy.AuthorizationDecision:
@@ -1124,7 +1126,7 @@ func field(value any, name string) string {
 	return ""
 }
 
-func renderProcessEvent(out io.Writer, event system.ProcessEvent) {
+func renderProcessEvent(out io.Writer, event fpsystem.ProcessEvent) {
 	switch event.Kind {
 	case "started":
 		_, _ = fmt.Fprintf(out, "process start: %s\n", event.ProcessID)

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
+	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )
 
 type testSystem struct {
@@ -22,19 +24,20 @@ func (s testSystem) Clarifier() system.Clarifier     { return nil }
 func (s testSystem) Environment() system.Environment { return s.env }
 
 type testNetwork struct {
-	requests []system.HTTPRequest
-	response system.HTTPResponse
+	fpsystemtest.UnsupportedNetwork
+	requests []systemkit.HTTPRequest
+	response systemkit.HTTPResponse
 	err      error
 }
 
-func (n *testNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+func (n *testNetwork) DoHTTP(_ context.Context, req systemkit.HTTPRequest) (systemkit.HTTPResponse, error) {
 	n.requests = append(n.requests, req)
 	return n.response, n.err
 }
 
-func (n *testNetwork) lastRequest() system.HTTPRequest {
+func (n *testNetwork) lastRequest() systemkit.HTTPRequest {
 	if len(n.requests) == 0 {
-		return system.HTTPRequest{}
+		return systemkit.HTTPRequest{}
 	}
 	return n.requests[len(n.requests)-1]
 }

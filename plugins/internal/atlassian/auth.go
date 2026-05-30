@@ -16,6 +16,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/oauth2client"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
 const (
@@ -181,7 +182,7 @@ func DoJSON(ctx context.Context, sys system.System, session Session, method, pat
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := system.NewHTTPClient(sys.Network()).Do(req)
+	resp, err := systemkit.NewHTTPClient(sys.Network()).Do(req)
 	if err != nil {
 		return 0, err
 	}
@@ -737,7 +738,7 @@ func discoverTokenSiteURL(ctx context.Context, sys system.System, product Produc
 	if sys == nil || sys.Network() == nil {
 		return session
 	}
-	sites, err := DiscoverSites(ctx, system.NewHTTPClient(sys.Network()), session.Token)
+	sites, err := DiscoverSites(ctx, systemkit.NewHTTPClient(sys.Network()), session.Token)
 	if err != nil {
 		return session
 	}
@@ -801,7 +802,7 @@ func refreshStored(ctx context.Context, sys system.System, store runtimesecret.F
 	if refresh == "" || clientID == "" || clientSecret == "" {
 		return OAuthToken{}, stored, fmt.Errorf("atlassianplugin: oauth token expired and refresh credentials are unavailable")
 	}
-	token, err := RefreshToken(ctx, system.NewHTTPClient(sys.Network()), clientID, clientSecret, refresh)
+	token, err := RefreshToken(ctx, systemkit.NewHTTPClient(sys.Network()), clientID, clientSecret, refresh)
 	if err != nil {
 		return OAuthToken{}, stored, err
 	}
@@ -827,7 +828,7 @@ func refreshStored(ctx context.Context, sys system.System, store runtimesecret.F
 }
 
 func discoverAndStoreSite(ctx context.Context, sys system.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config, stored runtimesecret.StoredSecret) (runtimesecret.StoredSecret, Session, error) {
-	sites, err := DiscoverSites(ctx, system.NewHTTPClient(sys.Network()), stored.Value)
+	sites, err := DiscoverSites(ctx, systemkit.NewHTTPClient(sys.Network()), stored.Value)
 	if err != nil {
 		return stored, Session{}, err
 	}

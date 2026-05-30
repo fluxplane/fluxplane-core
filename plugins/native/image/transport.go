@@ -7,31 +7,32 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
-func doJSON(ctx context.Context, sys system.System, targetURL, authorization string, body any, maxBytes int) (system.HTTPResponse, error) {
+func doJSON(ctx context.Context, sys system.System, targetURL, authorization string, body any, maxBytes int) (systemkit.HTTPResponse, error) {
 	data, err := json.Marshal(body)
 	if err != nil {
-		return system.HTTPResponse{}, err
+		return systemkit.HTTPResponse{}, err
 	}
 	headers := map[string]string{"content-type": "application/json"}
 	if authorization != "" {
 		headers["authorization"] = authorization
 	}
-	resp, err := sys.Network().DoHTTP(ctx, system.HTTPRequest{
+	resp, err := systemkit.DoHTTP(ctx, sys.Network(), systemkit.HTTPRequest{
 		URL:       targetURL,
 		Method:    "POST",
 		Headers:   headers,
-		Body:      string(data),
+		Body:      data,
 		Timeout:   60 * time.Second,
 		MaxBytes:  maxBytes,
 		UserAgent: "fluxplane/0.1",
 	})
 	if err != nil {
-		return system.HTTPResponse{}, err
+		return systemkit.HTTPResponse{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return system.HTTPResponse{}, fmt.Errorf("HTTP %s: %s", resp.Status, string(resp.Body))
+		return systemkit.HTTPResponse{}, fmt.Errorf("HTTP %s: %s", resp.Status, string(resp.Body))
 	}
 	return resp, nil
 }
