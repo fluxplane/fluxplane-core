@@ -163,8 +163,8 @@ github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/fluxplane/codegate v1.1.0 h1:3YwcdGFoCMfOofrDfBFpqhVusx/KDKSuTuVHNgJcfD8=
 github.com/fluxplane/codegate v1.1.0/go.mod h1:+DhsTeUNfbH2BjA861bUz3tYMkkFDztlzwkBV1X2Cjg=
-github.com/fluxplane/fluxplane-auth v0.2.0 h1:mwrY0AcQr1GLLT7T1JSkgfzVgJBxgXa0B5w6rVmKcBA=
-github.com/fluxplane/fluxplane-auth v0.2.0/go.mod h1:rHQCW6ZGg4yr1V2ugbX2dagNDbAioePRjAHAWVBjrFk=
+github.com/fluxplane/fluxplane-auth v0.2.1 h1:e+4ILBIakwwGsjg4n8sI4AmM5tABIVUXAdoqP5VfcGE=
+github.com/fluxplane/fluxplane-auth v0.2.1/go.mod h1:rHQCW6ZGg4yr1V2ugbX2dagNDbAioePRjAHAWVBjrFk=
 github.com/fluxplane/fluxplane-browser v0.1.0 h1:ku0kVz4uV76zTXN/lXp+yLXOku0RHsPASiIHJTTfho8=
 github.com/fluxplane/fluxplane-browser v0.1.0/go.mod h1:+OEbViZMUFrL+tdZ+zgoLTHfY15tLJybFLhtMOW+iTw=
 github.com/fluxplane/fluxplane-endpoint v0.2.0 h1:s1pOyLPKYGFTkN3xdFOfLMm05mQW/IIT3qtRE58CAVE=

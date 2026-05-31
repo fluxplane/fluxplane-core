@@ -142,15 +142,13 @@ func TestBrokerUseAvailableProbesAliasesWhenEnvNameUnset(t *testing.T) {
 
 func TestBrokerExpiresHandles(t *testing.T) {
 	broker := NewBroker(EnvResolver{Environment: mapEnvironment{"GITLAB_PERSONAL_ACCESS_TOKEN": "pat"}}).WithTTL(time.Nanosecond)
-	now := time.Now()
-	broker.now = func() time.Time { return now }
 	ctx := ContextWithScope(authorizedContext(), Scope{Session: "s1", Turn: "t1"})
 	placeholder, ok, err := broker.Mint(ctx, coresecret.Env("GITLAB_PERSONAL_ACCESS_TOKEN"))
 	if err != nil || !ok {
 		t.Fatalf("Mint = %q, %v, %v", placeholder, ok, err)
 	}
 	handle, _ := coresecret.ParsePlaceholder(string(placeholder))
-	now = now.Add(time.Second)
+	time.Sleep(time.Millisecond)
 	_, ok, err = broker.ResolveHandle(ctx, handle)
 	if err != nil || ok {
 		t.Fatalf("ResolveHandle expired = %v, %v; want not found nil", ok, err)
