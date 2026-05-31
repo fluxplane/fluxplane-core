@@ -15,10 +15,10 @@ import (
 	"time"
 
 	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	"github.com/fluxplane/fluxplane-auth/authstatus"
 	"github.com/fluxplane/fluxplane-core/adapters/auth/oauth2flow"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/runtime/authstatus"
 	"github.com/fluxplane/fluxplane-core/runtime/oauth2client"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -401,7 +401,7 @@ func statusPlans(ctx context.Context, targets []target, resolver coresecret.Reso
 		if err != nil {
 			return nil, 0, err
 		}
-		status := authstatus.Evaluate(ctx, resolver, authstatus.Target{Ref: target.ref(), Methods: methods})
+		status := authstatus.Evaluate(ctx, resolver, authstatus.Target{Plugin: target.ref().Name, Instance: target.ref().InstanceName(), Methods: methods})
 		label := target.label()
 		if len(label) > maxLabel {
 			maxLabel = len(label)

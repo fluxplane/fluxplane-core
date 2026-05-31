@@ -1,4 +1,4 @@
-// Package authstatus evaluates plugin auth readiness without exposing secrets.
+// Package authstatus adapts shared auth status evaluation into runtime evidence.
 package authstatus
 
 import (
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	sharedauthstatus "github.com/fluxplane/fluxplane-auth/authstatus"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
@@ -17,200 +18,18 @@ const (
 	AssertionAuthenticated   = "integration.authenticated"
 	ObserverName             = "auth.status"
 	AssertionDeriverName     = "auth.assertions"
-	StatusConnected          = "connected"
-	StatusNotConnected       = "not_connected"
+	StatusConnected          = sharedauthstatus.StatusConnected
+	StatusNotConnected       = sharedauthstatus.StatusNotConnected
 	defaultObservationSource = "auth"
 )
 
-// Target is one plugin instance whose declared auth methods should be checked.
+type Status = sharedauthstatus.Status
+type FieldStatus = sharedauthstatus.FieldStatus
+
+// Target is one plugin instance whose declared auth methods should be observed.
 type Target struct {
 	Ref     resource.PluginRef
 	Methods []coresecret.AuthMethodSpec
-}
-
-// Status is a non-secret summary of one plugin instance's auth readiness.
-type Status struct {
-	Plugin    string        `json:"plugin"`
-	Instance  string        `json:"instance,omitempty"`
-	Status    string        `json:"status"`
-	MethodID  string        `json:"method_id,omitempty"`
-	Method    string        `json:"method,omitempty"`
-	Connected bool          `json:"connected"`
-	Message   string        `json:"message,omitempty"`
-	Fields    []FieldStatus `json:"fields,omitempty"`
-}
-
-// FieldStatus is non-secret presence information for a setup field.
-type FieldStatus struct {
-	Name string `json:"name"`
-	Set  bool   `json:"set"`
-}
-
-// Evaluate returns the first locally resolvable auth method for target.
-func Evaluate(ctx context.Context, resolver coresecret.Resolver, target Target) Status {
-	ref := target.Ref
-	status := Status{
-		Plugin:   strings.TrimSpace(ref.Name),
-		Instance: ref.InstanceName(),
-		Status:   StatusNotConnected,
-	}
-	for _, method := range target.Methods {
-		configured, fields := methodConfigured(ctx, resolver, ref, method)
-		if configured {
-			status.Status = StatusConnected
-			status.Connected = true
-			status.MethodID = strings.TrimSpace(method.Name)
-			status.Method = FriendlyMethodName(method)
-			status.Fields = fields
-			return status
-		}
-		if status.Method == "" && anyFieldSet(fields) {
-			status.MethodID = strings.TrimSpace(method.Name)
-			status.Method = FriendlyMethodName(method)
-			status.Fields = fields
-		}
-	}
-	if len(target.Methods) == 0 {
-		status.Message = "no auth methods declared"
-	}
-	return status
-}
-
-// FriendlyMethodName returns the compact method label used in status summaries.
-func FriendlyMethodName(method coresecret.AuthMethodSpec) string {
-	name := strings.ToLower(strings.TrimSpace(method.Name))
-	switch name {
-	case "personal_access_token", "personal-access-token", "api_token", "api-token", "bearer":
-		return "token"
-	default:
-		return name
-	}
-}
-
-func methodConfigured(ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec) (bool, []FieldStatus) {
-	if resolver == nil {
-		return false, nil
-	}
-	if method.Method == coresecret.AuthMethodStored && len(method.SetupFields) > 0 {
-		return setupFieldsConfigured(ctx, resolver, ref, method.SetupFields)
-	}
-	if len(method.SetupFields) > 0 {
-		fieldsConfigured, fields := setupFieldsConfigured(ctx, resolver, ref, method.SetupFields)
-		for _, candidate := range refsForMethod(method) {
-			if secretConfigured(ctx, resolver, candidate) {
-				return fieldsConfigured, fields
-			}
-		}
-		return false, fields
-	}
-	for _, candidate := range refsForMethod(method) {
-		if secretConfigured(ctx, resolver, candidate) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func setupFieldsConfigured(ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, fields []coresecret.SetupFieldSpec) (bool, []FieldStatus) {
-	configured := map[string]bool{}
-	statuses := make([]FieldStatus, 0, len(fields))
-	anySet := false
-	for _, field := range fields {
-		name := strings.TrimSpace(coresecret.SetupFieldName(field))
-		if name == "" {
-			continue
-		}
-		set := secretConfigured(ctx, resolver, coresecret.Plugin(ref.Name, ref.InstanceName(), name)) || envConfigured(ctx, resolver, field.Env)
-		configured[name] = set
-		anySet = anySet || set
-		statuses = append(statuses, FieldStatus{Name: name, Set: set})
-	}
-	for _, field := range fields {
-		name := strings.TrimSpace(coresecret.SetupFieldName(field))
-		if field.Required && !configured[name] {
-			return false, statuses
-		}
-	}
-	groups := requiredGroups(fields)
-	for _, names := range groups {
-		ok := false
-		for _, name := range names {
-			if configured[name] {
-				ok = true
-				break
-			}
-		}
-		if !ok {
-			return false, statuses
-		}
-	}
-	return anySet, statuses
-}
-
-func refsForMethod(method coresecret.AuthMethodSpec) []coresecret.Ref {
-	switch method.Method {
-	case coresecret.AuthMethodEnv:
-		return envRefs(method.Env)
-	case coresecret.AuthMethodOAuth2, coresecret.AuthMethodStored:
-		ref := method.Secret.Normalize()
-		if ref.ResourceName() == "" {
-			return nil
-		}
-		return []coresecret.Ref{ref}
-	default:
-		return nil
-	}
-}
-
-func envConfigured(ctx context.Context, resolver coresecret.Resolver, spec coresecret.EnvSpec) bool {
-	for _, ref := range envRefs(spec) {
-		if secretConfigured(ctx, resolver, ref) {
-			return true
-		}
-	}
-	return false
-}
-
-func envRefs(spec coresecret.EnvSpec) []coresecret.Ref {
-	names := append([]string{spec.Name}, spec.Aliases...)
-	refs := make([]coresecret.Ref, 0, len(names))
-	seen := map[string]bool{}
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name == "" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		refs = append(refs, coresecret.Env(name))
-	}
-	return refs
-}
-
-func secretConfigured(ctx context.Context, resolver coresecret.Resolver, ref coresecret.Ref) bool {
-	material, ok, err := resolver.ResolveSecret(ctx, ref)
-	return err == nil && ok && strings.TrimSpace(string(material.Value)) != ""
-}
-
-func anyFieldSet(fields []FieldStatus) bool {
-	for _, field := range fields {
-		if field.Set {
-			return true
-		}
-	}
-	return false
-}
-
-func requiredGroups(fields []coresecret.SetupFieldSpec) map[string][]string {
-	groups := map[string][]string{}
-	for _, field := range fields {
-		group := strings.TrimSpace(field.RequiredGroup)
-		name := strings.TrimSpace(coresecret.SetupFieldName(field))
-		if group == "" || name == "" {
-			continue
-		}
-		groups[group] = append(groups[group], name)
-	}
-	return groups
 }
 
 // NewObserver returns a startup observer for auth readiness.
@@ -242,8 +61,12 @@ func (o observer) Observe(ctx context.Context, _ runtimeevidence.ObservationRequ
 	out := make([]coreevidence.Observation, 0, len(o.targets))
 	now := time.Now().UTC()
 	for _, target := range o.targets {
-		status := Evaluate(ctx, o.resolver, target)
 		ref := target.Ref
+		status := sharedauthstatus.Evaluate(ctx, o.resolver, sharedauthstatus.Target{
+			Plugin:   ref.Name,
+			Instance: ref.InstanceName(),
+			Methods:  target.Methods,
+		})
 		out = append(out, coreevidence.Observation{
 			ID:      "auth:" + ref.Name + ":" + ref.InstanceName(),
 			Source:  defaultObservationSource,

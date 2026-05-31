@@ -14,7 +14,7 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/containerd/platforms v0.2.1
 	github.com/fluxplane/codegate v1.1.0
-	github.com/fluxplane/fluxplane-auth v0.2.1
+	github.com/fluxplane/fluxplane-auth v0.3.0
 	github.com/fluxplane/fluxplane-browser v0.1.0
 	github.com/fluxplane/fluxplane-endpoint v0.2.0
 	github.com/fluxplane/fluxplane-event v0.2.0
