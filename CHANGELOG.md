@@ -545,7 +545,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clients can route requests through the runtime network boundary.
 - Added generic typed plugin config decoding in `pluginhost.Context` for
   configurable plugin instances.
-- Added initial `core/secret` and `runtime/secret` primitives for plugin auth
+- Added initial shared secret/auth primitives for plugin auth
   method declarations, plugin-instance auth requests, env-backed secret
   resolution, scoped opaque secret handles, and `secret.use` authorization.
 - Added `adapters/natseventstore` as a NATS JetStream-backed `event.Store`

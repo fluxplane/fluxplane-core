@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
@@ -23,7 +23,7 @@ type gitlabDatasourceProvider struct {
 	boundaries    Boundaries
 	ref           resource.PluginRef
 	config        Config
-	secrets       runtimesecret.Resolver
+	secrets       sharedsecret.Resolver
 	clientFactory gitlabClientFactory
 	index         *semantic.Index
 }
@@ -67,7 +67,7 @@ type gitlabAccessor struct {
 	boundaries        Boundaries
 	ref               resource.PluginRef
 	config            Config
-	secrets           runtimesecret.Resolver
+	secrets           sharedsecret.Resolver
 	clientFactory     gitlabClientFactory
 	index             *semantic.Index
 	entities          []coredatasource.EntitySpec

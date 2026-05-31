@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"reflect"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/resource"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	invjsonschema "github.com/invopop/jsonschema"
 )
 
@@ -110,16 +111,16 @@ func ConfigSchemaFor[T any]() ([]byte, error) {
 
 func configSchemaEnumMapper(t reflect.Type) *invjsonschema.Schema {
 	switch t {
-	case reflect.TypeOf(coresecret.AuthMethodKind("")):
-		schema := enumSchema([]string{string(coresecret.AuthMethodEnv), string(coresecret.AuthMethodOAuth2), string(coresecret.AuthMethodStored)})
+	case reflect.TypeOf(auth.Method("")):
+		schema := enumSchema([]string{string(auth.MethodEnv), string(auth.MethodOAuth2AuthCode), string(auth.MethodStored)})
 		schema.Description = "Credential source for this auth scheme: env, oauth2, or stored secret material."
 		return schema
-	case reflect.TypeOf(coresecret.Kind("")):
-		schema := enumSchema([]string{string(coresecret.KindAPIKey), string(coresecret.KindBearerToken), string(coresecret.KindOAuth2Token), string(coresecret.KindBasic), string(coresecret.KindPKI)})
+	case reflect.TypeOf(sharedsecret.Kind("")):
+		schema := enumSchema([]string{string(sharedsecret.KindAPIKey), string(sharedsecret.KindBearerToken), string(sharedsecret.KindOAuth2Token), string(sharedsecret.KindBasic), string(sharedsecret.KindPKI)})
 		schema.Description = "Shape of credential material expected for this auth scheme."
 		return schema
-	case reflect.TypeOf(coresecret.Scheme("")):
-		schema := enumSchema([]string{string(coresecret.SchemeEnv), string(coresecret.SchemePlugin), string(coresecret.SchemeKubernetes)})
+	case reflect.TypeOf(sharedsecret.Scheme("")):
+		schema := enumSchema([]string{string(sharedsecret.SchemeEnv), string(sharedsecret.SchemePlugin), string(sharedsecret.SchemeKubernetes)})
 		schema.Description = "Secret reference scheme."
 		return schema
 	default:

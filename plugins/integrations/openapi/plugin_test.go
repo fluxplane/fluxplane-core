@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
@@ -48,7 +48,7 @@ func TestPluginGeneratesOperationsDatasourceAndAuthMethods(t *testing.T) {
 		t.Fatalf("auth methods = %d, want 1", len(resolved.AuthMethods))
 	}
 	method := resolved.AuthMethods[0].Method
-	if method.Name != "bearerAuth" || method.Method != coresecret.AuthMethodEnv || method.Env.Name != "TESTUSER_PASSWORD" {
+	if method.Name != "bearerAuth" || method.Method != auth.MethodEnv || method.Env.Name != "TESTUSER_PASSWORD" {
 		t.Fatalf("auth method = %#v", method)
 	}
 }

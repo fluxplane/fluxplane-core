@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreoperation "github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
@@ -81,10 +81,10 @@ func TestPluginDeclaresOAuthAndTokenAuthMethods(t *testing.T) {
 	if len(methods) != 3 {
 		t.Fatalf("methods len = %d, want 3", len(methods))
 	}
-	if methods[0].Name != atlassian.TokenMethod || methods[0].Method != coresecret.AuthMethodEnv {
+	if methods[0].Name != atlassian.TokenMethod || methods[0].Method != auth.MethodEnv {
 		t.Fatalf("token method = %#v", methods[0])
 	}
-	if methods[1].Name != atlassian.APITokenMethod || methods[1].Method != coresecret.AuthMethodStored {
+	if methods[1].Name != atlassian.APITokenMethod || methods[1].Method != auth.MethodStored {
 		t.Fatalf("api token method = %#v", methods[1])
 	}
 	if methods[2].Name != atlassian.OAuth2Method || methods[2].Secret.ResourceName() != "plugin/jira/main/oauth2_token" {
@@ -97,7 +97,7 @@ func TestIssueSearchAccessUsesStoredCloudID(t *testing.T) {
 	ref := resource.PluginRef{Name: Name, Instance: "main"}
 	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{
 		Ref:      atlassian.OAuthSecretRef(Name, ref),
-		Kind:     coresecret.KindOAuth2Token,
+		Kind:     sharedsecret.KindOAuth2Token,
 		Value:    "access",
 		Metadata: map[string]string{"cloud_id": "cloud-1"},
 	}); err != nil {
@@ -491,9 +491,9 @@ func (s fakeSystem) Clock() fpsystem.Clock {
 func newTestPlugin(t *testing.T, network fpsystem.Network, env map[string]string) Plugin {
 	t.Helper()
 	store := sharedsecret.NewFileStore(t.TempDir())
-	resolver := coresecret.ChainResolver{
+	resolver := sharedsecret.ChainResolver{
 		store,
-		coresecret.EnvResolver{Environment: fakeEnvironment{values: env}},
+		sharedsecret.EnvResolver{Environment: fakeEnvironment{values: env}},
 	}
 	return NewWithResolver(fakeSystem{network: network}, store, resolver)
 }

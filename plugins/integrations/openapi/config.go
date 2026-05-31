@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 
 const Name = "openapi"
@@ -56,13 +57,13 @@ type AuthConfig struct {
 
 // AuthSchemeConfig configures one OpenAPI security scheme credential source.
 type AuthSchemeConfig struct {
-	Method      coresecret.AuthMethodKind `json:"method,omitempty" yaml:"method,omitempty"`
-	Kind        coresecret.Kind           `json:"kind,omitempty" yaml:"kind,omitempty"`
-	DisplayName string                    `json:"display_name,omitempty" yaml:"display_name,omitempty"`
-	Description string                    `json:"description,omitempty" yaml:"description,omitempty"`
-	Secret      coresecret.Ref            `json:"secret,omitempty" yaml:"secret,omitempty"`
-	Env         coresecret.EnvSpec        `json:"env,omitempty" yaml:"env,omitempty"`
-	Header      coresecret.HeaderSpec     `json:"header,omitempty" yaml:"header,omitempty"`
+	Method      auth.Method       `json:"method,omitempty" yaml:"method,omitempty"`
+	Kind        sharedsecret.Kind `json:"kind,omitempty" yaml:"kind,omitempty"`
+	DisplayName string            `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Secret      sharedsecret.Ref  `json:"secret,omitempty" yaml:"secret,omitempty"`
+	Env         auth.EnvSpec      `json:"env,omitempty" yaml:"env,omitempty"`
+	Header      auth.HeaderSpec   `json:"header,omitempty" yaml:"header,omitempty"`
 }
 
 func normalizeConfig(cfg Config) Config {

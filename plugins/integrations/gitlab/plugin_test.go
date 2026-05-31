@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreoperation "github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	"github.com/fluxplane/fluxplane-policy"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
@@ -307,7 +308,7 @@ func TestPluginDeclaresAuthMethods(t *testing.T) {
 		t.Fatalf("methods len = %d, want 2", len(methods))
 	}
 	method := methods[0]
-	if method.Name != personalAccessTokenMethod || method.Method != coresecret.AuthMethodStored || method.Kind != coresecret.KindAPIKey {
+	if method.Name != personalAccessTokenMethod || method.Method != auth.MethodStored || method.Kind != sharedsecret.KindAPIKey {
 		t.Fatalf("method = %#v", method)
 	}
 	if method.Secret.ResourceName() != "plugin/gitlab/company-a/token" {
@@ -332,7 +333,7 @@ func TestPluginDeclaresAuthMethods(t *testing.T) {
 		t.Fatalf("url field = %#v", method.SetupFields[1])
 	}
 	oauth := methods[1]
-	if oauth.Name != oauth2Method || oauth.Method != coresecret.AuthMethodOAuth2 || oauth.Kind != coresecret.KindOAuth2Token {
+	if oauth.Name != oauth2Method || oauth.Method != auth.MethodOAuth2AuthCode || oauth.Kind != sharedsecret.KindOAuth2Token {
 		t.Fatalf("oauth method = %#v", oauth)
 	}
 	if oauth.Secret.ResourceName() != "plugin/gitlab/company-a/oauth2_token" {
@@ -576,7 +577,7 @@ func TestDatasourceProviderUsesInjectedSecretResolver(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		boundaries: BoundariesFromSystem(fakeSystem{network: network}),
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
-		secrets: coresecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
+		secrets: sharedsecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
 			gitlabTokenEnv: "resolver-token",
 			gitlabURLEnv:   "gitlab.example",
 		}}},

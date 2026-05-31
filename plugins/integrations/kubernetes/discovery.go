@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -324,7 +324,7 @@ func envRefEndpointCandidates(product, workloadKind, namespace, workloadName, ui
 		source.Attributes["env_key"] = ref.Key
 		authRef := ""
 		if ref.Source == "secret" {
-			authRef = coresecret.Kubernetes(namespace, ref.Ref, ref.Key).ResourceName()
+			authRef = sharedsecret.Kubernetes(namespace, ref.Ref, sharedsecret.Slot(ref.Key)).ResourceName()
 		}
 		out = append(out, fpendpoint.DiscoveryCandidate{
 			ID:          endpointCandidateID(source, ref.Source+"|"+ref.Ref+"|"+ref.Key),

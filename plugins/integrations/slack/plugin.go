@@ -6,7 +6,7 @@ import (
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/activation"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -44,7 +44,7 @@ type Plugin struct {
 	network       fpsystem.Network
 	environment   fpsystem.Environment
 	store         sharedsecret.FileStore
-	secrets       coresecret.Resolver
+	secrets       sharedsecret.Resolver
 	ref           resource.PluginRef
 	cfg           Config
 	dispatcher    *Dispatcher
@@ -65,7 +65,7 @@ func NewWithDispatcher(sys fpsystem.System, dispatcher *Dispatcher, stores ...sh
 	return NewWithResolver(sys, dispatcher, nil, stores...)
 }
 
-func NewWithResolver(sys fpsystem.System, dispatcher *Dispatcher, resolver coresecret.Resolver, stores ...sharedsecret.FileStore) Plugin {
+func NewWithResolver(sys fpsystem.System, dispatcher *Dispatcher, resolver sharedsecret.Resolver, stores ...sharedsecret.FileStore) Plugin {
 	if dispatcher == nil {
 		dispatcher = NewDispatcher()
 	}
@@ -146,7 +146,7 @@ func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operati
 	}, nil
 }
 
-func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]coresecret.AuthMethodSpec, error) {
+func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]auth.MethodSpec, error) {
 	p = p.withRef(ctx.Ref)
 	return AuthMethods(p.ref, p.cfg), nil
 }

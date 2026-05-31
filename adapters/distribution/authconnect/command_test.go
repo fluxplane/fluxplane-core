@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 )
@@ -16,7 +16,7 @@ func TestCollectFieldsRejectsSensitivePromptOnNonTerminal(t *testing.T) {
 	_, err := collectFields(options{
 		in:  strings.NewReader("secret\n"),
 		out: bytes.NewBuffer(nil),
-	}, []coresecret.SetupFieldSpec{{
+	}, []auth.FieldSpec{{
 		Slot:      "client_secret",
 		Required:  true,
 		Sensitive: true,
@@ -31,11 +31,11 @@ func TestCollectFieldsUsesEnvironmentForSensitiveField(t *testing.T) {
 	fields, err := collectFields(options{
 		in:  strings.NewReader(""),
 		out: bytes.NewBuffer(nil),
-	}, []coresecret.SetupFieldSpec{{
+	}, []auth.FieldSpec{{
 		Slot:      "client_secret",
 		Required:  true,
 		Sensitive: true,
-		Env:       coresecret.EnvSpec{Aliases: []string{"TEST_CLIENT_SECRET"}},
+		Env:       auth.EnvSpec{Aliases: []string{"TEST_CLIENT_SECRET"}},
 	}})
 	if err != nil {
 		t.Fatalf("collectFields: %v", err)
@@ -53,12 +53,12 @@ func TestRunStoredWritesSetupFieldsToNativeSecretStore(t *testing.T) {
 		authPath: dir,
 		fields:   []string{"bot_token=chat-bot-token", "app_token=chat-app-token"},
 		out:      &out,
-	}, ref, coresecret.AuthMethodSpec{
+	}, ref, auth.MethodSpec{
 		Name:   "token",
-		Method: coresecret.AuthMethodStored,
-		Kind:   coresecret.KindBearerToken,
-		Secret: coresecret.Plugin("chat", "main", "bot_token"),
-		SetupFields: []coresecret.SetupFieldSpec{
+		Method: auth.MethodStored,
+		Kind:   sharedsecret.KindBearerToken,
+		Secret: sharedsecret.Plugin("chat", "main", "bot_token"),
+		SetupFields: []auth.FieldSpec{
 			{Slot: "bot_token", RequiredGroup: "api_token", Sensitive: true},
 			{Slot: "user_token", RequiredGroup: "api_token", Sensitive: true},
 			{Slot: "app_token", Sensitive: true},
@@ -68,11 +68,11 @@ func TestRunStoredWritesSetupFieldsToNativeSecretStore(t *testing.T) {
 		t.Fatalf("runStored: %v", err)
 	}
 	store := sharedsecret.NewFileStore(dir)
-	bot, ok, err := store.LoadSecret(context.Background(), coresecret.Plugin("chat", "main", "bot_token"))
+	bot, ok, err := store.LoadSecret(context.Background(), sharedsecret.Plugin("chat", "main", "bot_token"))
 	if err != nil || !ok || bot.Value != "chat-bot-token" {
 		t.Fatalf("bot secret = %#v ok=%v err=%v", bot, ok, err)
 	}
-	app, ok, err := store.LoadSecret(context.Background(), coresecret.Plugin("chat", "main", "app_token"))
+	app, ok, err := store.LoadSecret(context.Background(), sharedsecret.Plugin("chat", "main", "app_token"))
 	if err != nil || !ok || app.Value != "chat-app-token" {
 		t.Fatalf("app secret = %#v ok=%v err=%v", app, ok, err)
 	}
@@ -86,7 +86,7 @@ func TestCollectFieldsAcceptsRequiredGroupAlternative(t *testing.T) {
 		fields: []string{"user_token=chat-user-token"},
 		in:     strings.NewReader(""),
 		out:    bytes.NewBuffer(nil),
-	}, []coresecret.SetupFieldSpec{
+	}, []auth.FieldSpec{
 		{Slot: "bot_token", RequiredGroup: "api_token", Sensitive: true},
 		{Slot: "user_token", RequiredGroup: "api_token", Sensitive: true},
 	})
@@ -148,8 +148,8 @@ func TestRunStatusSummarizesPluginReadiness(t *testing.T) {
 	dir := t.TempDir()
 	store := sharedsecret.NewFileStore(dir)
 	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{
-		Ref:   coresecret.Plugin("chat", "team-chat", "user_token"),
-		Kind:  coresecret.KindBearerToken,
+		Ref:   sharedsecret.Plugin("chat", "team-chat", "user_token"),
+		Kind:  sharedsecret.KindBearerToken,
 		Value: "chat-user-token",
 	}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
@@ -174,8 +174,8 @@ func TestRunStatusPrintsResolvedFieldsAndRedactsSensitiveValues(t *testing.T) {
 	dir := t.TempDir()
 	store := sharedsecret.NewFileStore(dir)
 	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{
-		Ref:   coresecret.Plugin("chat", "team-chat", "user_token"),
-		Kind:  coresecret.KindBearerToken,
+		Ref:   sharedsecret.Plugin("chat", "team-chat", "user_token"),
+		Kind:  sharedsecret.KindBearerToken,
 		Value: "sensitive-test-token",
 	}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
@@ -200,12 +200,12 @@ func TestRunStatusPrintsResolvedFieldsAndRedactsSensitiveValues(t *testing.T) {
 func TestPrintResolvedFieldsShowsEnvSourceAndResolvedValue(t *testing.T) {
 	t.Setenv("SERVICE_EMAIL", "user@example.invalid")
 	out := bytes.Buffer{}
-	newStatusRenderer(&out).printResolvedFields(&out, context.Background(), coresecret.EnvResolver{Environment: osEnvironment{}}, resource.PluginRef{Name: "issues", Instance: "issues"}, coresecret.AuthMethodSpec{
+	newStatusRenderer(&out).printResolvedFields(&out, context.Background(), sharedsecret.EnvResolver{Environment: osEnvironment{}}, resource.PluginRef{Name: "issues", Instance: "issues"}, auth.MethodSpec{
 		Name:   "token",
-		Method: coresecret.AuthMethodEnv,
-		SetupFields: []coresecret.SetupFieldSpec{{
+		Method: auth.MethodEnv,
+		SetupFields: []auth.FieldSpec{{
 			Slot: "email_env",
-			Env:  coresecret.EnvSpec{Aliases: []string{"SERVICE_EMAIL"}},
+			Env:  auth.EnvSpec{Aliases: []string{"SERVICE_EMAIL"}},
 		}},
 	})
 	got := out.String()
@@ -218,8 +218,8 @@ func TestRunStatusRunsConnectivityByDefault(t *testing.T) {
 	dir := t.TempDir()
 	store := sharedsecret.NewFileStore(dir)
 	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{
-		Ref:   coresecret.Plugin("chat", "chat", "bot_token"),
-		Kind:  coresecret.KindBearerToken,
+		Ref:   sharedsecret.Plugin("chat", "chat", "bot_token"),
+		Kind:  sharedsecret.KindBearerToken,
 		Value: "chat-bot-token",
 	}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
@@ -242,8 +242,8 @@ func TestRunStatusNoTestSkipsConnectivity(t *testing.T) {
 	dir := t.TempDir()
 	store := sharedsecret.NewFileStore(dir)
 	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{
-		Ref:   coresecret.Plugin("chat", "chat", "bot_token"),
-		Kind:  coresecret.KindBearerToken,
+		Ref:   sharedsecret.Plugin("chat", "chat", "bot_token"),
+		Kind:  sharedsecret.KindBearerToken,
 		Value: "chat-bot-token",
 	}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
@@ -283,8 +283,8 @@ func TestRunStatusShowsPartialRequiredFields(t *testing.T) {
 	dir := t.TempDir()
 	store := sharedsecret.NewFileStore(dir)
 	for _, secret := range []sharedsecret.StoredSecret{
-		{Ref: coresecret.Plugin("issues", "issues", "email"), Kind: coresecret.KindBasic, Value: "user@example.invalid"},
-		{Ref: coresecret.Plugin("issues", "issues", "token"), Kind: coresecret.KindBasic, Value: "api-token"},
+		{Ref: sharedsecret.Plugin("issues", "issues", "email"), Kind: sharedsecret.KindBasic, Value: "user@example.invalid"},
+		{Ref: sharedsecret.Plugin("issues", "issues", "token"), Kind: sharedsecret.KindBasic, Value: "api-token"},
 	} {
 		if err := store.SaveSecret(context.Background(), secret); err != nil {
 			t.Fatalf("SaveSecret: %v", err)
@@ -306,9 +306,9 @@ func TestRunStatusShowsPartialRequiredFields(t *testing.T) {
 }
 
 func TestSelectMethodUsesMethodNameNotKind(t *testing.T) {
-	methods := []coresecret.AuthMethodSpec{{
+	methods := []auth.MethodSpec{{
 		Name:        "token",
-		Method:      coresecret.AuthMethodStored,
+		Method:      auth.MethodStored,
 		DisplayName: "Chat token",
 	}}
 	if _, err := selectMethod(methods, "token", strings.NewReader(""), bytes.NewBuffer(nil)); err != nil {
@@ -320,9 +320,9 @@ func TestSelectMethodUsesMethodNameNotKind(t *testing.T) {
 }
 
 func TestSelectMethodPrefersExactNameOverFriendlyAlias(t *testing.T) {
-	methods := []coresecret.AuthMethodSpec{
-		{Name: "api_token", Method: coresecret.AuthMethodStored, DisplayName: "Service API token"},
-		{Name: "token", Method: coresecret.AuthMethodEnv, DisplayName: "Legacy token"},
+	methods := []auth.MethodSpec{
+		{Name: "api_token", Method: auth.MethodStored, DisplayName: "Service API token"},
+		{Name: "token", Method: auth.MethodEnv, DisplayName: "Legacy token"},
 	}
 	method, err := selectMethod(methods, "token", strings.NewReader(""), bytes.NewBuffer(nil))
 	if err != nil {
@@ -335,9 +335,9 @@ func TestSelectMethodPrefersExactNameOverFriendlyAlias(t *testing.T) {
 
 func TestPrintNativeInfoShowsMethodName(t *testing.T) {
 	out := bytes.Buffer{}
-	printNativeInfo(&out, resource.PluginRef{Name: "chat", Instance: "main"}, []coresecret.AuthMethodSpec{{
+	printNativeInfo(&out, resource.PluginRef{Name: "chat", Instance: "main"}, []auth.MethodSpec{{
 		Name:        "token",
-		Method:      coresecret.AuthMethodStored,
+		Method:      auth.MethodStored,
 		DisplayName: "Chat token",
 		Description: "Chat token credentials.",
 		Annotations: map[string]string{"auth_scheme": "Bearer"},
@@ -381,13 +381,13 @@ func (p partialAuthPlugin) Contributions(context.Context, pluginhost.Context) (r
 	return resource.ContributionBundle{}, nil
 }
 
-func (p partialAuthPlugin) AuthMethods(context.Context, pluginhost.Context) ([]coresecret.AuthMethodSpec, error) {
-	return []coresecret.AuthMethodSpec{{
+func (p partialAuthPlugin) AuthMethods(context.Context, pluginhost.Context) ([]auth.MethodSpec, error) {
+	return []auth.MethodSpec{{
 		Name:   "api_token",
-		Method: coresecret.AuthMethodStored,
-		Kind:   coresecret.KindBasic,
-		Secret: coresecret.Plugin(p.name, p.name, "token"),
-		SetupFields: []coresecret.SetupFieldSpec{
+		Method: auth.MethodStored,
+		Kind:   sharedsecret.KindBasic,
+		Secret: sharedsecret.Plugin(p.name, p.name, "token"),
+		SetupFields: []auth.FieldSpec{
 			{Slot: "email", Required: true},
 			{Slot: "token", Required: true},
 			{Slot: "cloud_id"},
@@ -409,14 +409,14 @@ func (p fakePlugin) Contributions(context.Context, pluginhost.Context) (resource
 	return resource.ContributionBundle{}, nil
 }
 
-func (p fakePlugin) AuthMethods(context.Context, pluginhost.Context) ([]coresecret.AuthMethodSpec, error) {
-	return []coresecret.AuthMethodSpec{
+func (p fakePlugin) AuthMethods(context.Context, pluginhost.Context) ([]auth.MethodSpec, error) {
+	return []auth.MethodSpec{
 		{
 			Name:   "token",
-			Method: coresecret.AuthMethodStored,
-			Kind:   coresecret.KindBearerToken,
-			Secret: coresecret.Plugin(p.name, p.name, "bot_token"),
-			SetupFields: []coresecret.SetupFieldSpec{
+			Method: auth.MethodStored,
+			Kind:   sharedsecret.KindBearerToken,
+			Secret: sharedsecret.Plugin(p.name, p.name, "bot_token"),
+			SetupFields: []auth.FieldSpec{
 				{Slot: "bot_token", RequiredGroup: "api_token", Sensitive: true},
 				{Slot: "user_token", RequiredGroup: "api_token", Sensitive: true},
 				{Slot: "app_token", Sensitive: true},
@@ -424,10 +424,10 @@ func (p fakePlugin) AuthMethods(context.Context, pluginhost.Context) ([]coresecr
 		},
 		{
 			Name:   "oauth2",
-			Method: coresecret.AuthMethodOAuth2,
-			Kind:   coresecret.KindOAuth2Token,
-			Secret: coresecret.Plugin(p.name, p.name, "oauth2_token"),
-			OAuth2: coresecret.OAuth2Spec{AuthorizeURL: "https://example.test/authorize", TokenURL: "https://example.test/token"},
+			Method: auth.MethodOAuth2AuthCode,
+			Kind:   sharedsecret.KindOAuth2Token,
+			Secret: sharedsecret.Plugin(p.name, p.name, "oauth2_token"),
+			OAuth2: auth.OAuth2Spec{AuthorizeURL: "https://example.test/authorize", TokenURL: "https://example.test/token"},
 		},
 	}, nil
 }

@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/codewandler/md2adf"
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -43,7 +43,7 @@ type Plugin struct {
 	pluginhost.Configurable[atlassian.Config]
 	network  fpsystem.Network
 	store    sharedsecret.FileStore
-	resolver coresecret.Resolver
+	resolver sharedsecret.Resolver
 	ref      resource.PluginRef
 	cfg      atlassian.Config
 }
@@ -63,7 +63,7 @@ func New(sys fpsystem.System, stores ...sharedsecret.FileStore) Plugin {
 	return NewWithResolver(sys, store, store)
 }
 
-func NewWithResolver(sys fpsystem.System, store sharedsecret.FileStore, resolver coresecret.Resolver) Plugin {
+func NewWithResolver(sys fpsystem.System, store sharedsecret.FileStore, resolver sharedsecret.Resolver) Plugin {
 	if resolver == nil {
 		resolver = store
 	}
@@ -105,7 +105,7 @@ func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) (
 	return []coredatasource.Provider{jiraDatasourceProvider{plugin: p}}, nil
 }
 
-func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]coresecret.AuthMethodSpec, error) {
+func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]auth.MethodSpec, error) {
 	p = p.withRef(ctx.Ref)
 	return atlassian.AuthMethods(Name, p.ref, AtlassianProduct(), p.cfg), nil
 }

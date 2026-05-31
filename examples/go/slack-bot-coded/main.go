@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"strings"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
 	"github.com/fluxplane/fluxplane-core/apps/launch"
 	"github.com/fluxplane/fluxplane-core/core/agent"
@@ -29,6 +29,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
 	"github.com/fluxplane/fluxplane-core/plugins/native/skills"
 	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
@@ -156,10 +157,10 @@ func appBundle() (resource.ContributionBundle, error) {
 				},
 				Auth: openapi.AuthConfig{Schemes: map[string]openapi.AuthSchemeConfig{
 					"bearerAuth": {
-						Method:      coresecret.AuthMethodEnv,
-						Kind:        coresecret.KindBearerToken,
+						Method:      auth.MethodEnv,
+						Kind:        sharedsecret.KindBearerToken,
 						DisplayName: "Helpdesk API bearer token",
-						Env:         coresecret.EnvSpec{Name: "HELPDESK_API_TOKEN"},
+						Env:         auth.EnvSpec{Name: "HELPDESK_API_TOKEN"},
 					},
 				}},
 			}},

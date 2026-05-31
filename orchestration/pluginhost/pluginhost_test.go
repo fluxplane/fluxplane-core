@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/command"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
@@ -14,6 +14,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/core/skill"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 
 func TestHostResolvesPluginContributions(t *testing.T) {
@@ -200,7 +201,7 @@ func TestHostResolvesAuthMethods(t *testing.T) {
 		t.Fatalf("auth methods len = %d, want 1", len(resolution.AuthMethods))
 	}
 	method := resolution.AuthMethods[0].Method
-	if method.Name != "personal_access_token" || method.Method != coresecret.AuthMethodEnv || method.Env.Name != "GITLAB_PERSONAL_ACCESS_TOKEN" {
+	if method.Name != "personal_access_token" || method.Method != auth.MethodEnv || method.Env.Name != "GITLAB_PERSONAL_ACCESS_TOKEN" {
 		t.Fatalf("auth method = %#v", method)
 	}
 	if resolution.AuthMethods[0].Source.ID != "plugin:gitlab/company-a" {
@@ -502,11 +503,11 @@ func (p fakeAuthMethodPlugin) Contributions(context.Context, Context) (resource.
 	return resource.ContributionBundle{}, nil
 }
 
-func (p fakeAuthMethodPlugin) AuthMethods(context.Context, Context) ([]coresecret.AuthMethodSpec, error) {
-	return []coresecret.AuthMethodSpec{{
+func (p fakeAuthMethodPlugin) AuthMethods(context.Context, Context) ([]auth.MethodSpec, error) {
+	return []auth.MethodSpec{{
 		Name:   "personal_access_token",
-		Method: coresecret.AuthMethodEnv,
-		Kind:   coresecret.KindAPIKey,
-		Env:    coresecret.EnvSpec{Name: "GITLAB_PERSONAL_ACCESS_TOKEN"},
+		Method: auth.MethodEnv,
+		Kind:   sharedsecret.KindAPIKey,
+		Env:    auth.EnvSpec{Name: "GITLAB_PERSONAL_ACCESS_TOKEN"},
 	}}, nil
 }

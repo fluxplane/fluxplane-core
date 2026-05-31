@@ -5,19 +5,19 @@ import (
 	"fmt"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/resource"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"golang.org/x/oauth2"
 )
 
 // TokenScopes resolves the current GitLab token and returns the scopes reported by GitLab.
-func TokenScopes(ctx context.Context, sys fpsystem.System, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
+func TokenScopes(ctx context.Context, sys fpsystem.System, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
 	return TokenScopesWithBoundaries(ctx, BoundariesFromSystem(sys), resolver, ref, cfg)
 }
 
-func TokenScopesWithBoundaries(ctx context.Context, boundaries Boundaries, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
+func TokenScopesWithBoundaries(ctx context.Context, boundaries Boundaries, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
 	cfg = normalizeConfig(cfg)
 	client, err := tokenScopeClient(ctx, boundaries.Network, resolver, ref, cfg)
 	if err != nil {
@@ -33,7 +33,7 @@ func TokenScopesWithBoundaries(ctx context.Context, boundaries Boundaries, resol
 	return append([]string(nil), token.Scopes...), true, nil
 }
 
-func tokenScopeClient(ctx context.Context, network fpsystem.Network, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) (*gitlab.Client, error) {
+func tokenScopeClient(ctx context.Context, network fpsystem.Network, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config) (*gitlab.Client, error) {
 	if network == nil {
 		return nil, fmt.Errorf("gitlabplugin: network is nil")
 	}
@@ -50,9 +50,9 @@ func tokenScopeClient(ctx context.Context, network fpsystem.Network, resolver co
 		gitlab.WithoutRetries(),
 	}
 	switch auth.Material.Kind {
-	case coresecret.KindAPIKey:
+	case sharedsecret.KindAPIKey:
 		return gitlab.NewClient(auth.Material.String(), options...)
-	case coresecret.KindBearerToken, coresecret.KindOAuth2Token:
+	case sharedsecret.KindBearerToken, sharedsecret.KindOAuth2Token:
 		return gitlab.NewAuthSourceClient(gitlab.OAuthTokenSource{
 			TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: auth.Material.String()}),
 		}, options...)

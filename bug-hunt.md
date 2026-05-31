@@ -66,7 +66,7 @@ session. One bug per iteration: find → reproduce → fix → commit.
 
 ## Iteration 5 — non-atomic secret file write
 
-- **Where:** `runtime/secret/filestore.go` `SaveSecret`.
+- **Where:** legacy file-backed secret store `SaveSecret`.
 - **Bug:** Used `os.WriteFile(s.path(ref), data, 0o600)` to persist the
   secret file directly. If the process is killed mid-write (or the disk
   fills), the file is left truncated and the next `LoadSecret` returns a
@@ -534,7 +534,7 @@ session. One bug per iteration: find → reproduce → fix → commit.
 
 ## Iteration 23 — `EnvResolver.ResolveSecret` dropped the caller's context
 
-- **Where:** `runtime/secret/secret.go` `EnvResolver.ResolveSecret`.
+- **Where:** legacy `EnvResolver.ResolveSecret` implementation.
 - **Bug:** The method took `_ context.Context` (discarded) and then
   called `r.Environment.Lookup(context.Background(), ref.Name)` —
   silently dropping the caller's deadline, cancellation channel, and

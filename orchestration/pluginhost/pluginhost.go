@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
@@ -18,6 +18,7 @@ import (
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-policy"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 
 // Manifest describes one plugin implementation.
@@ -36,7 +37,7 @@ type Context struct {
 	Discovery  *fpendpoint.DiscoveryRegistry `json:"-"`
 	Discoverer *fpendpoint.Runner            `json:"-"`
 	Endpoints  *fpendpoint.Registry          `json:"-"`
-	Secrets    coresecret.Resolver           `json:"-"`
+	Secrets    sharedsecret.Resolver         `json:"-"`
 }
 
 // Plugin contributes resources during app composition.
@@ -108,13 +109,13 @@ type DiscoveryProviderContributor interface {
 // SecretResolverContributor is implemented by plugins that can resolve
 // non-model-visible credential material for trusted operation code.
 type SecretResolverContributor interface {
-	SecretResolvers(context.Context, Context) ([]coresecret.Resolver, error)
+	SecretResolvers(context.Context, Context) ([]sharedsecret.Resolver, error)
 }
 
 // AuthMethodContributor is implemented by plugins that declare supported
 // authentication methods without carrying credential values.
 type AuthMethodContributor interface {
-	AuthMethods(context.Context, Context) ([]coresecret.AuthMethodSpec, error)
+	AuthMethods(context.Context, Context) ([]auth.MethodSpec, error)
 }
 
 // AuthTestContributor is implemented by plugins that can perform a live
@@ -156,7 +157,7 @@ type DiscoveryProviderContribution struct {
 // SecretResolverContribution is one credential resolver contribution.
 type SecretResolverContribution struct {
 	Source   resource.SourceRef
-	Resolver coresecret.Resolver
+	Resolver sharedsecret.Resolver
 }
 
 // ContextProviderContribution is one executable context provider contribution.
@@ -194,14 +195,14 @@ type ReactionContribution struct {
 // AuthMethodContribution is one plugin auth method declaration.
 type AuthMethodContribution struct {
 	Source resource.SourceRef
-	Method coresecret.AuthMethodSpec
+	Method auth.MethodSpec
 }
 
 // AuthTestRequest describes one plugin instance auth test.
 type AuthTestRequest struct {
 	Ref     resource.PluginRef
 	Method  string
-	Secrets coresecret.Resolver
+	Secrets sharedsecret.Resolver
 }
 
 // AuthTestReport describes the outcome of one live credential check.
@@ -247,7 +248,7 @@ type Host struct {
 	discovery  *fpendpoint.DiscoveryRegistry
 	discoverer *fpendpoint.Runner
 	endpoints  *fpendpoint.Registry
-	secrets    *coresecret.Registry
+	secrets    *sharedsecret.Registry
 }
 
 // New returns a plugin host.
@@ -297,7 +298,7 @@ func (h *Host) SetEndpointRegistry(registry *fpendpoint.Registry) {
 }
 
 // SetSecretRegistry configures the shared secret resolver registry.
-func (h *Host) SetSecretRegistry(registry *coresecret.Registry) {
+func (h *Host) SetSecretRegistry(registry *sharedsecret.Registry) {
 	if h != nil {
 		h.secrets = registry
 	}
@@ -519,7 +520,7 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				return Resolution{}, fmt.Errorf("pluginhost: plugin %q auth methods: %w", pluginLabel(ref), err)
 			}
 			for _, method := range methods {
-				if err := coresecret.ValidateAuthMethod(method); err != nil {
+				if err := auth.ValidateMethod(method); err != nil {
 					return Resolution{}, fmt.Errorf("pluginhost: plugin %q auth method: %w", pluginLabel(ref), err)
 				}
 				out.AuthMethods = append(out.AuthMethods, AuthMethodContribution{
@@ -558,7 +559,7 @@ func (h *Host) ensureSharedRegistries() {
 		h.discoverer = fpendpoint.NewRunner(h.discovery, h.endpoints)
 	}
 	if h.secrets == nil {
-		h.secrets = coresecret.NewRegistry()
+		h.secrets = sharedsecret.NewRegistry()
 	}
 }
 

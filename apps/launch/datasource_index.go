@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	embedaxon "github.com/fluxplane/fluxplane-core/adapters/embeddings/axon"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
@@ -154,7 +153,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	return DatasourceIndexRuntime{Registry: registry, Index: index, Data: dataStore, Sources: dataSources, Config: datasourceIndexFromBundles(bundles), Close: closeFn}, nil
 }
 
-func datasourceIndexPlugins(hostSystem fpsystem.System, dispatcher *slack.Dispatcher, nativeStore sharedsecret.FileStore, nativeResolver runtimesecret.Resolver) []pluginhost.Plugin {
+func datasourceIndexPlugins(hostSystem fpsystem.System, dispatcher *slack.Dispatcher, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
 		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
 		task.New(),

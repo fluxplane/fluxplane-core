@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
@@ -14,6 +13,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-policy"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 
 const (
@@ -33,7 +33,7 @@ type Plugin struct {
 	ref       resource.PluginRef
 	cfg       Config
 	endpoints *fpendpoint.Registry
-	secrets   runtimesecret.Resolver
+	secrets   sharedsecret.Resolver
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -41,7 +41,7 @@ var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
 func New() Plugin {
-	return Plugin{endpoints: fpendpoint.NewRegistry(15 * time.Minute), secrets: runtimesecret.NewRegistry()}
+	return Plugin{endpoints: fpendpoint.NewRegistry(15 * time.Minute), secrets: sharedsecret.NewRegistry()}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -65,7 +65,7 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 		p.endpoints = fpendpoint.NewRegistry(15 * time.Minute)
 	}
 	if p.secrets == nil {
-		p.secrets = runtimesecret.NewRegistry()
+		p.secrets = sharedsecret.NewRegistry()
 	}
 	return p, nil
 }

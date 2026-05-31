@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 
-	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
@@ -28,6 +27,7 @@ import (
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-policy"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 
 // Config describes app composition input.
@@ -83,7 +83,7 @@ type Composition struct {
 	Discovery         *fpendpoint.DiscoveryRegistry
 	Discoverer        *fpendpoint.Runner
 	Endpoints         *fpendpoint.Registry
-	Secrets           *runtimesecret.Registry
+	Secrets           *sharedsecret.Registry
 	Bundles           []resource.ContributionBundle
 	Diagnostics       []resource.Diagnostic
 }
@@ -541,7 +541,7 @@ func appendEventTypesFromBundles(base []event.Event, bundles []resource.Contribu
 	return out
 }
 
-func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store, discoveryRegistry *fpendpoint.DiscoveryRegistry, discoverer *fpendpoint.Runner, endpointRegistry *fpendpoint.Registry) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, session.SessionCommandCatalog, []coredatasource.Provider, []runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, []reactionRuleBinding, []identity.ExternalResolver, *fpendpoint.DiscoveryRegistry, *fpendpoint.Runner, *fpendpoint.Registry, *runtimesecret.Registry, []resource.Diagnostic, error) {
+func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store, discoveryRegistry *fpendpoint.DiscoveryRegistry, discoverer *fpendpoint.Runner, endpointRegistry *fpendpoint.Registry) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, session.SessionCommandCatalog, []coredatasource.Provider, []runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, []reactionRuleBinding, []identity.ExternalResolver, *fpendpoint.DiscoveryRegistry, *fpendpoint.Runner, *fpendpoint.Registry, *sharedsecret.Registry, []resource.Diagnostic, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -569,7 +569,7 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 	if discoverer == nil {
 		discoverer = fpendpoint.NewRunner(discoveryRegistry, endpointRegistry)
 	}
-	secretRegistry := runtimesecret.NewRegistry()
+	secretRegistry := sharedsecret.NewRegistry()
 	host.SetEventStore(eventStore)
 	host.SetDataStore(dataStore)
 	host.SetDiscoveryRegistry(discoveryRegistry)

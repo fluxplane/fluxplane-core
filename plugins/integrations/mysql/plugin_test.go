@@ -6,17 +6,17 @@ import (
 	"testing"
 	"time"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	coreevent "github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-policy"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 
 func TestQueryAccessUsesResolvedEndpointAndSecretRef(t *testing.T) {
 	endpoints := fpendpoint.NewRegistry(0)
-	secretRef := coresecret.Kubernetes("latest", "backend-db", "dsn").ResourceName()
+	secretRef := sharedsecret.Kubernetes("latest", "backend-db", sharedsecret.Slot("dsn")).ResourceName()
 	ref, err := endpoints.Put(fpendpoint.RuntimeRecord{Spec: fpendpoint.Spec{
 		Name:    "mysql-backend",
 		URL:     "mysql://mysql.latest.svc:3306/app",

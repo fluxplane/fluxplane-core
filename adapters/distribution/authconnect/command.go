@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"io"
 	"net/http"
 	"os"
@@ -14,12 +13,13 @@ import (
 	"strings"
 	"time"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-auth/authstatus"
 	"github.com/fluxplane/fluxplane-core/adapters/auth/oauth2flow"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/oauth2client"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -51,7 +51,7 @@ type target struct {
 
 type statusPlan struct {
 	Target          target
-	Methods         []coresecret.AuthMethodSpec
+	Methods         []auth.MethodSpec
 	Status          authstatus.Status
 	Label           string
 	RequestedMethod string
@@ -152,9 +152,9 @@ func runStatusWithOptions(ctx context.Context, opts options, cfg CommandOptions)
 	if err != nil {
 		return err
 	}
-	resolver := coresecret.ChainResolver{
+	resolver := sharedsecret.ChainResolver{
 		sharedsecret.NewFileStore(opts.authPath),
-		coresecret.EnvResolver{Environment: osEnvironment{}},
+		sharedsecret.EnvResolver{Environment: osEnvironment{}},
 	}
 	plans, maxLabel, err := statusPlans(ctx, targets, resolver)
 	if err != nil {
@@ -201,13 +201,13 @@ func runConnect(ctx context.Context, opts options, cfg CommandOptions) error {
 			return err
 		}
 		switch method.Method {
-		case coresecret.AuthMethodOAuth2:
+		case auth.MethodOAuth2AuthCode:
 			if err := runOAuth2(ctx, opts, target.ref(), method); err != nil {
 				return err
 			}
-		case coresecret.AuthMethodEnv:
+		case auth.MethodEnv:
 			printEnvInstructions(out, target.ref().Name, method)
-		case coresecret.AuthMethodStored:
+		case auth.MethodStored:
 			if err := runStored(ctx, opts, target.ref(), method); err != nil {
 				return err
 			}
@@ -218,7 +218,7 @@ func runConnect(ctx context.Context, opts options, cfg CommandOptions) error {
 	return nil
 }
 
-func runStored(ctx context.Context, opts options, ref resource.PluginRef, method coresecret.AuthMethodSpec) error {
+func runStored(ctx context.Context, opts options, ref resource.PluginRef, method auth.MethodSpec) error {
 	out := writerOr(opts.out, os.Stdout)
 	fields, err := collectFields(opts, method.SetupFields)
 	if err != nil {
@@ -227,17 +227,17 @@ func runStored(ctx context.Context, opts options, ref resource.PluginRef, method
 	store := sharedsecret.NewFileStore(opts.authPath)
 	kind := method.Kind
 	if kind == "" {
-		kind = coresecret.KindBearerToken
+		kind = sharedsecret.KindBearerToken
 	}
 	saved := 0
 	for _, spec := range method.SetupFields {
-		name := strings.TrimSpace(coresecret.SetupFieldName(spec))
+		name := strings.TrimSpace(string(spec.Slot))
 		value := strings.TrimSpace(fields[name])
 		if name == "" || value == "" {
 			continue
 		}
 		if err := store.SaveSecret(ctx, sharedsecret.StoredSecret{
-			Ref:   coresecret.Plugin(ref.Name, ref.InstanceName(), name),
+			Ref:   sharedsecret.Plugin(ref.Name, ref.InstanceName(), sharedsecret.Slot(name)),
 			Kind:  kind,
 			Value: value,
 			Metadata: map[string]string{
@@ -255,7 +255,7 @@ func runStored(ctx context.Context, opts options, ref resource.PluginRef, method
 	return nil
 }
 
-func runOAuth2(ctx context.Context, opts options, ref resource.PluginRef, method coresecret.AuthMethodSpec) error {
+func runOAuth2(ctx context.Context, opts options, ref resource.PluginRef, method auth.MethodSpec) error {
 	out := writerOr(opts.out, os.Stdout)
 	fields, err := collectFields(opts, method.SetupFields)
 	if err != nil {
@@ -294,7 +294,7 @@ func runOAuth2(ctx context.Context, opts options, ref resource.PluginRef, method
 		"scope":      strings.TrimSpace(token.Scope),
 	}
 	for _, spec := range method.SetupFields {
-		name := strings.TrimSpace(coresecret.SetupFieldName(spec))
+		name := strings.TrimSpace(string(spec.Slot))
 		value := strings.TrimSpace(fields[name])
 		if name == "" || value == "" || spec.Sensitive || name == "client_secret" {
 			continue
@@ -318,7 +318,7 @@ func runOAuth2(ctx context.Context, opts options, ref resource.PluginRef, method
 	if token.RefreshToken != "" {
 		if err := store.SaveSecret(ctx, sharedsecret.StoredSecret{
 			Ref:   relatedSecretRef(ref, method.Name, "refresh_token"),
-			Kind:  coresecret.KindOAuth2Token,
+			Kind:  sharedsecret.KindOAuth2Token,
 			Value: token.RefreshToken,
 		}); err != nil {
 			return err
@@ -327,7 +327,7 @@ func runOAuth2(ctx context.Context, opts options, ref resource.PluginRef, method
 	if clientSecret != "" {
 		if err := store.SaveSecret(ctx, sharedsecret.StoredSecret{
 			Ref:   relatedSecretRef(ref, method.Name, "client_secret"),
-			Kind:  coresecret.KindOAuth2Token,
+			Kind:  sharedsecret.KindOAuth2Token,
 			Value: clientSecret,
 		}); err != nil {
 			return err
@@ -337,7 +337,7 @@ func runOAuth2(ctx context.Context, opts options, ref resource.PluginRef, method
 	return nil
 }
 
-func selectMethod(methods []coresecret.AuthMethodSpec, requested string, in io.Reader, out io.Writer) (coresecret.AuthMethodSpec, error) {
+func selectMethod(methods []auth.MethodSpec, requested string, in io.Reader, out io.Writer) (auth.MethodSpec, error) {
 	requested = strings.ToLower(strings.TrimSpace(requested))
 	for _, method := range methods {
 		name := strings.ToLower(strings.TrimSpace(method.Name))
@@ -352,7 +352,7 @@ func selectMethod(methods []coresecret.AuthMethodSpec, requested string, in io.R
 		}
 	}
 	if requested != "" {
-		return coresecret.AuthMethodSpec{}, fmt.Errorf("auth: auth method %q is unavailable", requested)
+		return auth.MethodSpec{}, fmt.Errorf("auth: auth method %q is unavailable", requested)
 	}
 	if len(methods) == 1 {
 		return methods[0], nil
@@ -360,9 +360,9 @@ func selectMethod(methods []coresecret.AuthMethodSpec, requested string, in io.R
 	return promptMethod(methods, in, out)
 }
 
-func promptMethod(methods []coresecret.AuthMethodSpec, in io.Reader, out io.Writer) (coresecret.AuthMethodSpec, error) {
+func promptMethod(methods []auth.MethodSpec, in io.Reader, out io.Writer) (auth.MethodSpec, error) {
 	if len(methods) == 0 {
-		return coresecret.AuthMethodSpec{}, fmt.Errorf("auth: plugin does not declare auth methods")
+		return auth.MethodSpec{}, fmt.Errorf("auth: plugin does not declare auth methods")
 	}
 	_, _ = fmt.Fprintln(out, "Auth methods:")
 	for i, method := range methods {
@@ -371,7 +371,7 @@ func promptMethod(methods []coresecret.AuthMethodSpec, in io.Reader, out io.Writ
 	_, _ = fmt.Fprint(out, "Select auth method: ")
 	line, err := bufio.NewReader(in).ReadString('\n')
 	if err != nil && err != io.EOF {
-		return coresecret.AuthMethodSpec{}, err
+		return auth.MethodSpec{}, err
 	}
 	selected := strings.ToLower(strings.TrimSpace(line))
 	for i, method := range methods {
@@ -379,10 +379,10 @@ func promptMethod(methods []coresecret.AuthMethodSpec, in io.Reader, out io.Writ
 			return method, nil
 		}
 	}
-	return coresecret.AuthMethodSpec{}, fmt.Errorf("auth: auth method %q is unavailable", selected)
+	return auth.MethodSpec{}, fmt.Errorf("auth: auth method %q is unavailable", selected)
 }
 
-func filterMethods(methods []coresecret.AuthMethodSpec, requested string) ([]coresecret.AuthMethodSpec, error) {
+func filterMethods(methods []auth.MethodSpec, requested string) ([]auth.MethodSpec, error) {
 	if strings.TrimSpace(requested) == "" {
 		return methods, nil
 	}
@@ -390,10 +390,10 @@ func filterMethods(methods []coresecret.AuthMethodSpec, requested string) ([]cor
 	if err != nil {
 		return nil, err
 	}
-	return []coresecret.AuthMethodSpec{method}, nil
+	return []auth.MethodSpec{method}, nil
 }
 
-func statusPlans(ctx context.Context, targets []target, resolver coresecret.Resolver) ([]statusPlan, int, error) {
+func statusPlans(ctx context.Context, targets []target, resolver sharedsecret.Resolver) ([]statusPlan, int, error) {
 	plans := make([]statusPlan, 0, len(targets))
 	maxLabel := 0
 	for _, target := range targets {
@@ -421,7 +421,7 @@ func statusPlans(ctx context.Context, targets []target, resolver coresecret.Reso
 	return plans, maxLabel, nil
 }
 
-func runConnectivityTest(ctx context.Context, out io.Writer, resolver coresecret.Resolver, plan statusPlan, renderer statusRenderer) error {
+func runConnectivityTest(ctx context.Context, out io.Writer, resolver sharedsecret.Resolver, plan statusPlan, renderer statusRenderer) error {
 	tester, ok := plan.Target.auth.Plugin.(pluginhost.AuthTestContributor)
 	if !ok {
 		renderer.printTestReport(out, pluginhost.AuthTestReport{Method: plan.RequestedMethod, Check: "connection", Status: "skipped", Message: "plugin does not support auth testing"})
@@ -439,7 +439,7 @@ func runConnectivityTest(ctx context.Context, out io.Writer, resolver coresecret
 	return <-runErr
 }
 
-func selectedMethod(methods []coresecret.AuthMethodSpec, status authstatus.Status) coresecret.AuthMethodSpec {
+func selectedMethod(methods []auth.MethodSpec, status authstatus.Status) auth.MethodSpec {
 	id := strings.TrimSpace(status.MethodID)
 	for _, method := range methods {
 		if strings.TrimSpace(method.Name) == id {
@@ -449,13 +449,13 @@ func selectedMethod(methods []coresecret.AuthMethodSpec, status authstatus.Statu
 	if len(methods) == 1 {
 		return methods[0]
 	}
-	return coresecret.AuthMethodSpec{}
+	return auth.MethodSpec{}
 }
 
-func collectFields(opts options, specs []coresecret.SetupFieldSpec) (map[string]string, error) {
+func collectFields(opts options, specs []auth.FieldSpec) (map[string]string, error) {
 	fields := parseFields(opts.fields)
 	for _, spec := range specs {
-		name := strings.TrimSpace(coresecret.SetupFieldName(spec))
+		name := strings.TrimSpace(string(spec.Slot))
 		if name == "" || strings.TrimSpace(fields[name]) != "" {
 			continue
 		}
@@ -467,7 +467,7 @@ func collectFields(opts options, specs []coresecret.SetupFieldSpec) (map[string]
 	out := writerOr(opts.out, os.Stdout)
 	terminalInput := isTerminalInput(opts.in)
 	for _, spec := range specs {
-		name := strings.TrimSpace(coresecret.SetupFieldName(spec))
+		name := strings.TrimSpace(string(spec.Slot))
 		if name == "" || strings.TrimSpace(fields[name]) != "" {
 			continue
 		}
@@ -484,7 +484,7 @@ func collectFields(opts options, specs []coresecret.SetupFieldSpec) (map[string]
 		fields[name] = value
 	}
 	for _, spec := range specs {
-		name := strings.TrimSpace(coresecret.SetupFieldName(spec))
+		name := strings.TrimSpace(string(spec.Slot))
 		if spec.Required && strings.TrimSpace(fields[name]) == "" {
 			return nil, fmt.Errorf("auth connect: setup field %q is required", name)
 		}
@@ -504,12 +504,12 @@ func collectFields(opts options, specs []coresecret.SetupFieldSpec) (map[string]
 	return fields, nil
 }
 
-func readSetupField(reader *bufio.Reader, out io.Writer, in io.Reader, spec coresecret.SetupFieldSpec) (string, error) {
+func readSetupField(reader *bufio.Reader, out io.Writer, in io.Reader, spec auth.FieldSpec) (string, error) {
 	_, _ = fmt.Fprintf(out, "%s: ", displayFieldName(spec))
 	if spec.Sensitive {
 		file, ok := inputFile(in)
 		if !ok || !term.IsTerminal(int(file.Fd())) {
-			return "", fmt.Errorf("auth connect: sensitive setup field %q must be supplied by --field or environment when stdin is not a terminal", coresecret.SetupFieldName(spec))
+			return "", fmt.Errorf("auth connect: sensitive setup field %q must be supplied by --field or environment when stdin is not a terminal", string(spec.Slot))
 		}
 		data, err := term.ReadPassword(int(file.Fd()))
 		_, _ = fmt.Fprintln(out)
@@ -525,7 +525,7 @@ func readSetupField(reader *bufio.Reader, out io.Writer, in io.Reader, spec core
 	return strings.TrimSpace(value), nil
 }
 
-func printNativeInfo(out io.Writer, ref resource.PluginRef, methods []coresecret.AuthMethodSpec) {
+func printNativeInfo(out io.Writer, ref resource.PluginRef, methods []auth.MethodSpec) {
 	_, _ = fmt.Fprintf(out, "%s/%s\n\nAuth methods:\n", ref.Name, ref.InstanceName())
 	for _, method := range methods {
 		name := strings.TrimSpace(method.Name)
@@ -576,7 +576,7 @@ func methodMetadataLines(metadata map[string]string) []string {
 	return lines
 }
 
-func printEnvInstructions(out io.Writer, provider string, method coresecret.AuthMethodSpec) {
+func printEnvInstructions(out io.Writer, provider string, method auth.MethodSpec) {
 	envs := append([]string{method.Env.Name}, method.Env.Aliases...)
 	envs = nonEmpty(envs)
 	if len(envs) == 0 {
@@ -620,7 +620,7 @@ func (r statusRenderer) printSection(out io.Writer, label string) {
 	_, _ = fmt.Fprintf(out, "  %s\n", r.muted(strings.TrimSpace(label)))
 }
 
-func (r statusRenderer) printResolvedFields(out io.Writer, ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec) {
+func (r statusRenderer) printResolvedFields(out io.Writer, ctx context.Context, resolver sharedsecret.Resolver, ref resource.PluginRef, method auth.MethodSpec) {
 	if strings.TrimSpace(method.Name) == "" {
 		return
 	}
@@ -654,7 +654,7 @@ func (r statusRenderer) printResolvedFields(out io.Writer, ctx context.Context, 
 	}
 }
 
-func (r statusRenderer) printMissingFields(out io.Writer, fields []authstatus.FieldStatus, specs []coresecret.SetupFieldSpec) {
+func (r statusRenderer) printMissingFields(out io.Writer, fields []authstatus.FieldStatus, specs []auth.FieldSpec) {
 	missing := missingRequiredFields(fields, specs)
 	if len(missing) == 0 {
 		return
@@ -719,13 +719,13 @@ type resolvedField struct {
 	Sensitive bool
 }
 
-func resolvedFieldValues(ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec) []resolvedField {
+func resolvedFieldValues(ctx context.Context, resolver sharedsecret.Resolver, ref resource.PluginRef, method auth.MethodSpec) []resolvedField {
 	var out []resolvedField
 	if resolver == nil {
 		return out
 	}
 	for _, spec := range method.SetupFields {
-		name := strings.TrimSpace(coresecret.SetupFieldName(spec))
+		name := strings.TrimSpace(string(spec.Slot))
 		if name == "" {
 			continue
 		}
@@ -745,19 +745,19 @@ func resolvedFieldValues(ctx context.Context, resolver coresecret.Resolver, ref 
 	return out
 }
 
-func resolveDisplayField(ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec, spec coresecret.SetupFieldSpec) (string, string, bool, bool) {
-	name := strings.TrimSpace(coresecret.SetupFieldName(spec))
-	refs := []coresecret.Ref{coresecret.Plugin(ref.Name, ref.InstanceName(), name)}
+func resolveDisplayField(ctx context.Context, resolver sharedsecret.Resolver, ref resource.PluginRef, method auth.MethodSpec, spec auth.FieldSpec) (string, string, bool, bool) {
+	name := strings.TrimSpace(string(spec.Slot))
+	refs := []sharedsecret.Ref{sharedsecret.Plugin(ref.Name, ref.InstanceName(), sharedsecret.Slot(name))}
 	refs = append(refs, envRefs(spec.Env)...)
 	for _, candidate := range refs {
 		material, ok, err := resolver.ResolveSecret(ctx, candidate)
 		value := strings.TrimSpace(string(material.Value))
 		if err == nil && ok && value != "" {
 			candidate = candidate.Normalize()
-			return value, displayRefName(candidate), candidate.Scheme == coresecret.SchemeEnv, true
+			return value, displayRefName(candidate), candidate.Scheme == sharedsecret.SchemeEnv, true
 		}
 	}
-	if method.Method != coresecret.AuthMethodEnv || name != strings.TrimSpace(method.Name) {
+	if method.Method != auth.MethodEnv || name != strings.TrimSpace(method.Name) {
 		return "", "", false, false
 	}
 	for _, candidate := range envRefs(method.Env) {
@@ -765,30 +765,30 @@ func resolveDisplayField(ctx context.Context, resolver coresecret.Resolver, ref 
 		value := strings.TrimSpace(string(material.Value))
 		if err == nil && ok && value != "" {
 			candidate = candidate.Normalize()
-			return value, displayRefName(candidate), candidate.Scheme == coresecret.SchemeEnv, true
+			return value, displayRefName(candidate), candidate.Scheme == sharedsecret.SchemeEnv, true
 		}
 	}
 	return "", "", false, false
 }
 
-func refsForDisplayMethod(method coresecret.AuthMethodSpec) []coresecret.Ref {
+func refsForDisplayMethod(method auth.MethodSpec) []sharedsecret.Ref {
 	switch method.Method {
-	case coresecret.AuthMethodEnv:
+	case auth.MethodEnv:
 		return envRefs(method.Env)
-	case coresecret.AuthMethodOAuth2, coresecret.AuthMethodStored:
+	case auth.MethodOAuth2AuthCode, auth.MethodStored:
 		ref := method.Secret.Normalize()
 		if ref.ResourceName() == "" {
 			return nil
 		}
-		return []coresecret.Ref{ref}
+		return []sharedsecret.Ref{ref}
 	default:
 		return nil
 	}
 }
 
-func envRefs(spec coresecret.EnvSpec) []coresecret.Ref {
+func envRefs(spec auth.EnvSpec) []sharedsecret.Ref {
 	names := append([]string{spec.Name}, spec.Aliases...)
-	refs := make([]coresecret.Ref, 0, len(names))
+	refs := make([]sharedsecret.Ref, 0, len(names))
 	seen := map[string]bool{}
 	for _, name := range names {
 		name = strings.TrimSpace(name)
@@ -796,12 +796,12 @@ func envRefs(spec coresecret.EnvSpec) []coresecret.Ref {
 			continue
 		}
 		seen[name] = true
-		refs = append(refs, coresecret.Env(name))
+		refs = append(refs, sharedsecret.Env(name))
 	}
 	return refs
 }
 
-func displayRefName(ref coresecret.Ref) string {
+func displayRefName(ref sharedsecret.Ref) string {
 	ref = ref.Normalize()
 	if ref.Slot != "" {
 		return string(ref.Slot)
@@ -827,7 +827,7 @@ func envTargetName(field resolvedField) string {
 	return base
 }
 
-func missingRequiredFields(fields []authstatus.FieldStatus, specs []coresecret.SetupFieldSpec) []string {
+func missingRequiredFields(fields []authstatus.FieldStatus, specs []auth.FieldSpec) []string {
 	if len(fields) == 0 || len(specs) == 0 {
 		return nil
 	}
@@ -842,7 +842,7 @@ func missingRequiredFields(fields []authstatus.FieldStatus, specs []coresecret.S
 	groupFields := map[string][]string{}
 	groupSet := map[string]bool{}
 	for _, spec := range specs {
-		name := strings.TrimSpace(coresecret.SetupFieldName(spec))
+		name := strings.TrimSpace(string(spec.Slot))
 		if name == "" {
 			continue
 		}
@@ -964,8 +964,8 @@ func registryTargets(ctx context.Context, registry TargetRegistry) ([]pluginhost
 	return registry(ctx)
 }
 
-func relatedSecretRef(ref resource.PluginRef, methodName, name string) coresecret.Ref {
-	return coresecret.Plugin(ref.Name, ref.InstanceName(), strings.TrimSpace(methodName)+"_"+strings.TrimSpace(name))
+func relatedSecretRef(ref resource.PluginRef, methodName, name string) sharedsecret.Ref {
+	return sharedsecret.Plugin(ref.Name, ref.InstanceName(), sharedsecret.Slot(strings.TrimSpace(methodName)+"_"+strings.TrimSpace(name)))
 }
 
 func parseFields(values []string) map[string]string {
@@ -983,7 +983,7 @@ func parseFields(values []string) map[string]string {
 	return out
 }
 
-func firstEnv(spec coresecret.EnvSpec) string {
+func firstEnv(spec auth.EnvSpec) string {
 	for _, name := range append([]string{spec.Name}, spec.Aliases...) {
 		if value := strings.TrimSpace(os.Getenv(strings.TrimSpace(name))); value != "" {
 			return value
@@ -992,15 +992,15 @@ func firstEnv(spec coresecret.EnvSpec) string {
 	return ""
 }
 
-func displayFieldName(spec coresecret.SetupFieldSpec) string {
-	return firstNonEmpty(spec.DisplayName, coresecret.SetupFieldName(spec))
+func displayFieldName(spec auth.FieldSpec) string {
+	return firstNonEmpty(spec.DisplayName, string(spec.Slot))
 }
 
-func requiredGroups(specs []coresecret.SetupFieldSpec) map[string][]string {
+func requiredGroups(specs []auth.FieldSpec) map[string][]string {
 	groups := map[string][]string{}
 	for _, spec := range specs {
 		group := strings.TrimSpace(spec.RequiredGroup)
-		name := strings.TrimSpace(coresecret.SetupFieldName(spec))
+		name := strings.TrimSpace(string(spec.Slot))
 		if group != "" && name != "" {
 			groups[group] = append(groups[group], name)
 		}
@@ -1008,9 +1008,9 @@ func requiredGroups(specs []coresecret.SetupFieldSpec) map[string][]string {
 	return groups
 }
 
-func fieldGroupSatisfied(fields map[string]string, specs []coresecret.SetupFieldSpec, group string) bool {
+func fieldGroupSatisfied(fields map[string]string, specs []auth.FieldSpec, group string) bool {
 	for _, spec := range specs {
-		if strings.TrimSpace(spec.RequiredGroup) == group && strings.TrimSpace(fields[strings.TrimSpace(coresecret.SetupFieldName(spec))]) != "" {
+		if strings.TrimSpace(spec.RequiredGroup) == group && strings.TrimSpace(fields[strings.TrimSpace(string(spec.Slot))]) != "" {
 			return true
 		}
 	}

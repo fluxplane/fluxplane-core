@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -32,8 +32,8 @@ type generatedSpec struct {
 	DataSources     []coredata.SourceSpec
 	Docs            []docRecord
 	Executable      []operationDefinition
-	AuthMethods     []coresecret.AuthMethodSpec
-	AuthByScheme    map[string]coresecret.AuthMethodSpec
+	AuthMethods     []auth.MethodSpec
+	AuthByScheme    map[string]auth.MethodSpec
 	SecuritySchemes map[string]*openapi3.SecurityScheme
 }
 
@@ -47,12 +47,12 @@ type operationDefinition struct {
 	Parameters      []*openapi3.Parameter
 	RequestBody     *openapi3.RequestBodyRef
 	Security        openapi3.SecurityRequirements
-	AuthByScheme    map[string]coresecret.AuthMethodSpec
+	AuthByScheme    map[string]auth.MethodSpec
 	SecuritySchemes map[string]*openapi3.SecurityScheme
 }
 
 func generateAll(ref resource.PluginRef, loaded []loadedSpec) (generatedSpec, error) {
-	out := generatedSpec{AuthByScheme: map[string]coresecret.AuthMethodSpec{}, SecuritySchemes: map[string]*openapi3.SecurityScheme{}}
+	out := generatedSpec{AuthByScheme: map[string]auth.MethodSpec{}, SecuritySchemes: map[string]*openapi3.SecurityScheme{}}
 	seenOps := map[string]bool{}
 	for _, spec := range loaded {
 		generated, err := generateOne(ref, spec)

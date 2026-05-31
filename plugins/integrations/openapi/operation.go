@@ -12,10 +12,11 @@ import (
 	"sort"
 	"strings"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-policy"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	"github.com/getkin/kin-openapi/openapi3"
 )
@@ -74,7 +75,7 @@ func (o openAPIOperation) Access(ctx operation.Context, input operation.Value) (
 	}
 	access := []operationruntime.AccessDescriptor{operationruntime.NetworkDescriptor(target, action)}
 	for _, scheme := range configuredSecuritySchemes(o.def.Security, o.def.AuthByScheme) {
-		ref := coresecret.Plugin(Name, o.def.Instance, scheme)
+		ref := sharedsecret.Plugin(Name, o.def.Instance, sharedsecret.Slot(scheme))
 		access = append(access, operationruntime.AccessDescriptor{
 			Resource: policy.ResourceRef{Kind: policy.ResourceSecret, Name: ref.ResourceName()},
 			Action:   policy.ActionSecretUse,
@@ -156,12 +157,12 @@ func (o openAPIOperation) applyAuth(ctx operation.Context, req *http.Request, in
 	}
 	for _, schemeName := range schemeNames {
 		method := o.def.AuthByScheme[schemeName]
-		broker := coresecret.NewBroker(coresecret.EnvResolver{Environment: o.environment, Kind: method.Kind})
-		resolution, ok, err := broker.UseAvailable(ctx, coresecret.AuthRequest{
+		broker := auth.NewBroker(sharedsecret.EnvResolver{Environment: o.environment, Kind: method.Kind})
+		resolution, ok, err := broker.UseAvailable(ctx, auth.Request{
 			Plugin:   Name,
 			Instance: o.def.Instance,
 			Purpose:  schemeName,
-			Methods:  []coresecret.AuthMethodSpec{method},
+			Methods:  []auth.MethodSpec{method},
 		})
 		if err != nil {
 			return fmt.Errorf("openapi use auth secret: %w", err)
@@ -174,7 +175,7 @@ func (o openAPIOperation) applyAuth(ctx operation.Context, req *http.Request, in
 	return nil
 }
 
-func (o openAPIOperation) applyAuthMaterial(req *http.Request, in requestInput, schemeName string, material coresecret.Material) {
+func (o openAPIOperation) applyAuthMaterial(req *http.Request, in requestInput, schemeName string, material sharedsecret.Material) {
 	scheme := o.def.SecuritySchemes[schemeName]
 	value := material.String()
 	if scheme == nil {
@@ -267,7 +268,7 @@ func scalarString(value any) string {
 	}
 }
 
-func configuredSecuritySchemes(requirements openapi3.SecurityRequirements, methods map[string]coresecret.AuthMethodSpec) []string {
+func configuredSecuritySchemes(requirements openapi3.SecurityRequirements, methods map[string]auth.MethodSpec) []string {
 	for _, requirement := range requirements {
 		if len(requirement) == 0 {
 			return nil

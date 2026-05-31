@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	sharedauthstatus "github.com/fluxplane/fluxplane-auth/authstatus"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 	authStatusObservationSource      = "auth"
 )
 
-func newAuthStatusObserver(targets []sharedauthstatus.Target, resolver coresecret.Resolver) runtimeevidence.Observer {
+func newAuthStatusObserver(targets []sharedauthstatus.Target, resolver sharedsecret.Resolver) runtimeevidence.Observer {
 	return authStatusObserver{targets: append([]sharedauthstatus.Target(nil), targets...), resolver: resolver}
 }
 
@@ -29,7 +29,7 @@ func newAuthStatusAssertionDeriver() runtimeevidence.AssertionDeriver {
 
 type authStatusObserver struct {
 	targets  []sharedauthstatus.Target
-	resolver coresecret.Resolver
+	resolver sharedsecret.Resolver
 }
 
 func (authStatusObserver) Spec() coreevidence.ObserverSpec {

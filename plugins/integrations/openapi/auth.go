@@ -3,13 +3,14 @@ package openapi
 import (
 	"strings"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/resource"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
-func authMethodsFor(ref resource.PluginRef, cfg SpecConfig, doc *openapi3.T) ([]coresecret.AuthMethodSpec, map[string]coresecret.AuthMethodSpec, map[string]*openapi3.SecurityScheme) {
-	byScheme := map[string]coresecret.AuthMethodSpec{}
+func authMethodsFor(ref resource.PluginRef, cfg SpecConfig, doc *openapi3.T) ([]auth.MethodSpec, map[string]auth.MethodSpec, map[string]*openapi3.SecurityScheme) {
+	byScheme := map[string]auth.MethodSpec{}
 	schemes := map[string]*openapi3.SecurityScheme{}
 	if doc == nil || doc.Components == nil {
 		return nil, byScheme, schemes
@@ -27,17 +28,17 @@ func authMethodsFor(ref resource.PluginRef, cfg SpecConfig, doc *openapi3.T) ([]
 		method := authMethodForScheme(ref, name, configured, schemeRef.Value)
 		byScheme[name] = method
 	}
-	out := make([]coresecret.AuthMethodSpec, 0, len(byScheme))
+	out := make([]auth.MethodSpec, 0, len(byScheme))
 	for _, method := range byScheme {
 		out = append(out, method)
 	}
 	return out, byScheme, schemes
 }
 
-func authMethodForScheme(ref resource.PluginRef, name string, cfg AuthSchemeConfig, scheme *openapi3.SecurityScheme) coresecret.AuthMethodSpec {
+func authMethodForScheme(ref resource.PluginRef, name string, cfg AuthSchemeConfig, scheme *openapi3.SecurityScheme) auth.MethodSpec {
 	method := cfg.Method
 	if method == "" {
-		method = coresecret.AuthMethodEnv
+		method = auth.MethodEnv
 	}
 	kind := cfg.Kind
 	if kind == "" {
@@ -49,7 +50,7 @@ func authMethodForScheme(ref resource.PluginRef, name string, cfg AuthSchemeConf
 	}
 	displayName := firstNonEmpty(cfg.DisplayName, "OpenAPI "+name)
 	description := firstNonEmpty(cfg.Description, "Credential for OpenAPI security scheme "+name+".")
-	return coresecret.AuthMethodSpec{
+	return auth.MethodSpec{
 		Name:        name,
 		Method:      method,
 		Kind:        kind,
@@ -61,43 +62,43 @@ func authMethodForScheme(ref resource.PluginRef, name string, cfg AuthSchemeConf
 	}
 }
 
-func defaultSecretKind(scheme *openapi3.SecurityScheme) coresecret.Kind {
+func defaultSecretKind(scheme *openapi3.SecurityScheme) sharedsecret.Kind {
 	if scheme == nil {
-		return coresecret.KindAPIKey
+		return sharedsecret.KindAPIKey
 	}
 	if strings.EqualFold(scheme.Type, "http") {
 		switch strings.ToLower(scheme.Scheme) {
 		case "bearer":
-			return coresecret.KindBearerToken
+			return sharedsecret.KindBearerToken
 		case "basic":
-			return coresecret.KindBasic
+			return sharedsecret.KindBasic
 		}
 	}
 	if strings.EqualFold(scheme.Type, "oauth2") || strings.EqualFold(scheme.Type, "openIdConnect") {
-		return coresecret.KindBearerToken
+		return sharedsecret.KindBearerToken
 	}
-	return coresecret.KindAPIKey
+	return sharedsecret.KindAPIKey
 }
 
-func defaultHeaderSpec(scheme *openapi3.SecurityScheme) coresecret.HeaderSpec {
+func defaultHeaderSpec(scheme *openapi3.SecurityScheme) auth.HeaderSpec {
 	if scheme == nil {
-		return coresecret.HeaderSpec{}
+		return auth.HeaderSpec{}
 	}
 	if strings.EqualFold(scheme.Type, "http") && strings.EqualFold(scheme.Scheme, "bearer") {
-		return coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"}
+		return auth.HeaderSpec{Name: "Authorization", Scheme: "Bearer"}
 	}
 	if strings.EqualFold(scheme.Type, "apiKey") && strings.EqualFold(scheme.In, "header") {
-		return coresecret.HeaderSpec{Name: scheme.Name}
+		return auth.HeaderSpec{Name: scheme.Name}
 	}
 	if strings.EqualFold(scheme.Type, "oauth2") || strings.EqualFold(scheme.Type, "openIdConnect") {
-		return coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"}
+		return auth.HeaderSpec{Name: "Authorization", Scheme: "Bearer"}
 	}
-	return coresecret.HeaderSpec{}
+	return auth.HeaderSpec{}
 }
 
-func defaultSecretRef(ref resource.PluginRef, name string, configured coresecret.Ref) coresecret.Ref {
+func defaultSecretRef(ref resource.PluginRef, name string, configured sharedsecret.Ref) sharedsecret.Ref {
 	if configured.Normalize().ResourceName() != "" {
 		return configured
 	}
-	return coresecret.Plugin(Name, ref.InstanceName(), name)
+	return sharedsecret.Plugin(Name, ref.InstanceName(), sharedsecret.Slot(name))
 }

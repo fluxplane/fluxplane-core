@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	fpauth "github.com/fluxplane/fluxplane-auth"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -15,6 +15,7 @@ import (
 	coreuser "github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/orchestration/identity"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"golang.org/x/oauth2"
@@ -57,7 +58,7 @@ type Plugin struct {
 	boundaries    Boundaries
 	ref           resource.PluginRef
 	cfg           Config
-	secrets       coresecret.Resolver
+	secrets       sharedsecret.Resolver
 	clientFactory gitlabClientFactory
 }
 
@@ -160,7 +161,7 @@ type gitlabClient interface {
 type gitlabClientFactory func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error)
 
 type resolvedGitLabAuth struct {
-	coresecret.Resolution
+	fpauth.Resolution
 	BaseURL string
 }
 
@@ -176,7 +177,7 @@ func New(sys fpsystem.System) Plugin {
 	return NewWithBoundaries(BoundariesFromSystem(sys))
 }
 
-func NewWithResolver(sys fpsystem.System, resolver coresecret.Resolver) Plugin {
+func NewWithResolver(sys fpsystem.System, resolver sharedsecret.Resolver) Plugin {
 	return NewWithBoundariesAndResolver(BoundariesFromSystem(sys), resolver)
 }
 
@@ -184,7 +185,7 @@ func NewWithBoundaries(boundaries Boundaries) Plugin {
 	return Plugin{boundaries: boundaries}
 }
 
-func NewWithBoundariesAndResolver(boundaries Boundaries, resolver coresecret.Resolver) Plugin {
+func NewWithBoundariesAndResolver(boundaries Boundaries, resolver sharedsecret.Resolver) Plugin {
 	return Plugin{boundaries: boundaries, secrets: resolver}
 }
 
@@ -229,7 +230,7 @@ func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) (
 	}}, nil
 }
 
-func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]coresecret.AuthMethodSpec, error) {
+func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]fpauth.MethodSpec, error) {
 	p = p.withRef(ctx.Ref)
 	return p.authMethods(), nil
 }
@@ -251,7 +252,7 @@ func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context
 			reports <- p.authTestReport(p.cfg.Auth.Method, "current_user", "failed", "gitlabplugin: environment is nil", nil)
 			return nil
 		}
-		resolver = coresecret.EnvResolver{Environment: p.boundaries.Environment}
+		resolver = sharedsecret.EnvResolver{Environment: p.boundaries.Environment}
 	}
 	auth, err := authFromResolver(ctx, resolver, p.ref, p.cfg)
 	method := firstNonEmpty(auth.Method.Name, p.cfg.Auth.Method)
@@ -466,8 +467,8 @@ func (c Config) baseURL() string {
 	return defaultBaseURL
 }
 
-func (c Config) authMethods(ref resource.PluginRef) []coresecret.AuthMethodSpec {
-	methods := []coresecret.AuthMethodSpec{}
+func (c Config) authMethods(ref resource.PluginRef) []fpauth.MethodSpec {
+	methods := []fpauth.MethodSpec{}
 	authMethod := strings.ToLower(strings.TrimSpace(c.Auth.Method))
 	if authMethod == "" || authMethod == "env" || authMethod == "token" || authMethod == "personal_access_token" || authMethod == "personal-access-token" {
 		methods = append(methods, personalAccessTokenAuthMethod(ref, c.Auth.TokenEnv, c.BaseURL))
@@ -478,23 +479,23 @@ func (c Config) authMethods(ref resource.PluginRef) []coresecret.AuthMethodSpec 
 	return methods
 }
 
-func (p Plugin) authMethods() []coresecret.AuthMethodSpec {
+func (p Plugin) authMethods() []fpauth.MethodSpec {
 	return p.config().authMethods(p.ref)
 }
 
-func personalAccessTokenAuthMethod(ref resource.PluginRef, tokenEnv, baseURL string) coresecret.AuthMethodSpec {
+func personalAccessTokenAuthMethod(ref resource.PluginRef, tokenEnv, baseURL string) fpauth.MethodSpec {
 	urlRequired := strings.TrimSpace(baseURL) == ""
 	env := tokenEnvSpec(tokenEnv)
-	return coresecret.AuthMethodSpec{
+	return fpauth.MethodSpec{
 		Name:        personalAccessTokenMethod,
-		Method:      coresecret.AuthMethodStored,
-		Kind:        coresecret.KindAPIKey,
+		Method:      fpauth.MethodStored,
+		Kind:        sharedsecret.KindAPIKey,
 		DisplayName: "GitLab personal access token",
 		Description: "GitLab personal access token and GitLab URL resolved from stored fields or environment variables.",
-		Secret:      coresecret.Plugin(Name, ref.InstanceName(), gitlabTokenField),
+		Secret:      sharedsecret.Plugin(Name, ref.InstanceName(), sharedsecret.Slot(gitlabTokenField)),
 		Env:         env,
-		Header:      coresecret.HeaderSpec{Name: "Private-Token"},
-		SetupFields: []coresecret.SetupFieldSpec{
+		Header:      fpauth.HeaderSpec{Name: "Private-Token"},
+		SetupFields: []fpauth.FieldSpec{
 			{
 				Slot:        gitlabTokenField,
 				DisplayName: "GitLab token",
@@ -506,33 +507,33 @@ func personalAccessTokenAuthMethod(ref resource.PluginRef, tokenEnv, baseURL str
 				Slot:        gitlabURLField,
 				DisplayName: "GitLab URL",
 				Required:    urlRequired,
-				Env:         coresecret.EnvSpec{Name: gitlabURLEnv},
+				Env:         fpauth.EnvSpec{Name: gitlabURLEnv},
 			},
 		},
 	}
 }
 
-func tokenEnvSpec(tokenEnv string) coresecret.EnvSpec {
+func tokenEnvSpec(tokenEnv string) fpauth.EnvSpec {
 	if tokenEnv = strings.TrimSpace(tokenEnv); tokenEnv != "" {
-		return coresecret.EnvSpec{Name: tokenEnv}
+		return fpauth.EnvSpec{Name: tokenEnv}
 	}
-	return coresecret.EnvSpec{Aliases: tokenEnvAliases()}
+	return fpauth.EnvSpec{Aliases: tokenEnvAliases()}
 }
 
-func oauth2AuthMethod(ref resource.PluginRef, baseURL string) coresecret.AuthMethodSpec {
+func oauth2AuthMethod(ref resource.PluginRef, baseURL string) fpauth.MethodSpec {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
-	return coresecret.AuthMethodSpec{
+	return fpauth.MethodSpec{
 		Name:        oauth2Method,
-		Method:      coresecret.AuthMethodOAuth2,
-		Kind:        coresecret.KindOAuth2Token,
+		Method:      fpauth.MethodOAuth2AuthCode,
+		Kind:        sharedsecret.KindOAuth2Token,
 		DisplayName: "GitLab OAuth2",
 		Description: "GitLab OAuth2 authorization-code credentials stored for this plugin instance.",
-		Secret:      coresecret.Plugin(Name, ref.InstanceName(), oauth2Method+"_token"),
-		Header:      coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
-		OAuth2: coresecret.OAuth2Spec{
+		Secret:      sharedsecret.Plugin(Name, ref.InstanceName(), sharedsecret.Slot(oauth2Method+"_token")),
+		Header:      fpauth.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
+		OAuth2: fpauth.OAuth2Spec{
 			AuthorizeURL: baseURL + "/oauth/authorize",
 			TokenURL:     baseURL + "/oauth/token",
 			RefreshURL:   baseURL + "/oauth/token",
@@ -553,7 +554,7 @@ func newOfficialClient(ctx context.Context, boundaries Boundaries, ref resource.
 	return newOfficialClientFromAuth(boundaries.Network, cfg, auth)
 }
 
-func newOfficialClientWithResolver(ctx context.Context, boundaries Boundaries, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
+func newOfficialClientWithResolver(ctx context.Context, boundaries Boundaries, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
 	auth, err := authFromResolver(ctx, resolver, ref, cfg)
 	if err != nil {
 		return nil, err
@@ -573,9 +574,9 @@ func newOfficialClientFromAuth(network fpsystem.Network, cfg Config, auth resolv
 	var client *gitlab.Client
 	var err error
 	switch auth.Material.Kind {
-	case coresecret.KindAPIKey:
+	case sharedsecret.KindAPIKey:
 		client, err = gitlab.NewClient(auth.Material.String(), options...)
-	case coresecret.KindBearerToken, coresecret.KindOAuth2Token:
+	case sharedsecret.KindBearerToken, sharedsecret.KindOAuth2Token:
 		client, err = gitlab.NewAuthSourceClient(gitlab.OAuthTokenSource{
 			TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: auth.Material.String()}),
 		}, options...)
@@ -592,14 +593,14 @@ func authFromSecrets(ctx context.Context, environment fpsystem.Environment, ref 
 	if environment == nil {
 		return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: environment is nil")
 	}
-	return authFromResolver(ctx, coresecret.EnvResolver{Environment: environment}, ref, cfg)
+	return authFromResolver(ctx, sharedsecret.EnvResolver{Environment: environment}, ref, cfg)
 }
 
-func authFromResolver(ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) (resolvedGitLabAuth, error) {
+func authFromResolver(ctx context.Context, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config) (resolvedGitLabAuth, error) {
 	if resolver == nil {
 		return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: secret resolver is nil")
 	}
-	broker := coresecret.NewBroker(resolver)
+	broker := fpauth.NewBroker(resolver)
 	methods := cfg.authMethods(ref)
 	if len(methods) == 0 {
 		return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: unsupported auth method %q", cfg.Auth.Method)
@@ -612,11 +613,11 @@ func authFromResolver(ctx context.Context, resolver coresecret.Resolver, ref res
 			}
 			continue
 		}
-		resolution, ok, err := broker.UseAvailable(ctx, coresecret.AuthRequest{
+		resolution, ok, err := broker.UseAvailable(ctx, fpauth.Request{
 			Plugin:   Name,
 			Instance: ref.InstanceName(),
 			Purpose:  accessTokenPurpose,
-			Methods:  []coresecret.AuthMethodSpec{method},
+			Methods:  []fpauth.MethodSpec{method},
 		})
 		if err != nil {
 			return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: use auth secret: %w", err)
@@ -634,12 +635,12 @@ func authFromResolver(ctx context.Context, resolver coresecret.Resolver, ref res
 	return resolvedGitLabAuth{}, fmt.Errorf("gitlabplugin: auth secret is not configured; set %s", cfg.Auth.TokenEnv)
 }
 
-func tokenAuthFromSetupFields(ctx context.Context, broker *coresecret.Broker, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config, method coresecret.AuthMethodSpec) (resolvedGitLabAuth, bool, error) {
-	request := coresecret.AuthRequest{
+func tokenAuthFromSetupFields(ctx context.Context, broker *fpauth.Broker, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config, method fpauth.MethodSpec) (resolvedGitLabAuth, bool, error) {
+	request := fpauth.Request{
 		Plugin:   Name,
 		Instance: ref.InstanceName(),
 		Purpose:  accessTokenPurpose,
-		Methods:  []coresecret.AuthMethodSpec{method},
+		Methods:  []fpauth.MethodSpec{method},
 	}
 	if _, _, err := broker.Use(ctx, request.SecretRef()); err != nil {
 		return resolvedGitLabAuth{}, false, fmt.Errorf("gitlabplugin: use auth secret: %w", err)
@@ -669,7 +670,7 @@ func tokenAuthFromSetupFields(ctx context.Context, broker *coresecret.Broker, re
 		}
 	}
 	return resolvedGitLabAuth{
-		Resolution: coresecret.Resolution{
+		Resolution: fpauth.Resolution{
 			Ref:      tokenRef,
 			Method:   method,
 			Material: token,
@@ -678,12 +679,12 @@ func tokenAuthFromSetupFields(ctx context.Context, broker *coresecret.Broker, re
 	}, true, nil
 }
 
-func resolveSetupField(ctx context.Context, resolver coresecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec, name string) (coresecret.Material, coresecret.Ref, bool, error) {
+func resolveSetupField(ctx context.Context, resolver sharedsecret.Resolver, ref resource.PluginRef, method fpauth.MethodSpec, name string) (sharedsecret.Material, sharedsecret.Ref, bool, error) {
 	field, ok := setupField(method.SetupFields, name)
 	if !ok {
-		return coresecret.Material{}, coresecret.Ref{}, false, nil
+		return sharedsecret.Material{}, sharedsecret.Ref{}, false, nil
 	}
-	refs := []coresecret.Ref{coresecret.Plugin(ref.Name, ref.InstanceName(), name)}
+	refs := []sharedsecret.Ref{sharedsecret.Plugin(ref.Name, ref.InstanceName(), sharedsecret.Slot(name))}
 	refs = append(refs, envRefs(field.Env)...)
 	for _, candidate := range refs {
 		material, found, err := resolver.ResolveSecret(ctx, candidate)
@@ -691,21 +692,21 @@ func resolveSetupField(ctx context.Context, resolver coresecret.Resolver, ref re
 			return material, candidate, found, err
 		}
 	}
-	return coresecret.Material{}, coresecret.Ref{}, false, nil
+	return sharedsecret.Material{}, sharedsecret.Ref{}, false, nil
 }
 
-func setupField(fields []coresecret.SetupFieldSpec, name string) (coresecret.SetupFieldSpec, bool) {
+func setupField(fields []fpauth.FieldSpec, name string) (fpauth.FieldSpec, bool) {
 	for _, field := range fields {
-		if strings.EqualFold(strings.TrimSpace(coresecret.SetupFieldName(field)), strings.TrimSpace(name)) {
+		if strings.EqualFold(strings.TrimSpace(string(field.Slot)), strings.TrimSpace(name)) {
 			return field, true
 		}
 	}
-	return coresecret.SetupFieldSpec{}, false
+	return fpauth.FieldSpec{}, false
 }
 
-func envRefs(spec coresecret.EnvSpec) []coresecret.Ref {
+func envRefs(spec fpauth.EnvSpec) []sharedsecret.Ref {
 	names := append([]string{spec.Name}, spec.Aliases...)
-	refs := make([]coresecret.Ref, 0, len(names))
+	refs := make([]sharedsecret.Ref, 0, len(names))
 	seen := map[string]bool{}
 	for _, name := range names {
 		name = strings.TrimSpace(name)
@@ -713,7 +714,7 @@ func envRefs(spec coresecret.EnvSpec) []coresecret.Ref {
 			continue
 		}
 		seen[name] = true
-		refs = append(refs, coresecret.Env(name))
+		refs = append(refs, sharedsecret.Env(name))
 	}
 	return refs
 }

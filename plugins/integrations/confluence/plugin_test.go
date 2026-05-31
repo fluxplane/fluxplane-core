@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
@@ -45,10 +45,10 @@ func TestPluginDeclaresOAuthAndTokenAuthMethods(t *testing.T) {
 	if len(methods) != 3 {
 		t.Fatalf("methods len = %d, want 3", len(methods))
 	}
-	if methods[0].Name != atlassian.TokenMethod || methods[0].Method != coresecret.AuthMethodEnv {
+	if methods[0].Name != atlassian.TokenMethod || methods[0].Method != auth.MethodEnv {
 		t.Fatalf("token method = %#v", methods[0])
 	}
-	if methods[1].Name != atlassian.APITokenMethod || methods[1].Method != coresecret.AuthMethodStored {
+	if methods[1].Name != atlassian.APITokenMethod || methods[1].Method != auth.MethodStored {
 		t.Fatalf("api token method = %#v", methods[1])
 	}
 	if methods[2].Name != atlassian.OAuth2Method || methods[2].Secret.ResourceName() != "plugin/confluence/main/oauth2_token" {
@@ -307,9 +307,9 @@ func (s fakeSystem) Clock() fpsystem.Clock {
 func newTestPlugin(t *testing.T, network fpsystem.Network, env map[string]string) Plugin {
 	t.Helper()
 	store := sharedsecret.NewFileStore(t.TempDir())
-	resolver := coresecret.ChainResolver{
+	resolver := sharedsecret.ChainResolver{
 		store,
-		coresecret.EnvResolver{Environment: fakeEnvironment{values: env}},
+		sharedsecret.EnvResolver{Environment: fakeEnvironment{values: env}},
 	}
 	return NewWithResolver(fakeSystem{network: network}, store, resolver)
 }

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -149,7 +149,7 @@ func TestDiscoverEndpointCandidatesAttachesKubernetesSecretAuthRef(t *testing.T)
 	if mysql.URL != "" {
 		t.Fatalf("secret-backed candidate URL = %q, want no secret material in endpoint URL", mysql.URL)
 	}
-	if want := coresecret.Kubernetes("latest", "backend-db", "dsn").ResourceName(); mysql.AuthRef != want {
+	if want := sharedsecret.Kubernetes("latest", "backend-db", "dsn").ResourceName(); mysql.AuthRef != want {
 		t.Fatalf("AuthRef = %q, want %q", mysql.AuthRef, want)
 	}
 }
@@ -176,7 +176,7 @@ func TestKubernetesSecretResolverResolvesSecretKey(t *testing.T) {
 	})
 	plugin := NewWithClient(nil, client)
 	plugin.cfg = Config{Namespaces: []string{"latest"}}
-	material, ok, err := (kubernetesSecretResolver{plugin: plugin}).ResolveSecret(context.Background(), coresecret.Kubernetes("latest", "backend-db", "dsn"))
+	material, ok, err := (kubernetesSecretResolver{plugin: plugin}).ResolveSecret(context.Background(), sharedsecret.Kubernetes("latest", "backend-db", "dsn"))
 	if err != nil {
 		t.Fatalf("ResolveSecret() error = %v", err)
 	}

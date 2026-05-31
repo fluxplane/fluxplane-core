@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync"
 
-	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	sharedauthstatus "github.com/fluxplane/fluxplane-auth/authstatus"
 	"github.com/fluxplane/fluxplane-core"
 	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
@@ -124,7 +123,7 @@ type PluginFactoryContext struct {
 	Dispatcher         *slack.Dispatcher
 	TaskRunner         task.TaskRunner
 	NativeAuthStore    sharedsecret.FileStore
-	NativeAuthResolver runtimesecret.Resolver
+	NativeAuthResolver sharedsecret.Resolver
 }
 
 type nativePluginOptions struct {
@@ -644,11 +643,11 @@ func availablePlugins(hostSystem fpsystem.System, ws runtimeworkspace.Workspace,
 	return availablePluginsWithAuth(hostSystem, ws, dispatcher, taskRunner, auth.Store, auth.Resolver)
 }
 
-func availablePluginsWithAuth(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver runtimesecret.Resolver) []pluginhost.Plugin {
+func availablePluginsWithAuth(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver) []pluginhost.Plugin {
 	return availablePluginsWithOptions(hostSystem, ws, dispatcher, taskRunner, nativeStore, nativeResolver, nativePluginOptions{})
 }
 
-func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver runtimesecret.Resolver, opts nativePluginOptions) []pluginhost.Plugin {
+func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver, opts nativePluginOptions) []pluginhost.Plugin {
 	var process fpsystem.ProcessManager
 	var environment fpsystem.Environment
 	var network fpsystem.Network

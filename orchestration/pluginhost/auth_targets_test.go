@@ -5,8 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/resource"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 
 func TestResolveAuthTargetsPreservesInstancesAndConfig(t *testing.T) {
@@ -98,12 +99,12 @@ func (p authPlugin) Contributions(context.Context, Context) (resource.Contributi
 	return resource.ContributionBundle{}, nil
 }
 
-func (p authPlugin) AuthMethods(_ context.Context, ctx Context) ([]coresecret.AuthMethodSpec, error) {
-	return []coresecret.AuthMethodSpec{{
+func (p authPlugin) AuthMethods(_ context.Context, ctx Context) ([]auth.MethodSpec, error) {
+	return []auth.MethodSpec{{
 		Name:   "token",
-		Method: coresecret.AuthMethodStored,
-		Kind:   coresecret.KindBearerToken,
-		Secret: coresecret.Plugin(ctx.Ref.Name, ctx.Ref.InstanceName(), ctx.Ref.InstanceName()+"_token"),
+		Method: auth.MethodStored,
+		Kind:   sharedsecret.KindBearerToken,
+		Secret: sharedsecret.Plugin(ctx.Ref.Name, ctx.Ref.InstanceName(), sharedsecret.Slot(ctx.Ref.InstanceName()+"_token")),
 	}}, nil
 }
 
@@ -119,8 +120,8 @@ func (p invalidAuthPlugin) Contributions(context.Context, Context) (resource.Con
 	return resource.ContributionBundle{}, nil
 }
 
-func (p invalidAuthPlugin) AuthMethods(context.Context, Context) ([]coresecret.AuthMethodSpec, error) {
-	return []coresecret.AuthMethodSpec{{Name: "broken", Method: coresecret.AuthMethodStored}}, nil
+func (p invalidAuthPlugin) AuthMethods(context.Context, Context) ([]auth.MethodSpec, error) {
+	return []auth.MethodSpec{{Name: "broken", Method: auth.MethodStored}}, nil
 }
 
 type plainPlugin struct {

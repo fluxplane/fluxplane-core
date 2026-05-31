@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/examples/echo"
 )
@@ -77,9 +76,9 @@ func TestOperationRunCommandPassesAuthPathToPluginFactory(t *testing.T) {
 	dir := t.TempDir()
 	writeOperationRunManifest(t, dir)
 	authPath := t.TempDir()
-	ref := coresecret.Plugin("test", "main", "token")
+	ref := sharedsecret.Plugin("test", "main", "token")
 	store := sharedsecret.NewFileStore(authPath)
-	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{Ref: ref, Kind: coresecret.KindAPIKey, Value: "stored-token"}); err != nil {
+	if err := store.SaveSecret(context.Background(), sharedsecret.StoredSecret{Ref: ref, Kind: sharedsecret.KindAPIKey, Value: "stored-token"}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
 	}
 	var resolved bool
@@ -108,7 +107,7 @@ func TestOperationRunCommandProcessAuthEnvRequiresOptIn(t *testing.T) {
 	dir := t.TempDir()
 	writeOperationRunManifest(t, dir)
 	t.Setenv("OP_RUN_TEST_SECRET", "from-process")
-	ref := coresecret.Env("OP_RUN_TEST_SECRET")
+	ref := sharedsecret.Env("OP_RUN_TEST_SECRET")
 	for _, tc := range []struct {
 		name      string
 		args      []string

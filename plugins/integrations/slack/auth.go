@@ -7,7 +7,7 @@ import (
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 )
 
@@ -86,10 +86,10 @@ func NormalizeConfig(cfg Config) Config {
 	return cfg
 }
 
-func AuthMethods(ref resource.PluginRef, cfg Config) []coresecret.AuthMethodSpec {
+func AuthMethods(ref resource.PluginRef, cfg Config) []auth.MethodSpec {
 	cfg = NormalizeConfig(cfg)
 	method := cfg.Auth.Method
-	var out []coresecret.AuthMethodSpec
+	var out []auth.MethodSpec
 	if method == "" || method == TokenMethod {
 		out = append(out, storedTokenAuthMethod(ref))
 	}
@@ -106,11 +106,11 @@ func Resolve(ctx context.Context, sys fpsystem.System, store sharedsecret.FileSt
 	return resolve(ctx, sys, store, ref, cfg)
 }
 
-func ResolveWithResolver(ctx context.Context, sys fpsystem.System, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
+func ResolveWithResolver(ctx context.Context, sys fpsystem.System, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
 	return ResolveWithEnvironment(ctx, environmentFromSystem(sys), resolver, ref, cfg)
 }
 
-func ResolveWithEnvironment(ctx context.Context, environment fpsystem.Environment, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
+func ResolveWithEnvironment(ctx context.Context, environment fpsystem.Environment, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
 	if resolver == nil {
 		return resolveWithEnvironment(ctx, environment, sharedsecret.NewFileStore(DefaultAuthStorePath), ref, cfg)
 	}
@@ -143,30 +143,30 @@ func environmentFromSystem(sys fpsystem.System) fpsystem.Environment {
 	return sys.Environment()
 }
 
-func storedTokenAuthMethod(ref resource.PluginRef) coresecret.AuthMethodSpec {
-	return coresecret.AuthMethodSpec{
+func storedTokenAuthMethod(ref resource.PluginRef) auth.MethodSpec {
+	return auth.MethodSpec{
 		Name:        TokenMethod,
-		Method:      coresecret.AuthMethodStored,
-		Kind:        coresecret.KindBearerToken,
+		Method:      auth.MethodStored,
+		Kind:        sharedsecret.KindBearerToken,
 		DisplayName: "Slack token",
 		Description: "Store Slack token material for native Slack API access.",
 		Secret:      BotTokenSecretRef(ref),
-		Header:      coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
-		SetupFields: []coresecret.SetupFieldSpec{
+		Header:      auth.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
+		SetupFields: []auth.FieldSpec{
 			{
 				Slot:          BotTokenPurpose,
 				DisplayName:   "Bot token",
 				Description:   "Slack xoxb bot token.",
 				RequiredGroup: "api_token",
 				Sensitive:     true,
-				Env:           coresecret.EnvSpec{Name: defaultBotTokenEnv},
+				Env:           auth.EnvSpec{Name: defaultBotTokenEnv},
 			},
 			{
 				Slot:        AppTokenPurpose,
 				DisplayName: "App token",
 				Description: "Slack xapp app-level token. Required for daemon channels using Socket Mode.",
 				Sensitive:   true,
-				Env:         coresecret.EnvSpec{Name: defaultAppTokenEnv},
+				Env:         auth.EnvSpec{Name: defaultAppTokenEnv},
 			},
 			{
 				Slot:          UserTokenPurpose,
@@ -174,88 +174,88 @@ func storedTokenAuthMethod(ref resource.PluginRef) coresecret.AuthMethodSpec {
 				Description:   "Slack xoxp user token. Required when bot token is omitted.",
 				RequiredGroup: "api_token",
 				Sensitive:     true,
-				Env:           coresecret.EnvSpec{Name: defaultUserTokenEnv},
+				Env:           auth.EnvSpec{Name: defaultUserTokenEnv},
 			},
 		},
 	}
 }
 
-func envAuthMethod(cfg Config) coresecret.AuthMethodSpec {
-	return coresecret.AuthMethodSpec{
+func envAuthMethod(cfg Config) auth.MethodSpec {
+	return auth.MethodSpec{
 		Name:        EnvMethod,
-		Method:      coresecret.AuthMethodEnv,
-		Kind:        coresecret.KindBearerToken,
+		Method:      auth.MethodEnv,
+		Kind:        sharedsecret.KindBearerToken,
 		DisplayName: "Slack environment token",
 		Description: "Resolve Slack tokens from runtime environment variables.",
-		Secret:      coresecret.Env(firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv)),
-		Env: coresecret.EnvSpec{
+		Secret:      sharedsecret.Env(firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv)),
+		Env: auth.EnvSpec{
 			Name:    firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv),
 			Aliases: []string{defaultUserTokenEnv},
 		},
-		Header: coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
-		SetupFields: []coresecret.SetupFieldSpec{
-			{Slot: "bot_token_env", DisplayName: "Bot token env", Env: coresecret.EnvSpec{Name: defaultBotTokenEnv}},
-			{Slot: "app_token_env", DisplayName: "App token env", Env: coresecret.EnvSpec{Name: defaultAppTokenEnv}},
-			{Slot: "user_token_env", DisplayName: "User token env", Env: coresecret.EnvSpec{Name: defaultUserTokenEnv}},
+		Header: auth.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
+		SetupFields: []auth.FieldSpec{
+			{Slot: "bot_token_env", DisplayName: "Bot token env", Env: auth.EnvSpec{Name: defaultBotTokenEnv}},
+			{Slot: "app_token_env", DisplayName: "App token env", Env: auth.EnvSpec{Name: defaultAppTokenEnv}},
+			{Slot: "user_token_env", DisplayName: "User token env", Env: auth.EnvSpec{Name: defaultUserTokenEnv}},
 		},
 	}
 }
 
-func oauth2AuthMethod(ref resource.PluginRef) coresecret.AuthMethodSpec {
-	return coresecret.AuthMethodSpec{
+func oauth2AuthMethod(ref resource.PluginRef) auth.MethodSpec {
+	return auth.MethodSpec{
 		Name:        OAuth2Method,
-		Method:      coresecret.AuthMethodOAuth2,
-		Kind:        coresecret.KindOAuth2Token,
+		Method:      auth.MethodOAuth2AuthCode,
+		Kind:        sharedsecret.KindOAuth2Token,
 		DisplayName: "Slack OAuth2",
 		Description: "Prepare Slack OAuth2 bot-token setup. Socket Mode channels still need an app token.",
 		Secret:      OAuth2SecretRef(ref),
-		OAuth2: coresecret.OAuth2Spec{
+		OAuth2: auth.OAuth2Spec{
 			AuthorizeURL: slackAuthorizeURL,
 			TokenURL:     slackTokenURL,
 			Scopes:       append([]string(nil), defaultOAuthScopes...),
 		},
-		SetupFields: []coresecret.SetupFieldSpec{
-			{Slot: "client_id", DisplayName: "Client ID", Required: true, Env: coresecret.EnvSpec{Name: "SLACK_CLIENT_ID"}},
-			{Slot: "client_secret", DisplayName: "Client secret", Required: true, Sensitive: true, Env: coresecret.EnvSpec{Name: "SLACK_CLIENT_SECRET"}},
+		SetupFields: []auth.FieldSpec{
+			{Slot: "client_id", DisplayName: "Client ID", Required: true, Env: auth.EnvSpec{Name: "SLACK_CLIENT_ID"}},
+			{Slot: "client_secret", DisplayName: "Client secret", Required: true, Sensitive: true, Env: auth.EnvSpec{Name: "SLACK_CLIENT_SECRET"}},
 		},
 	}
 }
 
-func resolveStoredOrEnvResolver(ctx context.Context, environment fpsystem.Environment, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config, method string) (Session, error) {
+func resolveStoredOrEnvResolver(ctx context.Context, environment fpsystem.Environment, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config, method string) (Session, error) {
 	session := Session{Method: method}
 	session.BotToken = loadResolvedValue(ctx, resolver, BotTokenSecretRef(ref))
 	session.AppToken = loadResolvedValue(ctx, resolver, AppTokenSecretRef(ref))
 	session.UserToken = loadResolvedValue(ctx, resolver, UserTokenSecretRef(ref))
 	envSession := envSession(ctx, environment, cfg)
-	session.BotToken = firstNonEmpty(session.BotToken, envSession.BotToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv))))
-	session.AppToken = firstNonEmpty(session.AppToken, envSession.AppToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.AppTokenEnv, defaultAppTokenEnv))))
-	session.UserToken = firstNonEmpty(session.UserToken, envSession.UserToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))))
+	session.BotToken = firstNonEmpty(session.BotToken, envSession.BotToken, loadResolvedValue(ctx, resolver, sharedsecret.Env(firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv))))
+	session.AppToken = firstNonEmpty(session.AppToken, envSession.AppToken, loadResolvedValue(ctx, resolver, sharedsecret.Env(firstNonEmpty(cfg.Auth.AppTokenEnv, defaultAppTokenEnv))))
+	session.UserToken = firstNonEmpty(session.UserToken, envSession.UserToken, loadResolvedValue(ctx, resolver, sharedsecret.Env(firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))))
 	if session.BotToken == "" && session.UserToken == "" {
 		return Session{}, fmt.Errorf("slackplugin: bot token or user token is not configured; run fluxplane auth connect --plugin slack --method %s or configure %s/%s", TokenMethod, firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv), firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))
 	}
 	return session, nil
 }
 
-func resolveEnvResolver(ctx context.Context, environment fpsystem.Environment, resolver coresecret.Resolver, cfg Config) (Session, error) {
+func resolveEnvResolver(ctx context.Context, environment fpsystem.Environment, resolver sharedsecret.Resolver, cfg Config) (Session, error) {
 	session := envSession(ctx, environment, cfg)
 	session.Method = EnvMethod
-	session.BotToken = firstNonEmpty(session.BotToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv))))
-	session.AppToken = firstNonEmpty(session.AppToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.AppTokenEnv, defaultAppTokenEnv))))
-	session.UserToken = firstNonEmpty(session.UserToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))))
+	session.BotToken = firstNonEmpty(session.BotToken, loadResolvedValue(ctx, resolver, sharedsecret.Env(firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv))))
+	session.AppToken = firstNonEmpty(session.AppToken, loadResolvedValue(ctx, resolver, sharedsecret.Env(firstNonEmpty(cfg.Auth.AppTokenEnv, defaultAppTokenEnv))))
+	session.UserToken = firstNonEmpty(session.UserToken, loadResolvedValue(ctx, resolver, sharedsecret.Env(firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))))
 	if session.BotToken == "" && session.UserToken == "" {
 		return Session{}, fmt.Errorf("slackplugin: bot token environment variable %s or user token environment variable %s is not set", firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv), firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))
 	}
 	return session, nil
 }
 
-func resolveOAuthResolver(ctx context.Context, environment fpsystem.Environment, resolver coresecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
+func resolveOAuthResolver(ctx context.Context, environment fpsystem.Environment, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
 	session := Session{Method: OAuth2Method}
 	session.BotToken = loadResolvedValue(ctx, resolver, OAuth2SecretRef(ref))
 	session.AppToken = loadResolvedValue(ctx, resolver, AppTokenSecretRef(ref))
 	session.UserToken = loadResolvedValue(ctx, resolver, UserTokenSecretRef(ref))
 	envSession := envSession(ctx, environment, cfg)
 	session.AppToken = firstNonEmpty(session.AppToken, envSession.AppToken)
-	session.UserToken = firstNonEmpty(session.UserToken, envSession.UserToken, loadResolvedValue(ctx, resolver, coresecret.Env(firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))))
+	session.UserToken = firstNonEmpty(session.UserToken, envSession.UserToken, loadResolvedValue(ctx, resolver, sharedsecret.Env(firstNonEmpty(cfg.Auth.UserTokenEnv, defaultUserTokenEnv))))
 	if session.BotToken == "" && session.UserToken == "" {
 		return Session{}, fmt.Errorf("slackplugin: oauth2 token or user token is not configured; run fluxplane auth connect --plugin slack --method %s", OAuth2Method)
 	}
@@ -284,7 +284,7 @@ func lookupEnv(ctx context.Context, environment fpsystem.Environment, name strin
 	return strings.TrimSpace(value)
 }
 
-func loadResolvedValue(ctx context.Context, resolver coresecret.Resolver, ref coresecret.Ref) string {
+func loadResolvedValue(ctx context.Context, resolver sharedsecret.Resolver, ref sharedsecret.Ref) string {
 	if resolver == nil {
 		return ""
 	}
@@ -295,16 +295,16 @@ func loadResolvedValue(ctx context.Context, resolver coresecret.Resolver, ref co
 	return strings.TrimSpace(material.String())
 }
 
-func BotTokenSecretRef(ref resource.PluginRef) coresecret.Ref {
-	return coresecret.Plugin(Name, ref.InstanceName(), BotTokenPurpose)
+func BotTokenSecretRef(ref resource.PluginRef) sharedsecret.Ref {
+	return sharedsecret.Plugin(Name, ref.InstanceName(), BotTokenPurpose)
 }
 
-func AppTokenSecretRef(ref resource.PluginRef) coresecret.Ref {
-	return coresecret.Plugin(Name, ref.InstanceName(), AppTokenPurpose)
+func AppTokenSecretRef(ref resource.PluginRef) sharedsecret.Ref {
+	return sharedsecret.Plugin(Name, ref.InstanceName(), AppTokenPurpose)
 }
 
-func UserTokenSecretRef(ref resource.PluginRef) coresecret.Ref {
-	return coresecret.Plugin(Name, ref.InstanceName(), UserTokenPurpose)
+func UserTokenSecretRef(ref resource.PluginRef) sharedsecret.Ref {
+	return sharedsecret.Plugin(Name, ref.InstanceName(), UserTokenPurpose)
 }
 
 func trimNonEmpty(values []string) []string {
@@ -317,6 +317,6 @@ func trimNonEmpty(values []string) []string {
 	return out
 }
 
-func OAuth2SecretRef(ref resource.PluginRef) coresecret.Ref {
-	return coresecret.Plugin(Name, ref.InstanceName(), OAuth2TokenPurpose)
+func OAuth2SecretRef(ref resource.PluginRef) sharedsecret.Ref {
+	return sharedsecret.Plugin(Name, ref.InstanceName(), OAuth2TokenPurpose)
 }

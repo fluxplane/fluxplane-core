@@ -8,7 +8,7 @@ import (
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
@@ -116,7 +116,7 @@ func (p Plugin) Operations(ctx context.Context, _ pluginhost.Context) ([]operati
 	return out, nil
 }
 
-func (p Plugin) AuthMethods(ctx context.Context, _ pluginhost.Context) ([]coresecret.AuthMethodSpec, error) {
+func (p Plugin) AuthMethods(ctx context.Context, _ pluginhost.Context) ([]auth.MethodSpec, error) {
 	generated, err := p.generated(ctx)
 	if err != nil {
 		return nil, err

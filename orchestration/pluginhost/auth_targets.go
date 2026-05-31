@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 )
 
@@ -15,7 +15,7 @@ type AuthTarget struct {
 	Ref     resource.PluginRef
 	Context Context
 	Plugin  Plugin
-	Methods []coresecret.AuthMethodSpec
+	Methods []auth.MethodSpec
 }
 
 // ResolveAuthTargets resolves declared plugin refs against available plugin
@@ -77,7 +77,7 @@ func resolveAuthTarget(ctx context.Context, ref resource.PluginRef, plugin Plugi
 		return AuthTarget{}, false, fmt.Errorf("pluginhost: plugin %q auth methods: %w", ref.Key(), err)
 	}
 	for _, method := range methods {
-		if err := coresecret.ValidateAuthMethod(method); err != nil {
+		if err := auth.ValidateMethod(method); err != nil {
 			return AuthTarget{}, false, fmt.Errorf("pluginhost: plugin %q auth method: %w", ref.Key(), err)
 		}
 	}

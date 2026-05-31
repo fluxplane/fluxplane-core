@@ -6,8 +6,6 @@ import (
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"os"
 	"strings"
-
-	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
 )
 
 // PluginAuthOptions configures native plugin credential resolution for local
@@ -23,7 +21,7 @@ type PluginAuthOptions struct {
 // execution.
 type PluginAuthContext struct {
 	Store    sharedsecret.FileStore
-	Resolver runtimesecret.Resolver
+	Resolver sharedsecret.Resolver
 }
 
 // NewPluginAuthContext builds the native plugin auth context used by local
@@ -44,13 +42,13 @@ func pluginAuthPath(path string) string {
 	return path
 }
 
-func pluginAuthResolver(env fpsystem.Environment, store sharedsecret.FileStore, allowProcessEnvironment bool) runtimesecret.Resolver {
-	resolver := runtimesecret.ChainResolver{store}
+func pluginAuthResolver(env fpsystem.Environment, store sharedsecret.FileStore, allowProcessEnvironment bool) sharedsecret.Resolver {
+	resolver := sharedsecret.ChainResolver{store}
 	if env != nil {
-		resolver = append(resolver, runtimesecret.EnvResolver{Environment: env})
+		resolver = append(resolver, sharedsecret.EnvResolver{Environment: env})
 	}
 	if allowProcessEnvironment {
-		resolver = append(resolver, runtimesecret.EnvResolver{Environment: processAuthEnvironment{}})
+		resolver = append(resolver, sharedsecret.EnvResolver{Environment: processAuthEnvironment{}})
 	}
 	return resolver
 }

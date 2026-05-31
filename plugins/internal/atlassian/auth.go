@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/runtime/oauth2client"
 	"github.com/fluxplane/fluxplane-system/systemkit"
@@ -108,10 +108,10 @@ func NormalizeConfig(cfg Config) Config {
 	return cfg
 }
 
-func AuthMethods(pluginName string, ref resource.PluginRef, product Product, cfg Config) []coresecret.AuthMethodSpec {
+func AuthMethods(pluginName string, ref resource.PluginRef, product Product, cfg Config) []auth.MethodSpec {
 	cfg = NormalizeConfig(cfg)
 	method := cfg.Auth.Method
-	var out []coresecret.AuthMethodSpec
+	var out []auth.MethodSpec
 	if method == "" || method == TokenMethod || method == "bearer" || method == "env" {
 		out = append(out, tokenAuthMethod(product, cfg.Auth.TokenEnv, cfg.Auth.EmailEnv))
 	}
@@ -128,18 +128,18 @@ func Resolve(ctx context.Context, sys fpsystem.System, store sharedsecret.FileSt
 	return ResolveWithBoundaries(ctx, BoundariesFromSystem(sys), store, store, pluginName, ref, product, cfg)
 }
 
-func ResolveWithResolver(ctx context.Context, sys fpsystem.System, store sharedsecret.FileStore, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func ResolveWithResolver(ctx context.Context, sys fpsystem.System, store sharedsecret.FileStore, resolver sharedsecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	return ResolveWithBoundaries(ctx, BoundariesFromSystem(sys), store, resolver, pluginName, ref, product, cfg)
 }
 
-func ResolveWithBoundaries(ctx context.Context, boundaries Boundaries, store sharedsecret.FileStore, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func ResolveWithBoundaries(ctx context.Context, boundaries Boundaries, store sharedsecret.FileStore, resolver sharedsecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	if resolver == nil {
 		resolver = store
 	}
 	return resolve(ctx, boundaries, store, resolver, pluginName, ref, product, cfg)
 }
 
-func resolve(ctx context.Context, boundaries Boundaries, store sharedsecret.FileStore, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func resolve(ctx context.Context, boundaries Boundaries, store sharedsecret.FileStore, resolver sharedsecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	cfg = NormalizeConfig(cfg)
 	method := cfg.Auth.Method
 	switch method {
@@ -267,7 +267,7 @@ func StoreOAuthToken(ctx context.Context, store sharedsecret.FileStore, pluginNa
 	}
 	if err := store.SaveSecret(ctx, sharedsecret.StoredSecret{
 		Ref:       oauthSecretRef(pluginName, ref),
-		Kind:      coresecret.KindOAuth2Token,
+		Kind:      sharedsecret.KindOAuth2Token,
 		Value:     access,
 		Metadata:  metadata,
 		ExpiresAt: expiresAt,
@@ -279,7 +279,7 @@ func StoreOAuthToken(ctx context.Context, store sharedsecret.FileStore, pluginNa
 	}
 	return store.SaveSecret(ctx, sharedsecret.StoredSecret{
 		Ref:   oauthRelatedSecretRef(pluginName, ref, "refresh_token"),
-		Kind:  coresecret.KindOAuth2Token,
+		Kind:  sharedsecret.KindOAuth2Token,
 		Value: token.RefreshToken,
 	})
 }
@@ -355,18 +355,18 @@ func resolveOAuth(ctx context.Context, boundaries Boundaries, store sharedsecret
 	return session, true, nil
 }
 
-func resolveTokenWithResolver(ctx context.Context, boundaries Boundaries, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+func resolveTokenWithResolver(ctx context.Context, boundaries Boundaries, resolver sharedsecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	session, _, err := resolveBearerToken(ctx, boundaries, resolver, pluginName, ref, product, cfg, true)
 	return session, err
 }
 
-func resolveBearerToken(ctx context.Context, boundaries Boundaries, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
+func resolveBearerToken(ctx context.Context, boundaries Boundaries, resolver sharedsecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
 	if resolver == nil {
 		return Session{}, false, fmt.Errorf("atlassianplugin: secret resolver is nil")
 	}
-	broker := coresecret.NewBroker(resolver)
-	methods := []coresecret.AuthMethodSpec{tokenAuthMethod(product, cfg.Auth.TokenEnv, cfg.Auth.EmailEnv)}
-	resolution, ok, err := broker.UseAvailable(ctx, coresecret.AuthRequest{
+	broker := auth.NewBroker(resolver)
+	methods := []auth.MethodSpec{tokenAuthMethod(product, cfg.Auth.TokenEnv, cfg.Auth.EmailEnv)}
+	resolution, ok, err := broker.UseAvailable(ctx, auth.Request{
 		Plugin:   pluginName,
 		Instance: ref.InstanceName(),
 		Purpose:  AccessTokenPurpose,
@@ -407,13 +407,13 @@ func resolveBearerToken(ctx context.Context, boundaries Boundaries, resolver cor
 	return session, true, nil
 }
 
-func resolveAPIToken(ctx context.Context, store sharedsecret.FileStore, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
+func resolveAPIToken(ctx context.Context, store sharedsecret.FileStore, resolver sharedsecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
 	method := apiTokenAuthMethod(pluginName, ref, product, cfg)
 	if resolver == nil {
 		resolver = store
 	}
-	broker := coresecret.NewBroker(resolver)
-	if _, _, err := broker.Use(ctx, coresecret.AuthRequest{Plugin: pluginName, Instance: ref.InstanceName(), Purpose: AccessTokenPurpose}.SecretRef()); err != nil {
+	broker := auth.NewBroker(resolver)
+	if _, _, err := broker.Use(ctx, auth.Request{Plugin: pluginName, Instance: ref.InstanceName(), Purpose: AccessTokenPurpose}.SecretRef()); err != nil {
 		return Session{}, false, fmt.Errorf("atlassianplugin: use api token auth secret: %w", err)
 	}
 	token, _, err := resolveSetupField(ctx, resolver, pluginName, ref, method, apiTokenField)
@@ -470,11 +470,11 @@ func resolveAPIToken(ctx context.Context, store sharedsecret.FileStore, resolver
 	}, true, nil
 }
 
-func tokenAuthMethod(product Product, tokenEnv, emailEnv string) coresecret.AuthMethodSpec {
-	return coresecret.AuthMethodSpec{
+func tokenAuthMethod(product Product, tokenEnv, emailEnv string) auth.MethodSpec {
+	return auth.MethodSpec{
 		Name:        TokenMethod,
-		Method:      coresecret.AuthMethodEnv,
-		Kind:        coresecret.KindBearerToken,
+		Method:      auth.MethodEnv,
+		Kind:        sharedsecret.KindBearerToken,
 		DisplayName: product.DisplayName + " scoped access token",
 		Description: product.DisplayName + " scoped Atlassian access token resolved from an environment variable and sent to the Atlassian cloud gateway.",
 		Annotations: map[string]string{
@@ -482,17 +482,17 @@ func tokenAuthMethod(product Product, tokenEnv, emailEnv string) coresecret.Auth
 			"endpoint":    "api.atlassian.com/ex/{product}/{cloud_id}",
 			"token_type":  "Atlassian scoped API/access token",
 		},
-		Env: coresecret.EnvSpec{
+		Env: auth.EnvSpec{
 			Name:    strings.TrimSpace(tokenEnv),
 			Aliases: bearerTokenEnvAliases(tokenEnv, product),
 		},
-		Header: coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
-		SetupFields: []coresecret.SetupFieldSpec{
+		Header: auth.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
+		SetupFields: []auth.FieldSpec{
 			{
 				Slot:        TokenMethod,
 				DisplayName: "Scoped access token",
 				Sensitive:   true,
-				Env: coresecret.EnvSpec{
+				Env: auth.EnvSpec{
 					Name:    strings.TrimSpace(tokenEnv),
 					Aliases: bearerTokenEnvAliases(tokenEnv, product),
 				},
@@ -501,7 +501,7 @@ func tokenAuthMethod(product Product, tokenEnv, emailEnv string) coresecret.Auth
 				Slot:        "email_env",
 				DisplayName: "Email env",
 				Description: "Environment variable containing the Atlassian account email when using Basic API-token auth.",
-				Env: coresecret.EnvSpec{
+				Env: auth.EnvSpec{
 					Name:    strings.TrimSpace(emailEnv),
 					Aliases: EmailEnvAliases(product),
 				},
@@ -511,7 +511,7 @@ func tokenAuthMethod(product Product, tokenEnv, emailEnv string) coresecret.Auth
 				DisplayName:   "Cloud ID",
 				Description:   "Atlassian cloud/site ID for the cloud gateway.",
 				RequiredGroup: "site_locator",
-				Env: coresecret.EnvSpec{
+				Env: auth.EnvSpec{
 					Aliases: CloudIDEnvAliases(product),
 				},
 			},
@@ -520,7 +520,7 @@ func tokenAuthMethod(product Product, tokenEnv, emailEnv string) coresecret.Auth
 				DisplayName:   "Base URL",
 				Description:   "Full REST API base URL override.",
 				RequiredGroup: "site_locator",
-				Env: coresecret.EnvSpec{
+				Env: auth.EnvSpec{
 					Aliases: BaseURLEnvAliases(product),
 				},
 			},
@@ -528,7 +528,7 @@ func tokenAuthMethod(product Product, tokenEnv, emailEnv string) coresecret.Auth
 				Slot:        siteURLField,
 				DisplayName: "Site URL",
 				Description: "Optional Atlassian site URL used for human-facing links.",
-				Env: coresecret.EnvSpec{
+				Env: auth.EnvSpec{
 					Aliases: SiteURLEnvAliases(product),
 				},
 			},
@@ -536,20 +536,20 @@ func tokenAuthMethod(product Product, tokenEnv, emailEnv string) coresecret.Auth
 	}
 }
 
-func apiTokenAuthMethod(pluginName string, ref resource.PluginRef, product Product, cfg Config) coresecret.AuthMethodSpec {
-	tokenEnv := coresecret.EnvSpec{Aliases: TokenEnvAliases(product)}
+func apiTokenAuthMethod(pluginName string, ref resource.PluginRef, product Product, cfg Config) auth.MethodSpec {
+	tokenEnv := auth.EnvSpec{Aliases: TokenEnvAliases(product)}
 	if name := strings.TrimSpace(cfg.Auth.TokenEnv); name != "" {
-		tokenEnv = coresecret.EnvSpec{Name: name}
+		tokenEnv = auth.EnvSpec{Name: name}
 	}
-	emailEnv := coresecret.EnvSpec{Aliases: EmailEnvAliases(product)}
+	emailEnv := auth.EnvSpec{Aliases: EmailEnvAliases(product)}
 	if name := strings.TrimSpace(cfg.Auth.EmailEnv); name != "" {
-		emailEnv = coresecret.EnvSpec{Name: name}
+		emailEnv = auth.EnvSpec{Name: name}
 	}
 	locatorRequired := apiTokenBaseURLFromConfig(product, cfg) == ""
-	return coresecret.AuthMethodSpec{
+	return auth.MethodSpec{
 		Name:        APITokenMethod,
-		Method:      coresecret.AuthMethodStored,
-		Kind:        coresecret.KindBasic,
+		Method:      auth.MethodStored,
+		Kind:        sharedsecret.KindBasic,
 		DisplayName: product.DisplayName + " Basic API token",
 		Description: product.DisplayName + " account email plus Atlassian API token sent as Basic auth to the site REST endpoint.",
 		Annotations: map[string]string{
@@ -557,9 +557,9 @@ func apiTokenAuthMethod(pluginName string, ref resource.PluginRef, product Produ
 			"endpoint":    "site_url or base_url",
 			"token_type":  "Atlassian account API token",
 		},
-		Secret: coresecret.Plugin(pluginName, ref.InstanceName(), apiTokenField),
-		Header: coresecret.HeaderSpec{Name: "Authorization", Scheme: "Basic"},
-		SetupFields: []coresecret.SetupFieldSpec{
+		Secret: sharedsecret.Plugin(pluginName, ref.InstanceName(), apiTokenField),
+		Header: auth.HeaderSpec{Name: "Authorization", Scheme: "Basic"},
+		SetupFields: []auth.FieldSpec{
 			{
 				Slot:        apiEmailField,
 				DisplayName: "Atlassian email",
@@ -577,7 +577,7 @@ func apiTokenAuthMethod(pluginName string, ref resource.PluginRef, product Produ
 				Slot:        cloudIDField,
 				DisplayName: "Cloud ID",
 				Description: "Atlassian cloud/site ID.",
-				Env: coresecret.EnvSpec{
+				Env: auth.EnvSpec{
 					Aliases: CloudIDEnvAliases(product),
 				},
 			},
@@ -586,7 +586,7 @@ func apiTokenAuthMethod(pluginName string, ref resource.PluginRef, product Produ
 				DisplayName:   "Site URL",
 				Description:   "Atlassian site URL.",
 				RequiredGroup: requiredGroup(locatorRequired, "site_locator"),
-				Env: coresecret.EnvSpec{
+				Env: auth.EnvSpec{
 					Aliases: SiteURLEnvAliases(product),
 				},
 			},
@@ -595,7 +595,7 @@ func apiTokenAuthMethod(pluginName string, ref resource.PluginRef, product Produ
 				DisplayName:   "Base URL",
 				Description:   "Full Atlassian REST API base URL.",
 				RequiredGroup: requiredGroup(locatorRequired, "site_locator"),
-				Env: coresecret.EnvSpec{
+				Env: auth.EnvSpec{
 					Aliases: BaseURLEnvAliases(product),
 				},
 			},
@@ -603,11 +603,11 @@ func apiTokenAuthMethod(pluginName string, ref resource.PluginRef, product Produ
 	}
 }
 
-func oauth2AuthMethod(pluginName string, ref resource.PluginRef, product Product) coresecret.AuthMethodSpec {
-	return coresecret.AuthMethodSpec{
+func oauth2AuthMethod(pluginName string, ref resource.PluginRef, product Product) auth.MethodSpec {
+	return auth.MethodSpec{
 		Name:        OAuth2Method,
-		Method:      coresecret.AuthMethodOAuth2,
-		Kind:        coresecret.KindOAuth2Token,
+		Method:      auth.MethodOAuth2AuthCode,
+		Kind:        sharedsecret.KindOAuth2Token,
 		DisplayName: product.DisplayName + " OAuth2",
 		Description: product.DisplayName + " Atlassian OAuth2 authorization-code credentials stored for this plugin instance.",
 		Annotations: map[string]string{
@@ -616,8 +616,8 @@ func oauth2AuthMethod(pluginName string, ref resource.PluginRef, product Product
 			"token_type":  "OAuth2 access token",
 		},
 		Secret: oauthSecretRef(pluginName, ref),
-		Header: coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
-		OAuth2: coresecret.OAuth2Spec{
+		Header: auth.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
+		OAuth2: auth.OAuth2Spec{
 			AuthorizeURL: atlassianAuthorizeURL,
 			TokenURL:     atlassianTokenURL,
 			RefreshURL:   atlassianTokenURL,
@@ -627,12 +627,12 @@ func oauth2AuthMethod(pluginName string, ref resource.PluginRef, product Product
 				"prompt":   "consent",
 			},
 		},
-		SetupFields: []coresecret.SetupFieldSpec{
+		SetupFields: []auth.FieldSpec{
 			{
 				Slot:        "client_id",
 				DisplayName: "Client ID",
 				Required:    true,
-				Env: coresecret.EnvSpec{
+				Env: auth.EnvSpec{
 					Aliases: ClientIDEnvAliases(product),
 				},
 			},
@@ -641,7 +641,7 @@ func oauth2AuthMethod(pluginName string, ref resource.PluginRef, product Product
 				DisplayName: "Client Secret",
 				Required:    true,
 				Sensitive:   true,
-				Env: coresecret.EnvSpec{
+				Env: auth.EnvSpec{
 					Aliases: ClientSecretEnvAliases(product),
 				},
 			},
@@ -649,7 +649,7 @@ func oauth2AuthMethod(pluginName string, ref resource.PluginRef, product Product
 				Slot:        "cloud_id",
 				DisplayName: "Cloud ID",
 				Description: "Optional Atlassian cloud/site ID. If omitted, the first accessible site is discovered on first use.",
-				Env: coresecret.EnvSpec{
+				Env: auth.EnvSpec{
 					Aliases: CloudIDEnvAliases(product),
 				},
 			},
@@ -657,7 +657,7 @@ func oauth2AuthMethod(pluginName string, ref resource.PluginRef, product Product
 				Slot:        "site_url",
 				DisplayName: "Site URL",
 				Description: "Optional Atlassian site URL used for human-facing links.",
-				Env: coresecret.EnvSpec{
+				Env: auth.EnvSpec{
 					Aliases: SiteURLEnvAliases(product),
 				},
 			},
@@ -665,16 +665,16 @@ func oauth2AuthMethod(pluginName string, ref resource.PluginRef, product Product
 	}
 }
 
-func oauthSecretRef(pluginName string, ref resource.PluginRef) coresecret.Ref {
-	return coresecret.Plugin(pluginName, ref.InstanceName(), OAuth2Method+"_token")
+func oauthSecretRef(pluginName string, ref resource.PluginRef) sharedsecret.Ref {
+	return sharedsecret.Plugin(pluginName, ref.InstanceName(), sharedsecret.Slot(OAuth2Method+"_token"))
 }
 
-func OAuthSecretRef(pluginName string, ref resource.PluginRef) coresecret.Ref {
+func OAuthSecretRef(pluginName string, ref resource.PluginRef) sharedsecret.Ref {
 	return oauthSecretRef(pluginName, ref)
 }
 
-func oauthRelatedSecretRef(pluginName string, ref resource.PluginRef, name string) coresecret.Ref {
-	return coresecret.Plugin(pluginName, ref.InstanceName(), OAuth2Method+"_"+strings.TrimSpace(name))
+func oauthRelatedSecretRef(pluginName string, ref resource.PluginRef, name string) sharedsecret.Ref {
+	return sharedsecret.Plugin(pluginName, ref.InstanceName(), sharedsecret.Slot(OAuth2Method+"_"+strings.TrimSpace(name)))
 }
 
 func TokenEnvAliases(product Product) []string {
@@ -896,12 +896,12 @@ func isAPITokenMethod(method string) bool {
 	}
 }
 
-func resolveSetupField(ctx context.Context, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, method coresecret.AuthMethodSpec, name string) (string, bool, error) {
+func resolveSetupField(ctx context.Context, resolver sharedsecret.Resolver, pluginName string, ref resource.PluginRef, method auth.MethodSpec, name string) (string, bool, error) {
 	field, ok := setupField(method.SetupFields, name)
 	if !ok {
 		return "", false, nil
 	}
-	refs := []coresecret.Ref{coresecret.Plugin(pluginName, ref.InstanceName(), name)}
+	refs := []sharedsecret.Ref{sharedsecret.Plugin(pluginName, ref.InstanceName(), sharedsecret.Slot(name))}
 	refs = append(refs, envRefs(field.Env)...)
 	for _, candidate := range refs {
 		material, found, err := resolver.ResolveSecret(ctx, candidate)
@@ -912,7 +912,7 @@ func resolveSetupField(ctx context.Context, resolver coresecret.Resolver, plugin
 	return "", false, nil
 }
 
-func resolveSiteLocatorFields(ctx context.Context, resolver coresecret.Resolver, pluginName string, ref resource.PluginRef, method coresecret.AuthMethodSpec, cfg Config) (string, string, string, error) {
+func resolveSiteLocatorFields(ctx context.Context, resolver sharedsecret.Resolver, pluginName string, ref resource.PluginRef, method auth.MethodSpec, cfg Config) (string, string, string, error) {
 	cloudID := strings.TrimSpace(cfg.CloudID)
 	siteURL := strings.TrimRight(strings.TrimSpace(cfg.SiteURL), "/")
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
@@ -970,18 +970,18 @@ func bearerBaseURLFromConfig(product Product, cfg Config) string {
 	return ""
 }
 
-func setupField(fields []coresecret.SetupFieldSpec, name string) (coresecret.SetupFieldSpec, bool) {
+func setupField(fields []auth.FieldSpec, name string) (auth.FieldSpec, bool) {
 	for _, field := range fields {
-		if strings.EqualFold(strings.TrimSpace(coresecret.SetupFieldName(field)), strings.TrimSpace(name)) {
+		if strings.EqualFold(strings.TrimSpace(string(field.Slot)), strings.TrimSpace(name)) {
 			return field, true
 		}
 	}
-	return coresecret.SetupFieldSpec{}, false
+	return auth.FieldSpec{}, false
 }
 
-func envRefs(spec coresecret.EnvSpec) []coresecret.Ref {
+func envRefs(spec auth.EnvSpec) []sharedsecret.Ref {
 	names := append([]string{spec.Name}, spec.Aliases...)
-	refs := make([]coresecret.Ref, 0, len(names))
+	refs := make([]sharedsecret.Ref, 0, len(names))
 	seen := map[string]bool{}
 	for _, name := range names {
 		name = strings.TrimSpace(name)
@@ -989,7 +989,7 @@ func envRefs(spec coresecret.EnvSpec) []coresecret.Ref {
 			continue
 		}
 		seen[name] = true
-		refs = append(refs, coresecret.Env(name))
+		refs = append(refs, sharedsecret.Env(name))
 	}
 	return refs
 }

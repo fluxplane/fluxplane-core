@@ -18,7 +18,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
-	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
@@ -29,6 +28,7 @@ import (
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 
@@ -222,8 +222,8 @@ func (p Plugin) DiscoveryProviders(context.Context, pluginhost.Context) ([]fpend
 	return []fpendpoint.DiscoveryProvider{kubernetesEndpointDiscoveryProvider{plugin: p}}, nil
 }
 
-func (p Plugin) SecretResolvers(context.Context, pluginhost.Context) ([]runtimesecret.Resolver, error) {
-	return []runtimesecret.Resolver{kubernetesSecretResolver{plugin: p}}, nil
+func (p Plugin) SecretResolvers(context.Context, pluginhost.Context) ([]sharedsecret.Resolver, error) {
+	return []sharedsecret.Resolver{kubernetesSecretResolver{plugin: p}}, nil
 }
 
 func DataSourceSpec(ref resource.PluginRef) coredata.SourceSpec {

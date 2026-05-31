@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
 	fluxplane "github.com/fluxplane/fluxplane-core"
 	"github.com/fluxplane/fluxplane-core/adapters/distribution/localruntime"
 	embedaxon "github.com/fluxplane/fluxplane-core/adapters/embeddings/axon"
@@ -37,6 +36,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-event"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 
@@ -391,8 +391,8 @@ func TestDatasourceIndexRuntimePassesProcessAuthEnvToPluginFactory(t *testing.T)
 		Provider:           "hash",
 		AllowPluginAuthEnv: true,
 		PluginFactory: func(factoryCtx PluginFactoryContext) []pluginhost.Plugin {
-			material, ok, err := factoryCtx.NativeAuthResolver.ResolveSecret(ctx, coresecret.Ref{
-				Scheme: coresecret.SchemeEnv,
+			material, ok, err := factoryCtx.NativeAuthResolver.ResolveSecret(ctx, sharedsecret.Ref{
+				Scheme: sharedsecret.SchemeEnv,
 				Slot:   "DATASOURCE_INDEX_TEST_SECRET",
 			})
 			if err != nil {

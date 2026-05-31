@@ -11,10 +11,11 @@ import (
 
 	mysql "github.com/go-sql-driver/mysql"
 
-	coresecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/runtime/sqlclient"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 
 type QueryInput struct {
@@ -106,21 +107,21 @@ func (p Plugin) runQuery(ctx operation.Context, in QueryInput) (QueryOutput, err
 	}, nil
 }
 
-func (p Plugin) resolveCredential(ctx operation.Context, authRef string) (coresecret.Material, bool, error) {
+func (p Plugin) resolveCredential(ctx operation.Context, authRef string) (sharedsecret.Material, bool, error) {
 	authRef = strings.TrimSpace(authRef)
 	if authRef == "" {
-		return coresecret.Material{}, false, nil
+		return sharedsecret.Material{}, false, nil
 	}
-	broker := coresecret.NewBroker(p.secrets)
+	broker := auth.NewBroker(p.secrets)
 	if broker == nil {
-		return coresecret.Material{}, false, fmt.Errorf("secret resolver is nil")
+		return sharedsecret.Material{}, false, fmt.Errorf("secret resolver is nil")
 	}
-	material, ok, err := broker.Use(ctx, coresecret.ParseRef(authRef))
+	material, ok, err := broker.Use(ctx, sharedsecret.ParseRef(authRef))
 	if err != nil {
-		return coresecret.Material{}, false, err
+		return sharedsecret.Material{}, false, err
 	}
 	if !ok {
-		return coresecret.Material{}, false, fmt.Errorf("secret %s was not found", authRef)
+		return sharedsecret.Material{}, false, fmt.Errorf("secret %s was not found", authRef)
 	}
 	return material, true, nil
 }
