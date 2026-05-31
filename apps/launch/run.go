@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	runtimesecret "github.com/fluxplane/fluxplane-auth/authsecret"
+	sharedauthstatus "github.com/fluxplane/fluxplane-auth/authstatus"
 	"github.com/fluxplane/fluxplane-core"
 	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
 	"github.com/fluxplane/fluxplane-core/adapters/distribution/localruntime"
@@ -55,7 +56,6 @@ import (
 	usageplugin "github.com/fluxplane/fluxplane-core/plugins/native/usage"
 	"github.com/fluxplane/fluxplane-core/plugins/native/workspace"
 	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
-	"github.com/fluxplane/fluxplane-core/runtime/authstatus"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
@@ -815,17 +815,17 @@ func authEnvironmentContributions(ctx context.Context, bundles []resource.Contri
 	if len(targets) == 0 {
 		return nil, nil, nil
 	}
-	return []runtimeevidence.Observer{authstatus.NewObserver(targets, auth.Resolver)}, []runtimeevidence.AssertionDeriver{authstatus.NewAssertionDeriver()}, nil
+	return []runtimeevidence.Observer{newAuthStatusObserver(targets, auth.Resolver)}, []runtimeevidence.AssertionDeriver{newAuthStatusAssertionDeriver()}, nil
 }
 
-func authTargets(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]authstatus.Target, error) {
+func authTargets(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]sharedauthstatus.Target, error) {
 	targets, err := pluginhost.ResolveAuthTargets(ctx, pluginRefs(bundles), plugins)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]authstatus.Target, 0, len(targets))
+	out := make([]sharedauthstatus.Target, 0, len(targets))
 	for _, target := range targets {
-		out = append(out, authstatus.Target{Ref: target.Ref, Methods: target.Methods})
+		out = append(out, sharedauthstatus.Target{Plugin: target.Ref.Name, Instance: target.Ref.InstanceName(), Methods: target.Methods})
 	}
 	return out, nil
 }
