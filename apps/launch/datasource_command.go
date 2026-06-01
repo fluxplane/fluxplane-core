@@ -8,10 +8,10 @@ import (
 
 	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/orchestration/datasourceindex"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/spf13/cobra"
 )
 

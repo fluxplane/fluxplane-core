@@ -9,7 +9,6 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/activation"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	corememory "github.com/fluxplane/fluxplane-core/core/memory"
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -22,6 +21,7 @@ import (
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	runtimememory "github.com/fluxplane/fluxplane-core/runtime/memory"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

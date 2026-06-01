@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-event"
 )
 

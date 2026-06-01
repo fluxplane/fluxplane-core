@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 )
 

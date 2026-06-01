@@ -11,7 +11,6 @@ import (
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	corecommand "github.com/fluxplane/fluxplane-core/core/command"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/language"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -20,6 +19,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 // Output is the structured static view of contribution bundles.

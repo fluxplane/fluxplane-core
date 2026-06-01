@@ -9,12 +9,12 @@ import (
 
 	fpauth "github.com/fluxplane/fluxplane-auth"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coreuser "github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/orchestration/identity"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"

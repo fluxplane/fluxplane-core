@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 // TestIndexSearchTieBreaksDeterministically regresses the non-determinism at

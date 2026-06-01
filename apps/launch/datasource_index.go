@@ -15,7 +15,6 @@ import (
 	embedaxon "github.com/fluxplane/fluxplane-core/adapters/embeddings/axon"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
@@ -30,6 +29,7 @@ import (
 	usageplugin "github.com/fluxplane/fluxplane-core/plugins/native/usage"
 	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-event"
 )
 

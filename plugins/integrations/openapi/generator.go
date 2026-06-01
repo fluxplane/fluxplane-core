@@ -10,10 +10,10 @@ import (
 
 	auth "github.com/fluxplane/fluxplane-auth"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 

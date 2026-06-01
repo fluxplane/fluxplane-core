@@ -12,7 +12,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 type clusterRecord struct {

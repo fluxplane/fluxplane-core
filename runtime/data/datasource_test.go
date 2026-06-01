@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 func TestSourceFromDatasourceConvertsSchema(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 func TestFilesystemCorpusSkipsRuntimeAndDependencyDirs(t *testing.T) {

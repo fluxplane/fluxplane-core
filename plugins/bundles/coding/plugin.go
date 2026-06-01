@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
@@ -23,6 +22,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/native/shell"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 

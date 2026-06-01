@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/user"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 func TestSpecValidateAllowsEngineerManifestShape(t *testing.T) {

@@ -7,13 +7,13 @@ import (
 	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/command"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/core/skill"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 

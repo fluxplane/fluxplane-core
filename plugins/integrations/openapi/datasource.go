@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 

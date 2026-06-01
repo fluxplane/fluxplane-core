@@ -13,7 +13,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/apps/launch"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/user"
@@ -29,6 +28,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
 	"github.com/fluxplane/fluxplane-core/plugins/native/skills"
 	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )

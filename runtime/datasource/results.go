@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 // SelectEntities resolves requested entity types against a provider's available

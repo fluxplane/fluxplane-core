@@ -4,11 +4,11 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/activation"
-	"github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/session"
+	"github.com/fluxplane/fluxplane-datasource"
 )
 
 func TestContributionBundleAppendObservationReactionFields(t *testing.T) {

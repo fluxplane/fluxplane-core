@@ -2,7 +2,7 @@ package data
 
 import (
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 // SourceFromDatasource adapts existing datasource entity specs into a generic

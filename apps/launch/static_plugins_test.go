@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/resource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 func TestStaticPluginViewIncludesConfigSchemaContributionsWhenRequested(t *testing.T) {

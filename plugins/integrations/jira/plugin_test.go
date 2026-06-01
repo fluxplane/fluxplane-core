@@ -10,12 +10,12 @@ import (
 	"testing"
 
 	auth "github.com/fluxplane/fluxplane-auth"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coreoperation "github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/internal/atlassian"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 )

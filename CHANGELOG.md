@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced the former runtime-system aggregate with
   `github.com/fluxplane/fluxplane-system.System`; runtime workspace is now passed
   explicitly beside primitive system capabilities where needed.
+- Datasource runtime contracts now import `github.com/fluxplane/fluxplane-datasource` directly; the former `core/datasource` package was removed instead of kept as a compatibility shim.
 
 ## [0.22.0] - 2026-05-29
 

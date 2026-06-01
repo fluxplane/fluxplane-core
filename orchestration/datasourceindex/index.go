@@ -9,9 +9,9 @@ import (
 	"time"
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 // Request selects datasource corpus to index.

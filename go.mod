@@ -16,6 +16,7 @@ require (
 	github.com/fluxplane/codegate v1.1.0
 	github.com/fluxplane/fluxplane-auth v0.3.0
 	github.com/fluxplane/fluxplane-browser v0.1.0
+	github.com/fluxplane/fluxplane-datasource v0.1.0
 	github.com/fluxplane/fluxplane-endpoint v0.2.0
 	github.com/fluxplane/fluxplane-event v0.2.0
 	github.com/fluxplane/fluxplane-policy v0.1.1

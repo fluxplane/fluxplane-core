@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 const (

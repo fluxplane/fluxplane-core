@@ -15,13 +15,13 @@ import (
 	"github.com/codewandler/md2adf"
 	auth "github.com/fluxplane/fluxplane-auth"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/internal/atlassian"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

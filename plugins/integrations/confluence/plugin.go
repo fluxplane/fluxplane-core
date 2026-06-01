@@ -14,11 +14,11 @@ import (
 
 	auth "github.com/fluxplane/fluxplane-auth"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/internal/atlassian"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 const (

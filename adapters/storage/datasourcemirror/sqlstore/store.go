@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/mirror"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 type Dialect string

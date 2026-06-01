@@ -6,12 +6,12 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-event"
 )
 

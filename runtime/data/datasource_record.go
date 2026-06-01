@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 // RecordFromCorpusDocument converts provider corpus data into the durable data

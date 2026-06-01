@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 )
 

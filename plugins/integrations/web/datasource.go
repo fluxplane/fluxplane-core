@@ -7,11 +7,11 @@ import (
 	"strings"
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 const SearchResultEntity coredatasource.EntityType = "web.search_result"

@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/mirror"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	_ "github.com/go-sql-driver/mysql"
 	tc_mysql "github.com/testcontainers/testcontainers-go/modules/mysql"
 	_ "modernc.org/sqlite"

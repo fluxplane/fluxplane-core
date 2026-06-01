@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	corememory "github.com/fluxplane/fluxplane-core/core/memory"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
@@ -16,6 +15,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

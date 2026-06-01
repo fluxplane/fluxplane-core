@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 // TestTruncateBytesPreservesUTF8RuneBoundaries regresses a bug in

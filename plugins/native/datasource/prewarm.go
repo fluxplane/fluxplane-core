@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 
 const (

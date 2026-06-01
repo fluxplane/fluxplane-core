@@ -5,9 +5,9 @@ import (
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/user"
+	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-policy"
 )
 
