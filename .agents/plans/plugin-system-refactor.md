@@ -987,6 +987,34 @@ Current caveat:
 
 - Dex has not yet been switched from `core/pluginbinding` to these new SDK packages. This batch only establishes the core/dex-free SDK targets needed for the next direct import migration.
 
+### Progress Update: Dex Pluginbinding Uses Datasource And Host SDK Packages
+
+Completed in the next uncommitted batch:
+
+- Updated `fluxplane-dex/core/pluginbinding` to reuse the canonical SDK packages for host/datasource contracts:
+  - `capabilities.go` now aliases `fluxplane-plugin/host` capability constants and DTOs.
+  - `host.go` now aliases the SDK host client and host command constants.
+  - `secrets.go` now aliases `fluxplane-plugin/host.SecretMaterial`.
+  - `datasource.go` now aliases and delegates through `fluxplane-plugin/datasource` for datasource record/input/output/lookup helpers.
+- Updated internal default host fallback construction to use the SDK host client adapter instead of dex-local host client implementations.
+
+Validation completed:
+
+```sh
+cd fluxplane-dex
+go test ./core/pluginbinding
+go test ./...
+
+cd ../fluxplane-plugin
+GOWORK=off go test ./...
+```
+
+Result: all tests passed.
+
+Current caveat:
+
+- `fluxplane-dex/core/pluginbinding/datasource_meta.go` still imports `github.com/fluxplane/fluxplane-datasource` directly for declaration normalization because the new plugin SDK datasource package does not yet expose declaration normalization helpers that operate on dex/core manifest specs.
+
 This is the full remaining task list to make `github.com/fluxplane/fluxplane-plugin` independent from both `github.com/fluxplane/fluxplane-core` and `github.com/fluxplane/fluxplane-dex`.
 
 ### Current `fluxplane-core` Imports To Eliminate
@@ -1796,7 +1824,7 @@ These are not just contracts; they should become plugin implementation modules o
 
 ## Updated Immediate Next Actions
 
-1. Update dex `core/pluginbinding` internals to reuse the new `fluxplane-plugin/datasource` and `fluxplane-plugin/host` packages directly.
+1. Decide whether datasource declaration normalization should move into `fluxplane-plugin/datasource`, stay in `fluxplane-datasource`, or wait for manifest spec extraction.
 2. Move more pure dex `core/pluginbinding` contracts into `fluxplane-plugin` packages and update imports directly; do not add long-lived compatibility shims.
 3. Create the first remaining pure SDK packages inside `fluxplane-plugin`:
    - `manifest`;
