@@ -39,6 +39,11 @@ const (
 
 type slackClientFactory func(token, appToken string) *slack.Client
 
+type Boundaries struct {
+	Network     fpsystem.Network
+	Environment fpsystem.Environment
+}
+
 type Plugin struct {
 	pluginhost.Configurable[Config]
 	network       fpsystem.Network
@@ -57,15 +62,11 @@ var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
 var _ pluginhost.AuthTestContributor = Plugin{}
 
-func New(sys fpsystem.System, stores ...sharedsecret.FileStore) Plugin {
-	return NewWithDispatcher(sys, nil, stores...)
+func NewWithBoundaries(boundaries Boundaries, dispatcher *Dispatcher, stores ...sharedsecret.FileStore) Plugin {
+	return NewWithBoundariesAndResolver(boundaries, dispatcher, nil, stores...)
 }
 
-func NewWithDispatcher(sys fpsystem.System, dispatcher *Dispatcher, stores ...sharedsecret.FileStore) Plugin {
-	return NewWithResolver(sys, dispatcher, nil, stores...)
-}
-
-func NewWithResolver(sys fpsystem.System, dispatcher *Dispatcher, resolver sharedsecret.Resolver, stores ...sharedsecret.FileStore) Plugin {
+func NewWithBoundariesAndResolver(boundaries Boundaries, dispatcher *Dispatcher, resolver sharedsecret.Resolver, stores ...sharedsecret.FileStore) Plugin {
 	if dispatcher == nil {
 		dispatcher = NewDispatcher()
 	}
@@ -76,15 +77,7 @@ func NewWithResolver(sys fpsystem.System, dispatcher *Dispatcher, resolver share
 	if resolver == nil {
 		resolver = store
 	}
-	network, environment := boundariesFromSystem(sys)
-	return Plugin{network: network, environment: environment, store: store, secrets: resolver, dispatcher: dispatcher}
-}
-
-func boundariesFromSystem(sys fpsystem.System) (fpsystem.Network, fpsystem.Environment) {
-	if sys == nil {
-		return nil, nil
-	}
-	return sys.Network(), sys.Environment()
+	return Plugin{network: boundaries.Network, environment: boundaries.Environment, store: store, secrets: resolver, dispatcher: dispatcher}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {

@@ -41,7 +41,7 @@ func TestLokiQueryAddsNamespaceAndBoundsLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost() error = %v", err)
 	}
-	plugin := New(sys)
+	plugin := NewWithBoundaries(Boundaries{Process: sys.Process(), Network: sys.Network(), Environment: sys.Environment()})
 	plugin.cfg = Config{URL: server.URL, DefaultNamespace: "latest", DefaultSince: "15m", DefaultLimit: 10, MaxLimit: 20}
 	out, err := plugin.runQuery(operation.NewContext(context.Background(), event.Discard()), QueryInput{Query: `{app="backend"}`, Limit: 100})
 	if err != nil {
@@ -75,7 +75,7 @@ func TestLokiTestOperationReadsReadyAndBuildInfo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost() error = %v", err)
 	}
-	plugin := New(sys)
+	plugin := NewWithBoundaries(Boundaries{Process: sys.Process(), Network: sys.Network(), Environment: sys.Environment()})
 	plugin.cfg = Config{URL: server.URL}
 	result := plugin.test()(operation.NewContext(context.Background(), event.Discard()), TestInput{})
 	if result.Status != operation.StatusOK {
@@ -125,7 +125,7 @@ func TestAutoDiscoverySelectsOnlySuccessfulProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost() error = %v", err)
 	}
-	plugin := New(sys)
+	plugin := NewWithBoundaries(Boundaries{Process: sys.Process(), Network: sys.Network(), Environment: sys.Environment()})
 	plugin.discovery = registry
 	plugin.cfg = Config{AutoDiscover: AutoDiscoverConfig{Enabled: true}}
 	client, target, err := plugin.clientFor(operation.NewContext(context.Background(), event.Discard()), "", "", "", "")
@@ -162,7 +162,7 @@ func TestAutoDiscoveryPortForwardsKubernetesServiceCandidate(t *testing.T) {
 	}
 	process := &recordingLokiProcess{}
 	network := &lokiPortForwardNetwork{}
-	plugin := New(lokiFakeSystem{MemorySystem: system.NewMemory(), process: process, network: network})
+	plugin := NewWithBoundaries(Boundaries{Process: process, Network: network})
 	plugin.discovery = registry
 	plugin.cfg = Config{AutoDiscover: AutoDiscoverConfig{Enabled: true, Kubernetes: true}}
 
@@ -195,7 +195,7 @@ func TestNormalizeNamespaceSelectorHandlesEmptySelector(t *testing.T) {
 }
 
 func TestLokiNetworkAccessUsesResolvedTarget(t *testing.T) {
-	plugin := New(nil)
+	plugin := NewWithBoundaries(Boundaries{})
 	plugin.cfg = Config{URL: "http://configured-loki:3100"}
 	access, err := plugin.lokiNetworkAccess(operation.NewContext(context.Background(), event.Discard()), QueryInput{})
 	if err != nil {
@@ -228,7 +228,7 @@ func TestPluginContributionsOperationsAndDatasourceProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost() error = %v", err)
 	}
-	plugin := New(sys)
+	plugin := NewWithBoundaries(Boundaries{Process: sys.Process(), Network: sys.Network(), Environment: sys.Environment()})
 	if manifest := plugin.Manifest(); manifest.Name != Name || manifest.Description == "" {
 		t.Fatalf("manifest = %#v, want Loki manifest", manifest)
 	}

@@ -33,7 +33,7 @@ func TestPortForwardUsesManagedKubectlProcess(t *testing.T) {
 		handle:  fakeProcessHandle{info: fpsystem.ProcessInfo{ID: "proc-1", Label: "custom-label", Command: "kubectl", Running: true}},
 		started: true,
 	}
-	plugin := New(fakeSystem{MemorySystem: system.NewMemory(), process: process})
+	plugin := NewWithBoundaries(Boundaries{Process: process})
 	plugin.cfg = NormalizeConfig(Config{Namespaces: []string{"default"}, Context: "dev", Kubeconfig: "/tmp/kubeconfig"})
 
 	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
@@ -69,7 +69,7 @@ func TestPortForwardUsesManagedKubectlProcess(t *testing.T) {
 }
 func TestPortForwardInfersSingleServicePort(t *testing.T) {
 	process := &recordingProcess{}
-	plugin := New(fakeSystem{MemorySystem: system.NewMemory(), process: process})
+	plugin := NewWithBoundaries(Boundaries{Process: process})
 	plugin.client = fake.NewSimpleClientset(&corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
 		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8080}}},
@@ -95,7 +95,7 @@ func TestPortForwardInfersSingleServicePort(t *testing.T) {
 
 func TestPortForwardFailsWhenServicePortInferenceIsAmbiguous(t *testing.T) {
 	process := &recordingProcess{}
-	plugin := New(fakeSystem{MemorySystem: system.NewMemory(), process: process})
+	plugin := NewWithBoundaries(Boundaries{Process: process})
 	plugin.client = fake.NewSimpleClientset(&corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
 		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 80}, {Port: 443}}},
@@ -120,7 +120,7 @@ func TestPortForwardFailsWhenServicePortInferenceIsAmbiguous(t *testing.T) {
 
 func TestPortForwardRejectsNamespaceOutsidePolicy(t *testing.T) {
 	process := &recordingProcess{}
-	plugin := New(fakeSystem{MemorySystem: system.NewMemory(), process: process})
+	plugin := NewWithBoundaries(Boundaries{Process: process})
 	plugin.cfg = NormalizeConfig(Config{Namespaces: []string{"default"}})
 
 	result := portForwardOperation(plugin).Run(operation.NewContext(context.Background(), nil), portForwardInput{
@@ -173,7 +173,7 @@ func TestKubernetesRestHTTPClientUsesSystemNetworkBoundary(t *testing.T) {
 	network := &recordingNetwork{
 		response: systemkit.HTTPResponse{StatusCode: http.StatusOK, Body: []byte("ok")},
 	}
-	plugin := New(fakeSystem{MemorySystem: system.NewMemory(), network: network})
+	plugin := NewWithBoundaries(Boundaries{Network: network})
 	client, err := plugin.httpClientForRestConfig(&rest.Config{
 		Host:        "https://cluster.example",
 		BearerToken: "token",
@@ -258,7 +258,7 @@ func TestKubernetesAccessorListsPodsWithinNamespacePolicy(t *testing.T) {
 		&corev1.Pod{ObjectMeta: objectMeta("api", "default"), Status: corev1.PodStatus{Phase: corev1.PodRunning}},
 		&corev1.Pod{ObjectMeta: objectMeta("hidden", "kube-system"), Status: corev1.PodStatus{Phase: corev1.PodRunning}},
 	)
-	plugin := NewWithClient(nil, client)
+	plugin := NewWithBoundariesAndClient(Boundaries{}, client)
 	plugin.ref = resource.PluginRef{Name: Name}
 	plugin.cfg = NormalizeConfig(Config{Namespaces: []string{"default"}})
 	provider := kubernetesDatasourceProvider{plugin: plugin}
@@ -286,7 +286,7 @@ func TestKubernetesAccessorDefaultsToAllNamespacesAndHonorsRequestNamespace(t *t
 		&corev1.Pod{ObjectMeta: objectMeta("api", "default"), Status: corev1.PodStatus{Phase: corev1.PodRunning}},
 		&corev1.Pod{ObjectMeta: objectMeta("slack-bot-abc", "ai-bots"), Status: corev1.PodStatus{Phase: corev1.PodRunning}},
 	)
-	plugin := NewWithClient(nil, client)
+	plugin := NewWithBoundariesAndClient(Boundaries{}, client)
 	plugin.ref = resource.PluginRef{Name: Name}
 	provider := kubernetesDatasourceProvider{plugin: plugin}
 	accessor, err := provider.Open(ctx, coredatasource.Spec{
@@ -320,7 +320,7 @@ func TestKubernetesAccessorDefaultsToAllNamespacesAndHonorsRequestNamespace(t *t
 
 func TestKubernetesAccessorRejectsDatasourceNamespaceExpansion(t *testing.T) {
 	ctx := context.Background()
-	plugin := NewWithClient(nil, fake.NewSimpleClientset())
+	plugin := NewWithBoundariesAndClient(Boundaries{}, fake.NewSimpleClientset())
 	plugin.ref = resource.PluginRef{Name: Name}
 	plugin.cfg = NormalizeConfig(Config{Namespaces: []string{"default"}})
 	provider := kubernetesDatasourceProvider{plugin: plugin}
@@ -349,7 +349,7 @@ func TestKubernetesAccessorListsDeployments(t *testing.T) {
 		},
 		Status: appsv1.DeploymentStatus{ReadyReplicas: 2, AvailableReplicas: 2, UpdatedReplicas: 2},
 	})
-	plugin := NewWithClient(nil, client)
+	plugin := NewWithBoundariesAndClient(Boundaries{}, client)
 	plugin.ref = resource.PluginRef{Name: Name}
 	provider := kubernetesDatasourceProvider{plugin: plugin}
 	accessor, err := provider.Open(ctx, coredatasource.Spec{Name: coredatasource.Name(Name), Kind: Name, Entities: []coredatasource.EntityType{DeploymentEntity}})
@@ -367,7 +367,7 @@ func TestKubernetesAccessorListsDeployments(t *testing.T) {
 
 func TestKubernetesPluginContributesObserverAndDeriver(t *testing.T) {
 	ctx := context.Background()
-	plugin := NewWithClient(nil, fake.NewSimpleClientset())
+	plugin := NewWithBoundariesAndClient(Boundaries{}, fake.NewSimpleClientset())
 	ref := resource.PluginRef{Name: Name, Instance: "dev"}
 	instantiated, err := plugin.Instantiate(ctx, pluginhostContext(ref, Config{Context: "k3d-ai", Namespaces: []string{"ai-bots"}}))
 	if err != nil {
@@ -415,7 +415,7 @@ func TestKubernetesPluginContributesObserverAndDeriver(t *testing.T) {
 func TestKubernetesAccessorListsServices(t *testing.T) {
 	ctx := context.Background()
 	client := fake.NewSimpleClientset(&corev1.Service{ObjectMeta: objectMeta("web", "default"), Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeClusterIP, ClusterIP: "10.0.0.1"}})
-	plugin := NewWithClient(nil, client)
+	plugin := NewWithBoundariesAndClient(Boundaries{}, client)
 	plugin.ref = resource.PluginRef{Name: Name}
 	plugin.cfg = NormalizeConfig(Config{Namespaces: []string{"default"}})
 	provider := kubernetesDatasourceProvider{plugin: plugin}

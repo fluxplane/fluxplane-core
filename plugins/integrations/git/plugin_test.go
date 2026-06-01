@@ -555,7 +555,7 @@ func testGitOperations(t *testing.T, root string) map[string]operation.Operation
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	ops, err := NewWithProcess(sys.Process()).Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}

@@ -31,18 +31,8 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
-// New returns a git plugin.
-func New(sys fpsystem.System) Plugin { return Plugin{process: processFromSystem(sys)} }
-
 // NewWithProcess returns a git plugin using an explicit process boundary.
 func NewWithProcess(process fpsystem.ProcessManager) Plugin { return Plugin{process: process} }
-
-func processFromSystem(sys fpsystem.System) fpsystem.ProcessManager {
-	if sys == nil {
-		return nil
-	}
-	return sys.Process()
-}
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {

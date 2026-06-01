@@ -12,11 +12,6 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// TokenScopes resolves the current GitLab token and returns the scopes reported by GitLab.
-func TokenScopes(ctx context.Context, sys fpsystem.System, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
-	return TokenScopesWithBoundaries(ctx, BoundariesFromSystem(sys), resolver, ref, cfg)
-}
-
 func TokenScopesWithBoundaries(ctx context.Context, boundaries Boundaries, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
 	cfg = normalizeConfig(cfg)
 	client, err := tokenScopeClient(ctx, boundaries.Network, resolver, ref, cfg)

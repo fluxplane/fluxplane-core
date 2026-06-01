@@ -82,20 +82,8 @@ var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
 
-// New returns a Loki plugin.
-func New(sys fpsystem.System) Plugin {
-	return NewWithBoundaries(boundariesFromSystem(sys))
-}
-
 func NewWithBoundaries(boundaries Boundaries) Plugin {
 	return Plugin{process: boundaries.Process, network: boundaries.Network, environment: boundaries.Environment, discovery: fpendpoint.NewDiscoveryRegistry(), endpoints: fpendpoint.NewRegistry(15 * time.Minute)}
-}
-
-func boundariesFromSystem(sys fpsystem.System) Boundaries {
-	if sys == nil {
-		return Boundaries{}
-	}
-	return Boundaries{Process: sys.Process(), Network: sys.Network(), Environment: sys.Environment()}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {

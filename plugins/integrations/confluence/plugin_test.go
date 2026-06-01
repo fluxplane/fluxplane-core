@@ -19,7 +19,7 @@ import (
 )
 
 func TestPluginContributesConfluenceDatasourceEntities(t *testing.T) {
-	providers, err := New(nil).DatasourceProviders(context.Background(), pluginhost.Context{})
+	providers, err := NewWithBoundaries(Boundaries{}).DatasourceProviders(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestPluginContributesConfluenceDatasourceEntities(t *testing.T) {
 }
 
 func TestPluginDeclaresOAuthAndTokenAuthMethods(t *testing.T) {
-	methods, err := New(nil).AuthMethods(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
+	methods, err := NewWithBoundaries(Boundaries{}).AuthMethods(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
 	if err != nil {
 		t.Fatalf("AuthMethods: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestPluginDeclaresOAuthAndTokenAuthMethods(t *testing.T) {
 }
 
 func TestConfluenceDatasourceDefaultsToAllEntities(t *testing.T) {
-	providers, err := New(nil).DatasourceProviders(context.Background(), pluginhost.Context{})
+	providers, err := NewWithBoundaries(Boundaries{}).DatasourceProviders(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
 	}
@@ -311,7 +311,7 @@ func newTestPlugin(t *testing.T, network fpsystem.Network, env map[string]string
 		store,
 		sharedsecret.EnvResolver{Environment: fakeEnvironment{values: env}},
 	}
-	return NewWithResolver(fakeSystem{network: network}, store, resolver)
+	return NewWithBoundariesAndResolver(atlassian.Boundaries{Network: network}, store, resolver)
 }
 
 type recordingNetwork struct {

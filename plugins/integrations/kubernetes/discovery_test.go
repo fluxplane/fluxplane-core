@@ -29,7 +29,7 @@ func TestDiscoverEndpointCandidatesFindsLokiServiceAndPod(t *testing.T) {
 			Spec:       corev1.ServiceSpec{ClusterIP: "10.0.0.8", Ports: []corev1.ServicePort{{Name: "http-metrics", Port: 3101}}},
 		},
 	)
-	candidates, err := DiscoverEndpointCandidates(context.Background(), NewWithClient(nil, client), EndpointDiscoveryOptions{
+	candidates, err := DiscoverEndpointCandidates(context.Background(), NewWithBoundariesAndClient(Boundaries{}, client), EndpointDiscoveryOptions{
 		Product: "loki", Namespaces: []string{"monitoring"}, AllowPodIP: true,
 	})
 	if err != nil {
@@ -60,7 +60,7 @@ func TestDiscoverEndpointCandidatesSkipsPodsWhenPodIPDisabled(t *testing.T) {
 			Status:     corev1.PodStatus{Phase: corev1.PodRunning, PodIP: "10.0.0.9"},
 		},
 	)
-	candidates, err := DiscoverEndpointCandidates(context.Background(), NewWithClient(nil, client), EndpointDiscoveryOptions{
+	candidates, err := DiscoverEndpointCandidates(context.Background(), NewWithBoundariesAndClient(Boundaries{}, client), EndpointDiscoveryOptions{
 		Product: "loki", Namespaces: []string{"monitoring"}, AllowPodIP: false,
 	})
 	if err != nil {
@@ -109,7 +109,7 @@ func TestDiscoverEndpointCandidatesScansAllNamespacesAndEnv(t *testing.T) {
 			}}}}},
 		},
 	)
-	candidates, err := DiscoverEndpointCandidates(context.Background(), NewWithClient(nil, client), EndpointDiscoveryOptions{})
+	candidates, err := DiscoverEndpointCandidates(context.Background(), NewWithBoundariesAndClient(Boundaries{}, client), EndpointDiscoveryOptions{})
 	if err != nil {
 		t.Fatalf("DiscoverEndpointCandidates() error = %v", err)
 	}
@@ -141,7 +141,7 @@ func TestDiscoverEndpointCandidatesAttachesKubernetesSecretAuthRef(t *testing.T)
 			}}},
 		},
 	)
-	candidates, err := DiscoverEndpointCandidates(context.Background(), NewWithClient(nil, client), EndpointDiscoveryOptions{Product: "mysql", Namespaces: []string{"latest"}})
+	candidates, err := DiscoverEndpointCandidates(context.Background(), NewWithBoundariesAndClient(Boundaries{}, client), EndpointDiscoveryOptions{Product: "mysql", Namespaces: []string{"latest"}})
 	if err != nil {
 		t.Fatalf("DiscoverEndpointCandidates() error = %v", err)
 	}
@@ -159,7 +159,7 @@ func TestDiscoverEndpointCandidatesDatabaseProductIncludesMySQLService(t *testin
 		ObjectMeta: metav1.ObjectMeta{Name: "mysql", Namespace: "latest"},
 		Spec:       corev1.ServiceSpec{ClusterIP: "10.0.3.5", Ports: []corev1.ServicePort{{Name: "mysql", Port: 3306}}},
 	})
-	candidates, err := DiscoverEndpointCandidates(context.Background(), NewWithClient(nil, client), EndpointDiscoveryOptions{Product: "database", Namespaces: []string{"latest"}})
+	candidates, err := DiscoverEndpointCandidates(context.Background(), NewWithBoundariesAndClient(Boundaries{}, client), EndpointDiscoveryOptions{Product: "database", Namespaces: []string{"latest"}})
 	if err != nil {
 		t.Fatalf("DiscoverEndpointCandidates() error = %v", err)
 	}
@@ -174,7 +174,7 @@ func TestKubernetesSecretResolverResolvesSecretKey(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "backend-db", Namespace: "latest"},
 		Data:       map[string][]byte{"dsn": []byte("mysql://user:pass@mysql.latest.svc:3306/app")},
 	})
-	plugin := NewWithClient(nil, client)
+	plugin := NewWithBoundariesAndClient(Boundaries{}, client)
 	plugin.cfg = Config{Namespaces: []string{"latest"}}
 	material, ok, err := (kubernetesSecretResolver{plugin: plugin}).ResolveSecret(context.Background(), sharedsecret.Kubernetes("latest", "backend-db", "dsn"))
 	if err != nil {

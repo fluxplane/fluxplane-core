@@ -19,13 +19,6 @@ type Boundaries struct {
 	Environment fpsystem.Environment
 }
 
-func BoundariesFromSystem(sys fpsystem.System) Boundaries {
-	if sys == nil {
-		return Boundaries{}
-	}
-	return Boundaries{Network: sys.Network(), Environment: sys.Environment()}
-}
-
 // Plugin contributes OpenAPI-generated resources.
 type Plugin struct {
 	pluginhost.Configurable[Config]
@@ -41,29 +34,12 @@ var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
 
-// New returns an OpenAPI plugin.
-func New(sys fpsystem.System, workspaces ...runtimeworkspace.Workspace) Plugin {
-	return NewWithBoundaries(BoundariesFromSystem(sys), workspaceFromSystem(sys, workspaces...))
-}
-
 func NewWithBoundaries(boundaries Boundaries, workspaces ...runtimeworkspace.Workspace) Plugin {
 	var workspace runtimeworkspace.Workspace
 	if len(workspaces) > 0 {
 		workspace = workspaces[0]
 	}
 	return Plugin{boundaries: boundaries, workspace: workspace}
-}
-
-func workspaceFromSystem(sys fpsystem.System, workspaces ...runtimeworkspace.Workspace) runtimeworkspace.Workspace {
-	if len(workspaces) > 0 {
-		return workspaces[0]
-	}
-	if provider, ok := sys.(interface {
-		Workspace() runtimeworkspace.Workspace
-	}); ok {
-		return provider.Workspace()
-	}
-	return nil
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {

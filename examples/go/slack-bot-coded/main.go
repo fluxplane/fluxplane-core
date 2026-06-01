@@ -253,12 +253,12 @@ func appBundle() (resource.ContributionBundle, error) {
 func appPlugins(sys fpsystem.System) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
 		identity.New(),
-		slack.New(sys),
-		gitlab.New(sys),
-		jira.New(sys),
-		confluence.New(sys),
-		openapi.New(sys),
-		web.New(sys),
+		slack.NewWithBoundaries(slack.Boundaries{Network: sys.Network(), Environment: sys.Environment()}, nil),
+		gitlab.NewWithBoundaries(gitlab.Boundaries{Network: sys.Network(), Environment: sys.Environment()}),
+		jira.NewWithBoundaries(jira.Boundaries{Network: sys.Network()}),
+		confluence.NewWithBoundaries(confluence.Boundaries{Network: sys.Network()}),
+		openapi.NewWithBoundaries(openapi.Boundaries{Network: sys.Network(), Environment: sys.Environment()}),
+		web.NewWithBoundaries(web.Boundaries{Network: sys.Network(), Environment: sys.Environment()}),
 		skills.New(),
 		memory.New(),
 		datasourceplugin.New(nil),

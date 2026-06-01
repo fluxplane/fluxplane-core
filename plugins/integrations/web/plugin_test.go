@@ -24,7 +24,7 @@ func TestWebRequestConvertsHTMLToMarkdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	ops, err := New(sys).Operations(context.Background(), zeroPluginContext())
+	ops, err := NewWithBoundaries(Boundaries{Network: sys.Network(), Environment: sys.Environment()}).Operations(context.Background(), zeroPluginContext())
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestWebRequestIntentUsesTypedURLTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	ops, err := New(sys).Operations(context.Background(), zeroPluginContext())
+	ops, err := NewWithBoundaries(Boundaries{Network: sys.Network(), Environment: sys.Environment()}).Operations(context.Background(), zeroPluginContext())
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestWebDatasourceSearchesHTMLResults(t *testing.T) {
 	t.Cleanup(func() { duckDuckGoSearchURLTemplate = oldTemplate })
 
 	sys := testSystem{network: network, env: testEnvironment{}}
-	providers, err := New(sys).DatasourceProviders(context.Background(), zeroPluginContext())
+	providers, err := NewWithBoundaries(Boundaries{Network: sys.Network(), Environment: sys.Environment()}).DatasourceProviders(context.Background(), zeroPluginContext())
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestWebSearchUsesTavilyProvider(t *testing.T) {
 		}},
 		env: testEnvironment{"TAVILY_API_KEY": "tvly-test"},
 	}
-	ops, err := New(sys).Operations(context.Background(), zeroPluginContext())
+	ops, err := NewWithBoundaries(Boundaries{Network: sys.Network(), Environment: sys.Environment()}).Operations(context.Background(), zeroPluginContext())
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestWebSearchUsesTavilyProvider(t *testing.T) {
 
 func TestWebSearchExplicitTavilyRequiresAPIKey(t *testing.T) {
 	sys := testSystem{network: &testNetwork{}, env: testEnvironment{}}
-	ops, err := New(sys).Operations(context.Background(), zeroPluginContext())
+	ops, err := NewWithBoundaries(Boundaries{Network: sys.Network(), Environment: sys.Environment()}).Operations(context.Background(), zeroPluginContext())
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestWebSearchUsesDuckDuckGoByDefaultWithoutTavily(t *testing.T) {
 		}},
 		env: testEnvironment{},
 	}
-	ops, err := New(sys).Operations(context.Background(), zeroPluginContext())
+	ops, err := NewWithBoundaries(Boundaries{Network: sys.Network(), Environment: sys.Environment()}).Operations(context.Background(), zeroPluginContext())
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestWebSearchFiltersDuckDuckGoProvider(t *testing.T) {
 		}},
 		env: testEnvironment{},
 	}
-	ops, err := New(sys).Operations(context.Background(), zeroPluginContext())
+	ops, err := NewWithBoundaries(Boundaries{Network: sys.Network(), Environment: sys.Environment()}).Operations(context.Background(), zeroPluginContext())
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}

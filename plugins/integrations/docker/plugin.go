@@ -33,18 +33,8 @@ var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
 var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
-// New returns a Docker integration plugin.
-func New(sys fpsystem.System) Plugin { return Plugin{process: processFromSystem(sys)} }
-
 // NewWithProcess returns a Docker integration plugin using an explicit process boundary.
 func NewWithProcess(process fpsystem.ProcessManager) Plugin { return Plugin{process: process} }
-
-func processFromSystem(sys fpsystem.System) fpsystem.ProcessManager {
-	if sys == nil {
-		return nil
-	}
-	return sys.Process()
-}
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {

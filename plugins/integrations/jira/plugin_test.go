@@ -22,7 +22,7 @@ import (
 )
 
 func TestPluginContributesJiraDatasourceEntities(t *testing.T) {
-	providers, err := New(nil).DatasourceProviders(context.Background(), pluginhost.Context{})
+	providers, err := NewWithBoundaries(Boundaries{}).DatasourceProviders(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestPluginContributesJiraDatasourceEntities(t *testing.T) {
 }
 
 func TestPluginContributesJiraIssueDetectors(t *testing.T) {
-	providers, err := New(nil).DatasourceProviders(context.Background(), pluginhost.Context{})
+	providers, err := NewWithBoundaries(Boundaries{}).DatasourceProviders(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestPluginContributesJiraIssueDetectors(t *testing.T) {
 }
 
 func TestPluginMaterializesIssueSearch(t *testing.T) {
-	plugin := New(nil)
+	plugin := NewWithBoundaries(Boundaries{})
 	bundle, err := plugin.Contributions(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "jira-prod"}})
 	if err != nil {
 		t.Fatalf("Contributions: %v", err)
@@ -74,7 +74,7 @@ func TestPluginMaterializesIssueSearch(t *testing.T) {
 }
 
 func TestPluginDeclaresOAuthAndTokenAuthMethods(t *testing.T) {
-	methods, err := New(nil).AuthMethods(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
+	methods, err := NewWithBoundaries(Boundaries{}).AuthMethods(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
 	if err != nil {
 		t.Fatalf("AuthMethods: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestIssueSearchAccessUsesStoredCloudID(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
 	}
-	plugin := New(nil, store)
+	plugin := NewWithBoundaries(Boundaries{}, store)
 	plugin.ref = ref
 	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
@@ -119,7 +119,7 @@ func TestIssueSearchAccessUsesStoredCloudID(t *testing.T) {
 }
 
 func TestJiraDatasourceDefaultsToAllEntities(t *testing.T) {
-	providers, err := New(nil).DatasourceProviders(context.Background(), pluginhost.Context{})
+	providers, err := NewWithBoundaries(Boundaries{}).DatasourceProviders(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
 	}
@@ -495,7 +495,7 @@ func newTestPlugin(t *testing.T, network fpsystem.Network, env map[string]string
 		store,
 		sharedsecret.EnvResolver{Environment: fakeEnvironment{values: env}},
 	}
-	return NewWithResolver(fakeSystem{network: network}, store, resolver)
+	return NewWithBoundariesAndResolver(atlassian.Boundaries{Network: network}, store, resolver)
 }
 
 type recordingNetwork struct {

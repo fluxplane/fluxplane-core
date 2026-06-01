@@ -48,7 +48,7 @@ func TestAccessPolicyChecksKindAndTrust(t *testing.T) {
 }
 
 func TestContributionsExposeDefaultActivationSet(t *testing.T) {
-	bundle, err := New(nil).Contributions(context.Background(), pluginhost.Context{
+	bundle, err := NewWithBoundaries(Boundaries{}, nil).Contributions(context.Background(), pluginhost.Context{
 		Ref: resource.PluginRef{Name: Name},
 	})
 	if err != nil {
@@ -142,7 +142,7 @@ func TestSlackInputContentOmitsAudienceTrustForDirectMessages(t *testing.T) {
 }
 
 func TestConfigSchemaDescribesAuthEnums(t *testing.T) {
-	data, err := New(nil).ConfigSchema()
+	data, err := NewWithBoundaries(Boundaries{}, nil).ConfigSchema()
 	if err != nil {
 		t.Fatalf("ConfigSchema: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestChannelSendUsesCurrentSlackTarget(t *testing.T) {
 	dispatcher := NewDispatcher()
 	poster := &fakePoster{}
 	dispatcher.Register("slack-main", poster)
-	plugin := NewWithDispatcher(nil, dispatcher)
+	plugin := NewWithBoundaries(Boundaries{}, dispatcher)
 	ctx := operation.NewContext(ContextWithTarget(context.Background(), Target{ChannelID: "C1", ThreadTS: "123.4"}), nil)
 
 	result := plugin.channelSend(ctx, channelSendInput{Text: "working"})

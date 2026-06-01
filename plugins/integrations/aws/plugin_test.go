@@ -15,13 +15,13 @@ import (
 
 func TestAWSPluginContributesObserverAndDeriver(t *testing.T) {
 	ctx := context.Background()
-	plugin := New(fakeSystem{env: fakeEnvironment{
+	plugin := NewWithEnvironment(fakeEnvironment{
 		"AWS_PROFILE":           "dev-profile",
 		"AWS_REGION":            "us-east-1",
 		"AWS_ACCESS_KEY_ID":     "AKIAEXAMPLE",
 		"AWS_SECRET_ACCESS_KEY": "secret",
 		"AWS_SESSION_TOKEN":     "token",
-	}})
+	})
 	ref := resource.PluginRef{Name: Name, Instance: "dev"}
 	instantiated, err := plugin.Instantiate(ctx, pluginhost.Context{
 		Ref:    ref,

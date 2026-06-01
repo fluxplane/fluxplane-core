@@ -41,19 +41,8 @@ var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
 var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
-func New(sys fpsystem.System) Plugin {
-	return NewWithEnvironment(environmentFromSystem(sys))
-}
-
 func NewWithEnvironment(environment fpsystem.Environment) Plugin {
 	return Plugin{environment: environment}
-}
-
-func environmentFromSystem(sys fpsystem.System) fpsystem.Environment {
-	if sys == nil {
-		return nil
-	}
-	return sys.Environment()
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {

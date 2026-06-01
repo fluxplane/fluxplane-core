@@ -155,7 +155,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 
 func datasourceIndexPlugins(hostSystem fpsystem.System, dispatcher *slack.Dispatcher, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
-		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
+		slack.NewWithBoundariesAndResolver(slack.Boundaries{Network: hostSystem.Network(), Environment: hostSystem.Environment()}, dispatcher, nativeResolver, nativeStore),
 		task.New(),
 		skills.New(),
 		text.New(),

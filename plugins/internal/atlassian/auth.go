@@ -44,13 +44,6 @@ type Boundaries struct {
 	Network fpsystem.Network
 }
 
-func BoundariesFromSystem(sys fpsystem.System) Boundaries {
-	if sys == nil {
-		return Boundaries{}
-	}
-	return Boundaries{Network: sys.Network()}
-}
-
 type Product struct {
 	Name         string
 	DisplayName  string
@@ -124,14 +117,6 @@ func AuthMethods(pluginName string, ref resource.PluginRef, product Product, cfg
 	return out
 }
 
-func Resolve(ctx context.Context, sys fpsystem.System, store sharedsecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
-	return ResolveWithBoundaries(ctx, BoundariesFromSystem(sys), store, store, pluginName, ref, product, cfg)
-}
-
-func ResolveWithResolver(ctx context.Context, sys fpsystem.System, store sharedsecret.FileStore, resolver sharedsecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
-	return ResolveWithBoundaries(ctx, BoundariesFromSystem(sys), store, resolver, pluginName, ref, product, cfg)
-}
-
 func ResolveWithBoundaries(ctx context.Context, boundaries Boundaries, store sharedsecret.FileStore, resolver sharedsecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	if resolver == nil {
 		resolver = store
@@ -167,10 +152,6 @@ func resolve(ctx context.Context, boundaries Boundaries, store sharedsecret.File
 	default:
 		return Session{}, fmt.Errorf("atlassianplugin: unsupported auth method %q", method)
 	}
-}
-
-func DoJSON(ctx context.Context, sys fpsystem.System, session Session, method, path string, body any, out any) (int, error) {
-	return DoJSONWithNetwork(ctx, BoundariesFromSystem(sys).Network, session, method, path, body, out)
 }
 
 func DoJSONWithNetwork(ctx context.Context, network fpsystem.Network, session Session, method, path string, body any, out any) (int, error) {

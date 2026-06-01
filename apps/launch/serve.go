@@ -414,7 +414,7 @@ func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel
 		case "slack":
 			ref := resource.PluginRef{Name: slack.Name, Instance: firstNonEmptyString(doc.Instance, slack.Name)}
 			cfg := slackConfigForInstance(bundles, ref.InstanceName())
-			session, err := slack.ResolveWithResolver(ctx, sys, auth.Resolver, ref, cfg)
+			session, err := slack.ResolveWithEnvironment(ctx, pluginAuthEnvironment(sys), auth.Resolver, ref, cfg)
 			if err != nil {
 				slog.Warn("slack channel skipped because auth is not connected", "channel", doc.Name, "instance", ref.InstanceName(), "error", err)
 				continue

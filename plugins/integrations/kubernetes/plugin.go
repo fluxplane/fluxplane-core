@@ -152,25 +152,13 @@ var _ pluginhost.AssertionDeriverContributor = Plugin{}
 var _ pluginhost.DiscoveryProviderContributor = Plugin{}
 var _ pluginhost.SecretResolverContributor = Plugin{}
 
-func New(sys fpsystem.System) Plugin {
-	return NewWithBoundaries(boundariesFromSystem(sys))
-}
-
-func NewWithClient(sys fpsystem.System, client kubernetes.Interface) Plugin {
-	p := New(sys)
+func NewWithBoundariesAndClient(boundaries Boundaries, client kubernetes.Interface) Plugin {
+	p := NewWithBoundaries(boundaries)
 	p.client = client
 	return p
 }
-
 func NewWithBoundaries(boundaries Boundaries) Plugin {
 	return Plugin{process: boundaries.Process, network: boundaries.Network, environment: boundaries.Environment}
-}
-
-func boundariesFromSystem(sys fpsystem.System) Boundaries {
-	if sys == nil {
-		return Boundaries{}
-	}
-	return Boundaries{Process: sys.Process(), Network: sys.Network(), Environment: sys.Environment()}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {

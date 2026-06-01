@@ -41,19 +41,9 @@ type Boundaries struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
-// New returns a web plugin.
-func New(sys fpsystem.System) Plugin { return NewWithBoundaries(boundariesFromSystem(sys)) }
-
 // NewWithBoundaries returns a web plugin using explicit host boundaries.
 func NewWithBoundaries(boundaries Boundaries) Plugin {
 	return Plugin{network: boundaries.Network, environment: boundaries.Environment}
-}
-
-func boundariesFromSystem(sys fpsystem.System) Boundaries {
-	if sys == nil {
-		return Boundaries{}
-	}
-	return Boundaries{Network: sys.Network(), Environment: sys.Environment()}
 }
 
 // Manifest returns plugin metadata.

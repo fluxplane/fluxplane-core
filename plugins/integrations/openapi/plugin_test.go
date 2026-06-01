@@ -23,7 +23,7 @@ func TestPluginGeneratesOperationsDatasourceAndAuthMethods(t *testing.T) {
 	dir := t.TempDir()
 	writeFixture(t, dir)
 	sys := newTestSystem(t, dir, nil, nil)
-	host, err := pluginhost.New(New(sys))
+	host, err := pluginhost.New(NewWithBoundaries(Boundaries{Network: sys.Network(), Environment: sys.Environment()}, sys.Workspace()))
 	if err != nil {
 		t.Fatalf("pluginhost.New: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestGeneratedOperationExecutesWithBearerAuth(t *testing.T) {
 	writeFixture(t, dir)
 	network := &recordingNetwork{response: systemkit.HTTPResponse{StatusCode: 200, Headers: map[string][]string{"Content-Type": {"application/json"}}, Body: []byte(`{"id":"42","name":"Ada"}`)}}
 	sys := newTestSystem(t, dir, network, map[string]string{"TESTUSER_PASSWORD": "secret-token"})
-	host, err := pluginhost.New(New(sys))
+	host, err := pluginhost.New(NewWithBoundaries(Boundaries{Network: sys.Network(), Environment: sys.Environment()}, sys.Workspace()))
 	if err != nil {
 		t.Fatalf("pluginhost.New: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestGeneratedOperationExecutesWithOAuthBearerAuth(t *testing.T) {
 	writeOAuthFixture(t, dir)
 	network := &recordingNetwork{response: systemkit.HTTPResponse{StatusCode: 200, Body: []byte(`{}`)}}
 	sys := newTestSystem(t, dir, network, map[string]string{"OAUTH_API_TOKEN": "oauth-token"})
-	host, err := pluginhost.New(New(sys))
+	host, err := pluginhost.New(NewWithBoundaries(Boundaries{Network: sys.Network(), Environment: sys.Environment()}, sys.Workspace()))
 	if err != nil {
 		t.Fatalf("pluginhost.New: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestDocumentationDatasourceSearchAndCorpus(t *testing.T) {
 	dir := t.TempDir()
 	writeFixture(t, dir)
 	sys := newTestSystem(t, dir, nil, nil)
-	host, err := pluginhost.New(New(sys))
+	host, err := pluginhost.New(NewWithBoundaries(Boundaries{Network: sys.Network(), Environment: sys.Environment()}, sys.Workspace()))
 	if err != nil {
 		t.Fatalf("pluginhost.New: %v", err)
 	}
@@ -210,7 +210,7 @@ components:
 		t.Fatalf("write fixture: %v", err)
 	}
 	sys := newTestSystem(t, dir, nil, nil)
-	host, err := pluginhost.New(New(sys))
+	host, err := pluginhost.New(NewWithBoundaries(Boundaries{Network: sys.Network(), Environment: sys.Environment()}, sys.Workspace()))
 	if err != nil {
 		t.Fatalf("pluginhost.New: %v", err)
 	}
@@ -343,7 +343,7 @@ type testSystem struct {
 	env       fpsystem.Environment
 }
 
-func newTestSystem(t *testing.T, dir string, network fpsystem.Network, env map[string]string) fpsystem.System {
+func newTestSystem(t *testing.T, dir string, network fpsystem.Network, env map[string]string) testSystem {
 	t.Helper()
 	host, err := runtimeworkspace.NewHost(runtimeworkspace.Config{Root: dir, AllowPrivateNetwork: true})
 	if err != nil {

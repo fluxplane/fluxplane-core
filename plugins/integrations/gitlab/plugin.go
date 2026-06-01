@@ -46,13 +46,6 @@ type Boundaries struct {
 	Environment fpsystem.Environment
 }
 
-func BoundariesFromSystem(sys fpsystem.System) Boundaries {
-	if sys == nil {
-		return Boundaries{}
-	}
-	return Boundaries{Network: sys.Network(), Environment: sys.Environment()}
-}
-
 type Plugin struct {
 	pluginhost.Configurable[Config]
 	boundaries    Boundaries
@@ -172,14 +165,6 @@ var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
 var _ pluginhost.AuthTestContributor = Plugin{}
 var _ pluginhost.ExternalIdentityContributor = Plugin{}
-
-func New(sys fpsystem.System) Plugin {
-	return NewWithBoundaries(BoundariesFromSystem(sys))
-}
-
-func NewWithResolver(sys fpsystem.System, resolver sharedsecret.Resolver) Plugin {
-	return NewWithBoundariesAndResolver(BoundariesFromSystem(sys), resolver)
-}
 
 func NewWithBoundaries(boundaries Boundaries) Plugin {
 	return Plugin{boundaries: boundaries}

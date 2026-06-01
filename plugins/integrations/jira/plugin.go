@@ -55,19 +55,21 @@ var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
 var _ pluginhost.AuthTestContributor = Plugin{}
 
-func New(sys fpsystem.System, stores ...sharedsecret.FileStore) Plugin {
+type Boundaries = atlassian.Boundaries
+
+func NewWithBoundaries(boundaries atlassian.Boundaries, stores ...sharedsecret.FileStore) Plugin {
 	store := sharedsecret.NewFileStore(atlassian.DefaultAuthStorePath)
 	if len(stores) > 0 {
 		store = stores[0]
 	}
-	return NewWithResolver(sys, store, store)
+	return NewWithBoundariesAndResolver(boundaries, store, store)
 }
 
-func NewWithResolver(sys fpsystem.System, store sharedsecret.FileStore, resolver sharedsecret.Resolver) Plugin {
+func NewWithBoundariesAndResolver(boundaries atlassian.Boundaries, store sharedsecret.FileStore, resolver sharedsecret.Resolver) Plugin {
 	if resolver == nil {
 		resolver = store
 	}
-	return Plugin{network: atlassian.BoundariesFromSystem(sys).Network, store: store, resolver: resolver}
+	return Plugin{network: boundaries.Network, store: store, resolver: resolver}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {

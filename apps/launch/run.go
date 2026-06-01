@@ -670,8 +670,8 @@ func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace
 		}),
 		goalplugin.New(),
 		loop.New(),
-		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
-		openapi.New(hostSystem, ws),
+		slack.NewWithBoundariesAndResolver(slack.Boundaries{Network: network, Environment: environment}, dispatcher, nativeResolver, nativeStore),
+		openapi.NewWithBoundaries(openapi.Boundaries{Network: network, Environment: environment}, ws),
 		memory.New(),
 		task.NewWithConfig(task.Config{Runner: taskRunner, Workspace: ws}),
 		skills.New(),
@@ -683,7 +683,7 @@ func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace
 // for distribution-level connect commands.
 func AuthPluginRegistry(context.Context) ([]pluginhost.Plugin, error) {
 	return []pluginhost.Plugin{
-		slack.New(nil),
+		slack.NewWithBoundaries(slack.Boundaries{}, nil),
 	}, nil
 }
 
@@ -744,7 +744,7 @@ func launchIdentityResolver(ctx context.Context, sys fpsystem.System, auth Plugi
 			continue
 		}
 		ref := resource.PluginRef{Name: slack.Name, Instance: firstNonEmptyString(doc.Instance, slack.Name)}
-		session, err := slack.ResolveWithResolver(ctx, sys, auth.Resolver, ref, slackConfigForInstance(bundles, ref.InstanceName()))
+		session, err := slack.ResolveWithEnvironment(ctx, pluginAuthEnvironment(sys), auth.Resolver, ref, slackConfigForInstance(bundles, ref.InstanceName()))
 		if err != nil {
 			continue
 		}

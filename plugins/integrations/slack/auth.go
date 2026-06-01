@@ -102,17 +102,9 @@ func AuthMethods(ref resource.PluginRef, cfg Config) []auth.MethodSpec {
 	return out
 }
 
-func Resolve(ctx context.Context, sys fpsystem.System, store sharedsecret.FileStore, ref resource.PluginRef, cfg Config) (Session, error) {
-	return resolve(ctx, sys, store, ref, cfg)
-}
-
-func ResolveWithResolver(ctx context.Context, sys fpsystem.System, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
-	return ResolveWithEnvironment(ctx, environmentFromSystem(sys), resolver, ref, cfg)
-}
-
 func ResolveWithEnvironment(ctx context.Context, environment fpsystem.Environment, resolver sharedsecret.Resolver, ref resource.PluginRef, cfg Config) (Session, error) {
 	if resolver == nil {
-		return resolveWithEnvironment(ctx, environment, sharedsecret.NewFileStore(DefaultAuthStorePath), ref, cfg)
+		resolver = sharedsecret.NewFileStore(DefaultAuthStorePath)
 	}
 	cfg = NormalizeConfig(cfg)
 	method := cfg.Auth.Method
@@ -126,21 +118,6 @@ func ResolveWithEnvironment(ctx context.Context, environment fpsystem.Environmen
 	default:
 		return Session{}, fmt.Errorf("slackplugin: unsupported auth method %q", method)
 	}
-}
-
-func resolve(ctx context.Context, sys fpsystem.System, store sharedsecret.FileStore, ref resource.PluginRef, cfg Config) (Session, error) {
-	return resolveWithEnvironment(ctx, environmentFromSystem(sys), store, ref, cfg)
-}
-
-func resolveWithEnvironment(ctx context.Context, environment fpsystem.Environment, store sharedsecret.FileStore, ref resource.PluginRef, cfg Config) (Session, error) {
-	return ResolveWithEnvironment(ctx, environment, store, ref, cfg)
-}
-
-func environmentFromSystem(sys fpsystem.System) fpsystem.Environment {
-	if sys == nil {
-		return nil
-	}
-	return sys.Environment()
 }
 
 func storedTokenAuthMethod(ref resource.PluginRef) auth.MethodSpec {

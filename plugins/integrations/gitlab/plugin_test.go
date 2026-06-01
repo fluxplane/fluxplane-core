@@ -27,7 +27,7 @@ import (
 )
 
 func TestPluginContributesNamedGitLabMROperation(t *testing.T) {
-	bundle, err := New(nil).Contributions(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "company-a"}})
+	bundle, err := NewWithBoundaries(Boundaries{}).Contributions(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "company-a"}})
 	if err != nil {
 		t.Fatalf("Contributions: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestBoundedTextAndLinesReportTruncation(t *testing.T) {
 }
 
 func TestExternalIdentityResolverUsesConfiguredGitLabIdentity(t *testing.T) {
-	resolvers, err := New(nil).ExternalIdentityResolvers(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
+	resolvers, err := NewWithBoundaries(Boundaries{}).ExternalIdentityResolvers(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
 	if err != nil {
 		t.Fatalf("ExternalIdentityResolvers: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestExternalIdentityResolverUsesConfiguredGitLabIdentity(t *testing.T) {
 }
 
 func TestExternalIdentityResolverLooksUpGitLabUserByCanonicalEmail(t *testing.T) {
-	plugin := New(fakeSystem{})
+	plugin := NewWithBoundaries(Boundaries{})
 	plugin.clientFactory = func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 		return fakeGitLabClient{users: []*gitlab.User{{ID: 42, Username: "tfriedl", Name: "Timo Friedl"}}}, nil
 	}
@@ -236,7 +236,7 @@ func TestExternalIdentityResolverLooksUpGitLabUserByCanonicalEmail(t *testing.T)
 
 func TestExternalIdentityResolverLooksUpGitLabUserByVerifiedEmailAlias(t *testing.T) {
 	var queries []string
-	plugin := New(fakeSystem{})
+	plugin := NewWithBoundaries(Boundaries{})
 	plugin.clientFactory = func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 		return fakeGitLabClient{
 			usersByPublicEmail: map[string][]*gitlab.User{
@@ -273,7 +273,7 @@ func TestExternalIdentityResolverLooksUpGitLabUserByVerifiedEmailAlias(t *testin
 }
 
 func TestExternalIdentityResolverReturnsNoIdentityWhenGitLabEmailIsPrivate(t *testing.T) {
-	plugin := New(fakeSystem{})
+	plugin := NewWithBoundaries(Boundaries{})
 	plugin.clientFactory = func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 		return fakeGitLabClient{usersByPublicEmail: map[string][]*gitlab.User{}}, nil
 	}
@@ -298,7 +298,7 @@ func TestExternalIdentityResolverReturnsNoIdentityWhenGitLabEmailIsPrivate(t *te
 }
 
 func TestPluginDeclaresAuthMethods(t *testing.T) {
-	plugin := New(fakeSystem{})
+	plugin := NewWithBoundaries(Boundaries{})
 	plugin.cfg = Config{Auth: AuthConfig{TokenEnv: gitlabPersonalAccessTokenEnv}}
 	methods, err := plugin.AuthMethods(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "company-a"}})
 	if err != nil {
@@ -347,9 +347,7 @@ func TestPluginDeclaresAuthMethods(t *testing.T) {
 func TestConnectionReportsCurrentGitLabUser(t *testing.T) {
 	ref := resource.PluginRef{Name: Name, Instance: "company-a"}
 	var calls []string
-	plugin := New(fakeSystem{
-		env: fakeEnvironment{values: map[string]string{gitlabPersonalAccessTokenEnv: "secret-token", gitlabURLEnv: "https://gitlab.example"}},
-	})
+	plugin := NewWithBoundaries(Boundaries{Environment: fakeEnvironment{values: map[string]string{gitlabPersonalAccessTokenEnv: "secret-token", gitlabURLEnv: "https://gitlab.example"}}})
 	plugin.clientFactory = func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 		return fakeGitLabClient{
 			currentUser: &gitlab.User{
@@ -383,7 +381,7 @@ func TestConnectionReportsCurrentGitLabUser(t *testing.T) {
 }
 
 func TestPluginMROperationUsesInjectedClient(t *testing.T) {
-	plugin := New(fakeSystem{})
+	plugin := NewWithBoundaries(Boundaries{})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
 	plugin.clientFactory = func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 		return &fakeGitLabClient{updatedMR: &gitlab.MergeRequest{BasicMergeRequest: gitlab.BasicMergeRequest{
@@ -532,7 +530,7 @@ func TestOfficialClientRequiresSecretUseForTokenEnv(t *testing.T) {
 
 func TestDatasourceProviderSearchesProjects(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{projects: []*gitlab.Project{
@@ -575,7 +573,7 @@ func TestDatasourceProviderUsesInjectedSecretResolver(t *testing.T) {
 		Body:       []byte(`[{"id":12,"name":"runtime","path_with_namespace":"fluxplane/runtime","web_url":"https://gitlab.example/fluxplane/runtime"}]`),
 	}}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{network: network}),
+		boundaries: Boundaries{Network: network},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		secrets: sharedsecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
 			gitlabTokenEnv: "resolver-token",
@@ -628,7 +626,7 @@ func TestDatasourceProviderIndexedSearchUsesFieldIndex(t *testing.T) {
 	}
 	calls := []string{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
@@ -671,7 +669,7 @@ func TestDatasourceProviderIndexedSearchReportsMissingIndex(t *testing.T) {
 	}
 	calls := []string{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{calls: &calls}, nil
@@ -704,7 +702,7 @@ func TestDatasourceProviderIndexedSearchFallsBackForNonIndexedEntity(t *testing.
 	}
 	calls := []string{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
@@ -747,7 +745,7 @@ func TestDatasourceProviderIndexedSearchFallsBackForNonIndexedEntity(t *testing.
 func TestDatasourceProviderSearchesUsers(t *testing.T) {
 	calls := []string{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
@@ -805,7 +803,7 @@ func TestDatasourceProviderIndexedSearchUsesUserFieldIndex(t *testing.T) {
 	}
 	calls := []string{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{calls: &calls}, nil
@@ -836,7 +834,7 @@ func TestDatasourceProviderIndexedSearchUsesUserFieldIndex(t *testing.T) {
 
 func TestDatasourceProviderCorpusIncludesUsers(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{users: []*gitlab.User{{
@@ -868,7 +866,7 @@ func TestDatasourceProviderCorpusIncludesUsers(t *testing.T) {
 
 func TestDatasourceProviderGetsUser(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{users: []*gitlab.User{{
@@ -899,7 +897,7 @@ func TestDatasourceProviderGetsUser(t *testing.T) {
 func TestDatasourceProviderSearchesGroups(t *testing.T) {
 	calls := []string{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
@@ -959,7 +957,7 @@ func TestDatasourceProviderIndexedSearchUsesGroupFieldIndex(t *testing.T) {
 	}
 	calls := []string{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{calls: &calls}, nil
@@ -990,7 +988,7 @@ func TestDatasourceProviderIndexedSearchUsesGroupFieldIndex(t *testing.T) {
 
 func TestDatasourceProviderCorpusIncludesGroups(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{groups: []*gitlab.Group{{
@@ -1023,7 +1021,7 @@ func TestDatasourceProviderCorpusIncludesGroups(t *testing.T) {
 
 func TestDatasourceProviderCorpusIncludesMemberships(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
@@ -1091,7 +1089,7 @@ func TestDatasourceProviderCorpusIncludesMemberships(t *testing.T) {
 func TestDatasourceProviderCorpusStreamsMemberships(t *testing.T) {
 	calls := []string{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
@@ -1153,7 +1151,7 @@ func TestDatasourceProviderCorpusStreamsMemberships(t *testing.T) {
 
 func TestDatasourceProviderListHidesArchivedProjectsByDefault(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{projects: []*gitlab.Project{{
@@ -1196,7 +1194,7 @@ func TestDatasourceProviderListHidesArchivedProjectsByDefault(t *testing.T) {
 
 func TestDatasourceProviderListHidesArchivedProjectMembershipsByDefault(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
@@ -1248,7 +1246,7 @@ func TestDatasourceProviderListHidesArchivedProjectMembershipsByDefault(t *testi
 func TestDatasourceProviderCorpusCachesMembershipSources(t *testing.T) {
 	calls := []string{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
@@ -1312,7 +1310,7 @@ func TestDatasourceProviderCorpusCachesMembershipSources(t *testing.T) {
 func TestDatasourceProviderCorpusUsesLargerDefaultMembershipPages(t *testing.T) {
 	var perPages []int64
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
@@ -1390,7 +1388,7 @@ func TestDatasourceRelationsUseMembershipFieldIndex(t *testing.T) {
 	}
 	calls := []string{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{calls: &calls}, nil
@@ -1437,7 +1435,7 @@ func TestDatasourceRelationsReportMissingMembershipIndex(t *testing.T) {
 	}
 	calls := []string{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{calls: &calls}, nil
@@ -1465,7 +1463,7 @@ func TestDatasourceRelationsReportMissingMembershipIndex(t *testing.T) {
 
 func TestDatasourceProviderGetsGroup(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{groups: []*gitlab.Group{{
@@ -1675,7 +1673,7 @@ func TestDatasourceRelationsReturnCodeAndCIResources(t *testing.T) {
 	commit := &gitlab.Commit{ID: "abc123", ShortID: "abc123", Title: "Fix runtime", Message: "Fix runtime tests"}
 	calls := []string{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
@@ -1822,7 +1820,7 @@ func TestDatasourceRelationsReturnCodeAndCIResources(t *testing.T) {
 
 func TestDatasourceListsGitLabResources(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
@@ -1902,7 +1900,7 @@ func TestDatasourceListsGitLabResources(t *testing.T) {
 
 func TestDatasourceRelationsReturnMRReviewRecords(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
@@ -2053,7 +2051,7 @@ func TestDatasourceRelationsReturnMRReviewRecords(t *testing.T) {
 
 func TestDatasourceSearchMergeRequestByStableRef(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{mrs: []*gitlab.BasicMergeRequest{{
@@ -2090,7 +2088,7 @@ func TestDatasourceSearchMergeRequestByStableRef(t *testing.T) {
 
 func TestDatasourceProviderListsMRReviewEntities(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
@@ -2323,7 +2321,7 @@ func TestDatasourceProviderListsMRReviewEntities(t *testing.T) {
 
 func TestDatasourceListsSnippetMetadataAndFetchesSnippetFiles(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
@@ -2368,7 +2366,7 @@ func TestDatasourceListsSnippetMetadataAndFetchesSnippetFiles(t *testing.T) {
 func TestDatasourceSearchesProjectAndRepositoryInspectionEntities(t *testing.T) {
 	languages := gitlab.ProjectLanguages{"Go": 87.5, "Shell": 12.5}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
@@ -2471,7 +2469,7 @@ func TestDatasourceSearchesProjectAndRepositoryInspectionEntities(t *testing.T) 
 
 func TestDatasourceListsActivityWithBoundedPerProjectCounts(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
@@ -2514,7 +2512,7 @@ func TestDatasourceListsActivityWithBoundedPerProjectCounts(t *testing.T) {
 
 func TestDatasourceRelationsReturnUserGroups(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
@@ -2557,7 +2555,7 @@ func TestDatasourceRelationsReturnUserGroups(t *testing.T) {
 
 func TestDatasourceRelationsReturnUserMembershipsAndProjects(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
@@ -2625,7 +2623,7 @@ func TestDatasourceRelationsResolveMembershipsFromVisibleServiceAccountGroups(t 
 	groupUserIDs := []int64{}
 	projectUserIDs := []int64{}
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
@@ -2691,7 +2689,7 @@ func TestDatasourceRelationsResolveMembershipsFromVisibleServiceAccountGroups(t 
 
 func TestDatasourceRelationsReturnNoVisibleMemberships(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
@@ -2723,7 +2721,7 @@ func TestDatasourceRelationsReturnNoVisibleMemberships(t *testing.T) {
 
 func TestDatasourceRelationsReturnProjectUsersAndGroups(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
@@ -2772,7 +2770,7 @@ func TestDatasourceRelationsReturnProjectUsersAndGroups(t *testing.T) {
 
 func TestDatasourceRelationsReturnGroupProjects(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
@@ -2818,7 +2816,7 @@ func TestDatasourceRelationsReturnGroupProjects(t *testing.T) {
 
 func TestDatasourceRelationsReturnGroupHierarchy(t *testing.T) {
 	provider := gitlabDatasourceProvider{
-		boundaries: BoundariesFromSystem(fakeSystem{}),
+		boundaries: Boundaries{},
 		ref:        resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 			return &fakeGitLabClient{
@@ -2906,7 +2904,7 @@ func TestMROperationDispatchesSupportedActions(t *testing.T) {
 			Status:    "running",
 		}},
 	}
-	plugin := New(fakeSystem{})
+	plugin := NewWithBoundaries(Boundaries{})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
 	plugin.clientFactory = func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 		return client, nil
@@ -2955,7 +2953,7 @@ func TestMROperationDoesNotCreateInlineDiscussionForInvalidLine(t *testing.T) {
 			HeadCommitSHA:  "head",
 		}},
 	}
-	plugin := New(fakeSystem{})
+	plugin := NewWithBoundaries(Boundaries{})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
 	plugin.clientFactory = func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 		return client, nil
@@ -2988,7 +2986,7 @@ func TestPipelineOperationDispatchesSupportedActions(t *testing.T) {
 			SHA:       "abc123",
 		}},
 	}
-	plugin := New(fakeSystem{})
+	plugin := NewWithBoundaries(Boundaries{})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
 	plugin.clientFactory = func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 		return client, nil
@@ -3017,7 +3015,7 @@ func TestSnippetOperationDispatchesSupportedActions(t *testing.T) {
 		calls:    &calls,
 		snippets: []*gitlab.Snippet{{ID: 77, Title: "Notes", Visibility: "private", WebURL: "https://gitlab.example/snippets/77"}},
 	}
-	plugin := New(fakeSystem{})
+	plugin := NewWithBoundaries(Boundaries{})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
 	plugin.clientFactory = func(context.Context, Boundaries, resource.PluginRef, Config) (gitlabClient, error) {
 		return client, nil
