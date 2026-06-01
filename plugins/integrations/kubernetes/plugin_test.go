@@ -22,7 +22,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
-	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
@@ -699,21 +698,6 @@ func hasAssertion(assertions []coreevidence.Assertion, kind, target string) bool
 		}
 	}
 	return false
-}
-
-type fakeSystem struct {
-	*system.MemorySystem
-	process fpsystem.ProcessManager
-	network fpsystem.Network
-}
-
-func (s fakeSystem) Process() fpsystem.ProcessManager { return s.process }
-
-func (s fakeSystem) Network() fpsystem.Network {
-	if s.network != nil {
-		return s.network
-	}
-	return s.MemorySystem.Network()
 }
 
 type recordingProcess struct {

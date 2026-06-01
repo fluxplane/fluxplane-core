@@ -321,21 +321,6 @@ func (p staticDiscoveryProvider) Discover(context.Context, fpendpoint.DiscoveryR
 	return fpendpoint.DiscoveryResult{Candidates: p.candidates}, nil
 }
 
-type lokiFakeSystem struct {
-	*system.MemorySystem
-	process fpsystem.ProcessManager
-	network fpsystem.Network
-}
-
-func (s lokiFakeSystem) Process() fpsystem.ProcessManager { return s.process }
-
-func (s lokiFakeSystem) Network() fpsystem.Network {
-	if s.network != nil {
-		return s.network
-	}
-	return s.MemorySystem.Network()
-}
-
 type lokiPortForwardNetwork struct {
 	fpsystemtest.UnsupportedNetwork
 	requests []systemkit.HTTPRequest

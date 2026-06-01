@@ -3,7 +3,6 @@ package gitlab
 import (
 	"context"
 	"encoding/base64"
-	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"regexp"
 	"strconv"
@@ -20,7 +19,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	"github.com/fluxplane/fluxplane-policy"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
-	fpsystem "github.com/fluxplane/fluxplane-system"
 	"github.com/fluxplane/fluxplane-system/systemkit"
 	fpsystemtest "github.com/fluxplane/fluxplane-system/systemtest"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -3722,26 +3720,6 @@ func variableTypeValue(value *gitlab.VariableTypeValue) gitlab.VariableTypeValue
 		return ""
 	}
 	return *value
-}
-
-type fakeSystem struct {
-	network fpsystem.Network
-	env     fpsystem.Environment
-}
-
-func (s fakeSystem) Workspace() runtimeworkspace.Workspace { return nil }
-
-func (s fakeSystem) Network() fpsystem.Network { return s.network }
-
-func (s fakeSystem) Process() fpsystem.ProcessManager { return nil }
-
-func (s fakeSystem) Environment() fpsystem.Environment { return s.env }
-
-func (s fakeSystem) FileSystem() fpsystem.FileSystem { return nil }
-
-func (s fakeSystem) Clock() fpsystem.Clock {
-	sys, _ := systemkit.NewSystem().WithRealClock().Build()
-	return sys.Clock()
 }
 
 type recordingNetwork struct {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 	"strings"
@@ -471,21 +470,6 @@ func TestJiraDatasourceJQLBuildsUsefulDefaultQueries(t *testing.T) {
 			t.Fatalf("jiraDatasourceJQL(%q) = %q, want %q", input, got, want)
 		}
 	}
-}
-
-type fakeSystem struct {
-	network fpsystem.Network
-	env     fpsystem.Environment
-}
-
-func (s fakeSystem) Workspace() runtimeworkspace.Workspace { return nil }
-func (s fakeSystem) Network() fpsystem.Network             { return s.network }
-func (s fakeSystem) Process() fpsystem.ProcessManager      { return nil }
-func (s fakeSystem) Environment() fpsystem.Environment     { return s.env }
-func (s fakeSystem) FileSystem() fpsystem.FileSystem       { return nil }
-func (s fakeSystem) Clock() fpsystem.Clock {
-	sys, _ := systemkit.NewSystem().WithRealClock().Build()
-	return sys.Clock()
 }
 
 func newTestPlugin(t *testing.T, network fpsystem.Network, env map[string]string) Plugin {
