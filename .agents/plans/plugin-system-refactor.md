@@ -955,6 +955,38 @@ Current caveat:
 
 - The existing seeded root package in `fluxplane-plugin` still depends on `fluxplane-core` and `fluxplane-dex`. The new `management`, `management/local`, `cli`, `cmd/fluxplane-plugin`, and `protocol` paths are the clean ownership direction, but the copied dex-core adapter still needs to be split/moved.
 
+### Progress Update: Pure Datasource And Host SDK Packages
+
+Completed in the next uncommitted batch:
+
+- Added `fluxplane-plugin/datasource` as a core/dex-free plugin SDK wrapper around `github.com/fluxplane/fluxplane-datasource`:
+  - datasource source/record aliases;
+  - search/lookup/get input and result aliases;
+  - lookup candidate/match helpers;
+  - record option helpers;
+  - datasource view constants.
+- Added `fluxplane-plugin/host` as a core/dex-free plugin SDK host-capability contract package:
+  - host capability DTOs for HTTP, blob read/write/info, env lookup, and provider calls;
+  - secret material wire shape;
+  - higher-level `Client` interface;
+  - `NewClient(protocol.HostCaller)` adapter for host calls.
+- Added focused tests for datasource lookup/record helpers and host client command dispatch.
+
+Validation completed:
+
+```sh
+cd fluxplane-plugin
+GOWORK=off go test ./...
+GOWORK=off go build ./cmd/fluxplane-plugin
+go list -deps ./datasource ./host | grep -E 'github.com/fluxplane/fluxplane-(core|dex)'
+```
+
+Result: tests/build passed; dependency grep had no matches.
+
+Current caveat:
+
+- Dex has not yet been switched from `core/pluginbinding` to these new SDK packages. This batch only establishes the core/dex-free SDK targets needed for the next direct import migration.
+
 This is the full remaining task list to make `github.com/fluxplane/fluxplane-plugin` independent from both `github.com/fluxplane/fluxplane-core` and `github.com/fluxplane/fluxplane-dex`.
 
 ### Current `fluxplane-core` Imports To Eliminate
@@ -1764,19 +1796,18 @@ These are not just contracts; they should become plugin implementation modules o
 
 ## Updated Immediate Next Actions
 
-1. Move dex `core/pluginbinding` pure contracts into `fluxplane-plugin` packages and update imports directly; do not add long-lived compatibility shims.
-2. Create the first remaining pure SDK packages inside `fluxplane-plugin`:
+1. Update dex `core/pluginbinding` internals to reuse the new `fluxplane-plugin/datasource` and `fluxplane-plugin/host` packages directly.
+2. Move more pure dex `core/pluginbinding` contracts into `fluxplane-plugin` packages and update imports directly; do not add long-lived compatibility shims.
+3. Create the first remaining pure SDK packages inside `fluxplane-plugin`:
    - `manifest`;
-   - `host`;
    - `operation` backed by existing `../fluxplane-operation`;
-   - `datasource`;
    - `context`;
    - `schema`;
    - `testkit`.
-3. Create minimal `../fluxplane-resource` for leaf resource refs/types only.
-4. Move pluginhost contributor contracts into `fluxplane-plugin/pluginhost`.
-5. Create the standalone context-provider contract module/package (`../fluxplane-context` or `fluxplane-plugin/context`) before moving any context provider implementations.
-6. Extract the remaining core contracts that currently block `fluxplane-plugin` independence:
+4. Create minimal `../fluxplane-resource` for leaf resource refs/types only.
+5. Move pluginhost contributor contracts into `fluxplane-plugin/pluginhost`.
+6. Create the standalone context-provider contract module/package (`../fluxplane-context` or `fluxplane-plugin/context`) before moving any context provider implementations.
+7. Extract the remaining core contracts that currently block `fluxplane-plugin` independence:
    - resource refs;
    - pluginhost contributor interfaces;
    - operation contracts;
@@ -1784,9 +1815,9 @@ These are not just contracts; they should become plugin implementation modules o
    - evidence/reaction contracts;
    - activation DTOs if still required;
    - workspace boundary types.
-7. Move dex-engine-specific adapter code out of the base SDK into dex or a dedicated adapter package/module, with a deletion target for temporary staging code.
-8. Add CI guards that fail if `fluxplane-plugin` imports `fluxplane-core` or `fluxplane-dex` from base packages.
-9. Create the `fluxplane-plugins` monorepo skeleton and migrate one plugin end-to-end against the new SDK contracts.
-10. Move remaining heavy integrations out of core.
-11. Move coding/native/language plugins out of core and update `coder` to import them directly.
-12. Remove deprecated core integration packages after product migrations are complete.
+8. Move dex-engine-specific adapter code out of the base SDK into dex or a dedicated adapter package/module, with a deletion target for temporary staging code.
+9. Add CI guards that fail if `fluxplane-plugin` imports `fluxplane-core` or `fluxplane-dex` from base packages.
+10. Create the `fluxplane-plugins` monorepo skeleton and migrate one plugin end-to-end against the new SDK contracts.
+11. Move remaining heavy integrations out of core.
+12. Move coding/native/language plugins out of core and update `coder` to import them directly.
+13. Remove deprecated core integration packages after product migrations are complete.
