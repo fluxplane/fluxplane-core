@@ -807,6 +807,154 @@ Current important caveat:
 
 ## Complete `fluxplane-plugin` Decoupling Checklist
 
+### Planning Update: Prefer Breaking Moves Over Compatibility Layers
+
+Project preference:
+
+- Avoid backwards-compatibility shims, alias packages, and long-lived adapters wherever possible.
+- Prefer coordinated breaking migrations that update import paths directly and delete obsolete duplicate packages.
+- Temporary adapters are acceptable only as short-lived implementation staging when there is no practical single-step move, and they should have an explicit deletion target.
+
+Implications for the plan:
+
+- When moving dex protocol to `fluxplane-plugin/protocol`, update dex and plugin imports directly, then delete/stop using `fluxplane-dex/protocol` rather than maintaining aliases.
+- When moving `pluginbinding` contracts out of dex, update plugin imports directly rather than preserving a long-lived dex `pluginbinding` facade.
+- When moving core contracts to standalone modules, update core/product/plugin imports directly. Avoid compatibility alias packages unless a change is too large to land safely in one pass.
+
+### Planning Update: Reusable Plugin Management CLI Belongs In `fluxplane-plugin`
+
+`fluxplane-plugin` should provide an importable plugin-management CLI package plus a standalone binary.
+
+Target layout:
+
+```text
+fluxplane-plugin/
+  management/             # backend-neutral plugin management interfaces and DTOs
+  cli/                    # importable Cobra command tree
+  cmd/fluxplane-plugin/   # standalone CLI binary
+```
+
+Expected future UX:
+
+```sh
+fluxplane-plugin install gitlab
+fluxplane-plugin list
+fluxplane-plugin remove gitlab
+fluxplane-plugin run gitlab
+fluxplane-plugin manifest gitlab
+```
+
+Architecture:
+
+- `fluxplane-plugin/management` defines backend-neutral interfaces such as installer, registry, store, remover, runner, and manifest inspector.
+- `fluxplane-plugin/cli` owns the reusable Cobra command tree and depends only on `management`, not dex.
+- `fluxplane-dex` imports `fluxplane-plugin/cli` and provides a dex-backed implementation of the management interfaces.
+- The standalone `cmd/fluxplane-plugin` binary can initially wire no backend or a local/default backend, then later use the same backend implementation as dex or a backend selected by config.
+
+Dependency rule:
+
+```text
+fluxplane-plugin/cli -> fluxplane-plugin/management
+fluxplane-dex        -> fluxplane-plugin/cli
+fluxplane-plugin     -> not fluxplane-dex
+```
+
+### Planning Update: Do Not Extract `core/resource` Wholesale
+
+`fluxplane-core/core/resource` currently contains both low-level resource reference types and the cross-domain `ContributionBundle` aggregate. `ContributionBundle` imports many core domains:
+
+```text
+core/activation
+core/agent
+core/app
+core/command
+core/context
+core/data
+core/evidence
+core/language
+core/llm
+core/operation
+core/reaction
+core/session
+core/skill
+core/tool
+core/workflow
+```
+
+Therefore, moving `core/resource` wholesale into `../fluxplane-resource` would pull much of core along with it.
+
+Preferred split:
+
+1. Create `../fluxplane-resource` for low-level leaf types only:
+   - `ID`;
+   - `Scope`;
+   - `SourceRef`;
+   - `Severity`;
+   - `Diagnostic`;
+   - `PluginRef`;
+   - maybe `LoadError` only if the event dependency is acceptable.
+2. Keep `ContributionBundle` in core until its member specs are standalone.
+3. Later, after operation/context/agent/skill/reaction/evidence/etc. contracts are extracted, move a normalized aggregate to a dedicated module such as `../fluxplane-contribution` or to a plugin manifest/contribution package.
+
+### Planning Update: Extraction Order Before Touching Agent/Contribution Bundles
+
+Do not extract `core/agent` or `ContributionBundle` first. Extract their dependencies first.
+
+Recommended order:
+
+1. Use existing `../fluxplane-operation` as the canonical operation contract module.
+2. Create minimal `../fluxplane-resource` for leaf resource refs only.
+3. Move plugin host/contributor contracts to `fluxplane-plugin/pluginhost` unless a separate `../fluxplane-pluginhost` becomes clearly necessary.
+4. Create `../fluxplane-context` or `fluxplane-plugin/context` for context provider contracts.
+5. Create `../fluxplane-evidence` for observation/assertion/evidence DTOs.
+6. Create `../fluxplane-reaction` for reaction rule contracts.
+7. Create/extract `../fluxplane-skill` if agent/resource specs require skill contracts outside core.
+8. Only then evaluate `../fluxplane-agent` for reusable agent specs.
+9. Only after that evaluate a standalone contribution bundle module.
+
+Rationale:
+
+- `agent.Spec` currently depends on operation, context, evidence, skill, datasource, and event contracts.
+- `ContributionBundle` depends on even more core domains.
+- Extracting low-level contracts first avoids creating a standalone module that immediately depends back on core.
+
+### Progress Update: Plugin Management CLI And Protocol Ownership
+
+Completed in this batch:
+
+- `fluxplane-plugin` now owns a backend-neutral plugin management API under `management`.
+- `fluxplane-plugin` now owns an importable Cobra command tree under `cli`.
+- `fluxplane-plugin` now ships a standalone CLI entrypoint under `cmd/fluxplane-plugin`.
+- Added a `management/local` filesystem-backed backend owned by `fluxplane-plugin`, so the standalone CLI can install/list/search/remove local plugin metadata without dex.
+- The local backend currently stores plugin metadata in a JSON state file and does not yet execute plugin processes; `run` validates installation and reports that process execution is not implemented in the local backend yet.
+- `fluxplane-plugin/protocol` is now consumed directly by `fluxplane-dex`.
+- Removed the duplicate `fluxplane-dex/protocol` package instead of adding a compatibility shim.
+- Updated dex test fixture module setup to replace/import `fluxplane-plugin` directly.
+
+Validation completed:
+
+```sh
+cd fluxplane-plugin
+GOWORK=off go test ./...
+GOWORK=off go build ./cmd/fluxplane-plugin
+
+cd ../fluxplane-dex
+go test ./...
+```
+
+Additional dependency check:
+
+```sh
+cd fluxplane-plugin
+go list -deps ./management/... ./cli ./cmd/fluxplane-plugin | grep -E 'github.com/fluxplane/fluxplane-(core|dex)'
+```
+
+Result: no matches for the new management/CLI packages.
+
+Current caveat:
+
+- The existing seeded root package in `fluxplane-plugin` still depends on `fluxplane-core` and `fluxplane-dex`. The new `management`, `management/local`, `cli`, `cmd/fluxplane-plugin`, and `protocol` paths are the clean ownership direction, but the copied dex-core adapter still needs to be split/moved.
+
 This is the full remaining task list to make `github.com/fluxplane/fluxplane-plugin` independent from both `github.com/fluxplane/fluxplane-core` and `github.com/fluxplane/fluxplane-dex`.
 
 ### Current `fluxplane-core` Imports To Eliminate
@@ -1616,13 +1764,19 @@ These are not just contracts; they should become plugin implementation modules o
 
 ## Updated Immediate Next Actions
 
-1. Create the first pure SDK packages inside `fluxplane-plugin`:
-   - `protocol` is already staged and should become canonical first;
-   - add `manifest`, `host`, `operation`, `datasource`, `context`, `schema`, and `testkit` skeleton packages.
-2. Move dex `core/pluginbinding` pure contracts into `fluxplane-plugin` packages and leave compatibility aliases in dex.
-3. Update dex to import `github.com/fluxplane/fluxplane-plugin/protocol` and make `fluxplane-dex/protocol` a temporary alias package or compatibility layer.
-4. Create the standalone context-provider contract module/package (`../fluxplane-context` or `fluxplane-plugin/context`) before moving any context provider implementations.
-5. Extract or alias the core contracts that currently block `fluxplane-plugin` independence:
+1. Move dex `core/pluginbinding` pure contracts into `fluxplane-plugin` packages and update imports directly; do not add long-lived compatibility shims.
+2. Create the first remaining pure SDK packages inside `fluxplane-plugin`:
+   - `manifest`;
+   - `host`;
+   - `operation` backed by existing `../fluxplane-operation`;
+   - `datasource`;
+   - `context`;
+   - `schema`;
+   - `testkit`.
+3. Create minimal `../fluxplane-resource` for leaf resource refs/types only.
+4. Move pluginhost contributor contracts into `fluxplane-plugin/pluginhost`.
+5. Create the standalone context-provider contract module/package (`../fluxplane-context` or `fluxplane-plugin/context`) before moving any context provider implementations.
+6. Extract the remaining core contracts that currently block `fluxplane-plugin` independence:
    - resource refs;
    - pluginhost contributor interfaces;
    - operation contracts;
@@ -1630,9 +1784,9 @@ These are not just contracts; they should become plugin implementation modules o
    - evidence/reaction contracts;
    - activation DTOs if still required;
    - workspace boundary types.
-6. Move dex-engine-specific adapter code out of the base SDK into dex or a dedicated adapter package/module.
-7. Add CI guards that fail if `fluxplane-plugin` imports `fluxplane-core` or `fluxplane-dex` from base packages.
-8. Create the `fluxplane-plugins` monorepo skeleton and migrate one plugin end-to-end against the new SDK contracts.
-9. Move remaining heavy integrations out of core.
-10. Move coding/native/language plugins out of core and update `coder` to import them directly.
-11. Remove deprecated core integration packages after compatibility aliases and product migrations are complete.
+7. Move dex-engine-specific adapter code out of the base SDK into dex or a dedicated adapter package/module, with a deletion target for temporary staging code.
+8. Add CI guards that fail if `fluxplane-plugin` imports `fluxplane-core` or `fluxplane-dex` from base packages.
+9. Create the `fluxplane-plugins` monorepo skeleton and migrate one plugin end-to-end against the new SDK contracts.
+10. Move remaining heavy integrations out of core.
+11. Move coding/native/language plugins out of core and update `coder` to import them directly.
+12. Remove deprecated core integration packages after product migrations are complete.
