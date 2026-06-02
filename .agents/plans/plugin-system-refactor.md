@@ -1046,7 +1046,31 @@ Result: all tests passed.
 
 Current caveat:
 
-- These are still dex-compatible legacy plugin manifest operation contracts, not the final richer `operation.Spec` model. They now live in the correct reusable module so future SDK/package migrations can depend on the dedicated module rather than dex/core.
+- These are still manifest-oriented operation declaration contracts, not the final full replacement for the richer `operation.Spec` execution model.
+
+### Progress Update: Operation Contracts Use Domain Naming
+
+Completed in the next uncommitted batch:
+
+- Reworked `fluxplane-operation` operation manifest contracts to use canonical domain names instead of plugin-prefixed names:
+  - `Declaration` replaces the previously added plugin-prefixed declaration type;
+  - `Effect` is reused for manifest effect values, with compact `read`, `write`, `browser`, and `local_system` constants added alongside the existing semantic effect vocabulary;
+  - `RiskLevel` is reused for manifest risk values, with `RiskDestructive` added;
+  - `Idempotency` is reused for manifest idempotency values, with conditional/textual-unknown manifest constants added;
+  - `RenderSpec` replaces the plugin-prefixed render type.
+- Updated `fluxplane-dex/core` compatibility aliases to point at the neutral operation-domain names.
+
+Validation completed:
+
+```sh
+cd fluxplane-operation
+go test ./...
+
+cd ../fluxplane-dex
+go test ./core/... ./runtime
+```
+
+Result: all tests passed.
 
 ### Progress Update: Plugin SDK No Longer Carries Dex/Core Adapter Copy
 
@@ -1889,25 +1913,23 @@ These are not just contracts; they should become plugin implementation modules o
 ## Updated Immediate Next Actions
 
 1. Move remaining pure dex `core/pluginbinding` contracts into dedicated reusable modules/packages and update imports directly; do not add long-lived compatibility shims.
-2. Normalize operation contract naming in `fluxplane-operation` so canonical reusable names are domain names, not plugin-prefixed names.
-3. Move datasource declaration normalization helpers fully through `fluxplane-datasource` and have SDK/dex code consume them from that dedicated module.
-4. Create or complete the remaining pure SDK packages/contracts, with reusable parts landing in dedicated modules:
+2. Move datasource declaration normalization helpers fully through `fluxplane-datasource` and have SDK/dex code consume them from that dedicated module.
+3. Create or complete the remaining pure SDK packages/contracts, with reusable parts landing in dedicated modules:
    - manifest helpers in `fluxplane-plugin/manifest`, composing existing dedicated modules;
    - context contracts in `../fluxplane-context` or `fluxplane-plugin/context` if only SDK-facing;
    - schema helpers in `fluxplane-plugin/schema` unless a dedicated schema module is warranted;
    - testkit in `fluxplane-plugin/testkit`.
-5. Create minimal `../fluxplane-resource` for leaf resource refs/types only.
-6. Move pluginhost contributor contracts into `fluxplane-plugin/pluginhost` or a dedicated `fluxplane-pluginhost` module if they must be product-neutral.
-7. Extract remaining core contracts that currently block full product/plugin separation:
+4. Create minimal `../fluxplane-resource` for leaf resource refs/types only.
+5. Move pluginhost contributor contracts into `fluxplane-plugin/pluginhost` or a dedicated `fluxplane-pluginhost` module if they must be product-neutral.
+6. Extract remaining core contracts that currently block full product/plugin separation:
    - resource refs;
    - pluginhost contributor interfaces;
    - policy metadata;
    - evidence/reaction contracts;
    - activation DTOs if still required;
    - workspace boundary types.
-8. Move any remaining engine-specific adapter code out of base SDK modules into engine/product adapter modules, with deletion targets for temporary staging code.
-9. Add CI guards that fail if `fluxplane-plugin` imports `fluxplane-core` or `fluxplane-dex` from base packages.
-10. Create the `fluxplane-plugins` monorepo skeleton and migrate one plugin end-to-end against the new SDK contracts.
-11. Move remaining heavy integrations out of core.
-12. Move coding/native/language plugins out of core and update `coder` to import them directly.
-13. Remove deprecated core integration packages after product migrations are complete.
+7. Move any remaining engine-specific adapter code out of base SDK modules into engine/product adapter modules, with deletion targets for temporary staging code.
+8. Create the `fluxplane-plugins` monorepo skeleton and migrate one plugin end-to-end against the new SDK contracts.
+9. Move remaining heavy integrations out of core.
+10. Move coding/native/language plugins out of core and update `coder` to import them directly.
+11. Remove deprecated core integration packages after product migrations are complete.
