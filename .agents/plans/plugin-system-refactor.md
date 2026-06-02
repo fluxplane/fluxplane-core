@@ -275,7 +275,8 @@ github.com/fluxplane/fluxplane-coding
 
 ### External Integration Plugins
 
-Belong in `fluxplane-plugins/integrations/*` and run through dex by default:
+Belong in `fluxplane-plugins/integrations/*` and run through the shared
+`fluxplane-plugin` runtime/CLI path by default:
 
 - GitLab;
 - Slack;
@@ -299,7 +300,7 @@ A product may embed a plugin directly when the integration is core to the produc
 Example:
 
 - `fluxplane-apps/slack-bot` may directly import the Slack plugin.
-- `coder` should usually use GitLab/Jira/Slack via dex-managed plugins unless a distribution intentionally embeds them.
+- `coder` should usually use GitLab/Jira/Slack via managed external plugins unless a distribution intentionally embeds them.
 
 ## Direct Binding + Stdio Binding
 
@@ -315,8 +316,8 @@ host.Register(pluginbinding.Direct(bundle))
 2. Stdio/CLI binding:
 
 ```sh
-dex plugin install gitlab
-dex op run gitlab.merge_request_search '{...}'
+fluxplane-plugin install gitlab
+fluxplane-plugin operation invoke gitlab gitlab.merge_request_search --input '{...}'
 ```
 
 Same plugin:
@@ -385,7 +386,8 @@ fluxplane-plugins/*
   ↑
   ├── coder, when directly embedded
   ├── fluxplane-apps/slack-bot, when directly embedded
-  └── dex, when installed/run externally
+  ├── fluxplane-core, only for selected runtime-level default plugins if intentionally chosen
+  └── marketplace-aware fluxplane-plugin CLI/runtime, when installed/run externally
 ```
 
 Forbidden dependencies:
@@ -410,7 +412,7 @@ Use individual modules for plugins that need independent install/build/versionin
 Standalone module required when a plugin:
 
 - has heavy third-party dependencies;
-- is installed by dex;
+- is installed by the shared marketplace-aware plugin CLI/runtime;
 - should be independently versioned;
 - is optional for products;
 - has provider-specific live tests;
@@ -446,7 +448,7 @@ Rules:
 
 - No new third-party integration code in `fluxplane-core`.
 - No new provider SDK dependencies in `fluxplane-core`.
-- New integration work happens in dex temporarily or, preferably, the new `fluxplane-plugins` repo.
+- New integration work happens in `fluxplane-plugins`.
 
 Acceptance criteria:
 
@@ -499,7 +501,7 @@ Acceptance criteria:
 - Each plugin exposes `New() plugin.Plugin`.
 - Each plugin has a stdio `main` package.
 - Each plugin can run direct unit tests without live credentials.
-- Dex can install/run at least one migrated plugin from the new repo.
+- The marketplace-aware `fluxplane-plugin` CLI can install/run at least one migrated plugin from the new repo.
 
 ### Phase 3: Move Heavy Integrations Out of `fluxplane-core`
 
@@ -588,7 +590,7 @@ plugins:
     - golang
     - markdown
   managed:
-    runtime: dex
+    runtime: fluxplane-plugin
     auto_install: true
     allow:
       - gitlab
@@ -610,7 +612,7 @@ Suggested defaults:
 Acceptance criteria:
 
 - `coder` can expose built-in tools without dex.
-- `coder` can call dex-managed plugins when installed/configured.
+- `coder` can call managed external plugins when installed/configured.
 - Optional integrations are not linked into the default `coder` binary unless intentionally selected.
 
 ### Phase 6: Parity and Safety Tests
@@ -646,7 +648,7 @@ Target:
 
 - imports `fluxplane-core` for runtime;
 - imports coding/native/language plugins directly;
-- uses dex runtime for optional third-party plugins;
+- uses the shared plugin runtime/CLI path for optional third-party plugins;
 - does not import GitLab/Slack/Jira/Kubernetes/etc. by default.
 
 Default direct plugin set:
@@ -679,7 +681,7 @@ Optional managed plugin set:
 Target:
 
 - imports `fluxplane-core` for runtime;
-- either imports Slack plugin directly because Slack is product-essential, or uses dex-managed Slack;
+- either imports Slack plugin directly because Slack is product-essential, or uses managed external Slack;
 - Slack plugin remains outside core either way.
 
 Recommendation:
@@ -752,7 +754,7 @@ The refactor is complete when:
 - `dex` installs and runs external plugins through the shared protocol.
 - `fluxplane-plugins` contains migrated plugin implementations.
 - `coder` embeds coding tools directly from plugin modules, not from core.
-- Optional integrations are dex-managed by default.
+- Optional integrations are managed externally through the shared plugin CLI/runtime by default.
 - Product-essential integrations can still be embedded directly without duplicating implementation logic.
 - Every migrated plugin can be used through both direct binding and stdio binding where appropriate.
 - CI prevents core from regrowing heavy provider dependencies.
@@ -837,9 +839,12 @@ Implications for the plan:
 - When moving `pluginbinding` contracts out of dex, update plugin imports directly rather than preserving a long-lived dex `pluginbinding` facade.
 - When moving core contracts to standalone modules, update core/product/plugin imports directly. Avoid compatibility alias packages unless a change is too large to land safely in one pass.
 
-### Planning Update: Reusable Plugin Management CLI Belongs In `fluxplane-plugin`
+### Planning Update: Reusable Plugin Management CLI Package Belongs In `fluxplane-plugin`
 
-`fluxplane-plugin` should provide an importable plugin-management CLI package plus a standalone binary.
+`fluxplane-plugin` should provide an importable plugin-management CLI package and
+backend contracts. The default marketplace-aware standalone binary should live
+in `fluxplane-plugins`, because that repository owns the canonical plugin
+catalog.
 
 Target layout:
 
@@ -847,7 +852,11 @@ Target layout:
 fluxplane-plugin/
   management/             # backend-neutral plugin management interfaces and DTOs
   cli/                    # importable Cobra command tree
-  cmd/fluxplane-plugin/   # standalone CLI binary
+
+fluxplane-plugins/
+  marketplace.json
+  registry.go             # embedded canonical marketplace
+  cmd/fluxplane-plugin/   # marketplace-aware standalone CLI binary
 ```
 
 Expected future UX:
@@ -864,15 +873,17 @@ Architecture:
 
 - `fluxplane-plugin/management` defines backend-neutral interfaces such as installer, registry, store, remover, runner, and manifest inspector.
 - `fluxplane-plugin/cli` owns the reusable Cobra command tree and depends only on `management`, not dex.
-- `fluxplane-dex` imports `fluxplane-plugin/cli` and provides a dex-backed implementation of the management interfaces.
-- The standalone `cmd/fluxplane-plugin` binary can initially wire no backend or a local/default backend, then later use the same backend implementation as dex or a backend selected by config.
+- `fluxplane-plugins/cmd/fluxplane-plugin` imports `fluxplane-plugin/cli`, wires the local/default backend, and injects the canonical `fluxplane-plugins` registry.
+- `fluxplane-dex`, while it exists, imports `fluxplane-plugin/cli` or SDK/runtime packages only as a compatibility wrapper. Products must not import Dex.
 
 Dependency rule:
 
 ```text
 fluxplane-plugin/cli -> fluxplane-plugin/management
-fluxplane-dex        -> fluxplane-plugin/cli
+fluxplane-plugins    -> fluxplane-plugin/cli + fluxplane-plugin/management/local
+fluxplane-dex        -> fluxplane-plugin and fluxplane-plugins only while retained
 fluxplane-plugin     -> not fluxplane-dex
+fluxplane-plugin     -> not fluxplane-plugins
 ```
 
 ### Planning Update: Do Not Extract `core/resource` Wholesale
@@ -940,8 +951,7 @@ Completed in this batch:
 
 - `fluxplane-plugin` now owns a backend-neutral plugin management API under `management`.
 - `fluxplane-plugin` now owns an importable Cobra command tree under `cli`.
-- `fluxplane-plugin` now ships a standalone CLI entrypoint under `cmd/fluxplane-plugin`.
-- Added a `management/local` filesystem-backed backend owned by `fluxplane-plugin`, so the standalone CLI can install/list/search/remove local plugin metadata without dex.
+- Added a `management/local` filesystem-backed backend owned by `fluxplane-plugin`, so consumers can install/list/search/remove local plugin metadata without dex.
 - The local backend currently stores plugin metadata in a JSON state file and does not yet execute plugin processes; `run` validates installation and reports that process execution is not implemented in the local backend yet.
 - `fluxplane-plugin/protocol` is now consumed directly by `fluxplane-dex`.
 - Removed the duplicate `fluxplane-dex/protocol` package instead of adding a compatibility shim.
@@ -952,7 +962,6 @@ Validation completed:
 ```sh
 cd fluxplane-plugin
 GOWORK=off go test ./...
-GOWORK=off go build ./cmd/fluxplane-plugin
 
 cd ../fluxplane-dex
 go test ./...
@@ -962,14 +971,17 @@ Additional dependency check:
 
 ```sh
 cd fluxplane-plugin
-go list -deps ./management/... ./cli ./cmd/fluxplane-plugin | grep -E 'github.com/fluxplane/fluxplane-(core|dex)'
+go list -deps ./management/... ./cli | grep -E 'github.com/fluxplane/fluxplane-(core|dex)'
 ```
 
 Result: no matches for the new management/CLI packages.
 
 Current caveat:
 
-- The existing seeded root package in `fluxplane-plugin` still depends on `fluxplane-core` and `fluxplane-dex`. The new `management`, `management/local`, `cli`, `cmd/fluxplane-plugin`, and `protocol` paths are the clean ownership direction, but the copied dex-core adapter still needs to be split/moved.
+- This snapshot predates the final registry split. The current target is that
+  `fluxplane-plugin` remains core-free/dex-free and registry-agnostic, while
+  `fluxplane-plugins/cmd/fluxplane-plugin` owns the default marketplace-aware
+  binary.
 
 ### Progress Update: Pure Datasource And Host SDK Packages
 
@@ -993,7 +1005,6 @@ Validation completed:
 ```sh
 cd fluxplane-plugin
 GOWORK=off go test ./...
-GOWORK=off go build ./cmd/fluxplane-plugin
 go list -deps ./datasource ./host | grep -E 'github.com/fluxplane/fluxplane-(core|dex)'
 ```
 
@@ -1112,7 +1123,7 @@ Result: all tests passed after the dependency cleanup.
 Completed in the next uncommitted batch:
 
 - Removed the copied dex-to-core adapter implementation from `github.com/fluxplane/fluxplane-plugin`.
-- Kept the runtime-specific adapter in its existing dedicated location: `github.com/fluxplane/fluxplane-dex/fluxplaneplugin`.
+- Moved runtime-specific Core plugin bridging into `fluxplane-core`.
 - Reduced `fluxplane-plugin` to reusable SDK/protocol packages only:
   - root package docs;
   - `protocol`;
@@ -1120,7 +1131,7 @@ Completed in the next uncommitted batch:
   - `datasource`;
   - `management`;
   - `management/local`;
-  - `cli` and `cmd/fluxplane-plugin`.
+  - `cli`.
 - Removed direct `fluxplane-core`, `fluxplane-dex`, and `fluxplane-system` module dependencies from `fluxplane-plugin/go.mod`.
 - Updated `fluxplane-plugin/README.md` to describe the lean SDK boundary and the dedicated module rule: reusable domain concepts live in dedicated modules first and SDK packages re-export only for ergonomics.
 
@@ -2064,7 +2075,7 @@ cd .. && go list -m all
 
 Result: all tests passed.
 
-### Progress Update: Reusable Plugin CLI/State, Runtime Execution, Core Bridge, Product Wiring
+### Progress Update: Reusable Plugin CLI/State, Runtime Execution, Core Bridge, Product Wiring, Registry Split
 
 Completed in the current uncommitted batch:
 
@@ -2114,6 +2125,16 @@ Completed in the current uncommitted batch:
   - `operation list|invoke`;
   - `datasource list|search|get|lookup`;
   - `run`.
+- Split default registry ownership out of the SDK:
+  - added a root `github.com/fluxplane/fluxplane-plugins` module;
+  - embedded `fluxplane-plugins/marketplace.json` through a root registry package;
+  - moved the marketplace-aware `cmd/fluxplane-plugin` binary into `fluxplane-plugins`;
+  - removed the SDK-owned standalone `cmd/fluxplane-plugin` entrypoint so `fluxplane-plugin` remains registry-agnostic;
+  - switched Dex's default marketplace fallback to the canonical `fluxplane-plugins` registry;
+  - removed duplicated Dex marketplace defaults and checked-in duplicate marketplace JSON.
+- Cleaned active `fluxplane-plugins` user-facing strings and HTTP user agents
+  that still described plugins as Dex-owned, while leaving tests/changelog
+  history and the legacy wire protocol key intact.
 - Added `fluxplane-core/orchestration/pluginbridge`:
   - Core depends on `fluxplane-plugin`;
   - adapts `fluxplane-plugin/pluginruntime.Plugin` into Core `pluginhost.Plugin`;
@@ -2132,20 +2153,21 @@ Validation completed:
 
 ```sh
 cd ../fluxplane-plugin && GOWORK=off go test ./...
-cd ../fluxplane-plugin && HOME=$(mktemp -d) GOWORK=off go run ./cmd/fluxplane-plugin install bananawix
+cd ../fluxplane-plugins && GOWORK=off go test ./...
+cd ../fluxplane-plugins && HOME=$(mktemp -d) GOWORK=off go run ./cmd/fluxplane-plugin install bananawix
 # exits non-zero: unknown marketplace plugin
-cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install local --source dev >/dev/null && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin run local
+cd ../fluxplane-plugins && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install local --source dev >/dev/null && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin run local
 # exits non-zero: no runnable runtime configured
-cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install local --source dev --command /bin/echo --arg plugin >/dev/null && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin run local ok
+cd ../fluxplane-plugins && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install local --source dev --command /bin/echo --arg plugin >/dev/null && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin run local ok
 # returns stdout: "plugin ok\n"
-cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin run gitlab
+cd ../fluxplane-plugins && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin run gitlab
 # installs from local fluxplane-plugins marketplace, runs the cached binary, and returns a real plugin manifest handshake
-cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install system && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin operation invoke system system.info --input '{"categories":["os"]}'
+cd ../fluxplane-plugins && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install system && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin operation invoke system system.info --input '{"categories":["os"]}'
 # invokes the system plugin through framed stdio and CLI host provider support
-cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install gitlab >/tmp/fp-install-gitlab.json && test -x "$tmp/.fluxplane/plugins/bin/fluxplane-plugin-gitlab" && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin remove gitlab >/tmp/fp-remove-gitlab.json && test ! -e "$tmp/.fluxplane/plugins/bin/fluxplane-plugin-gitlab"
+cd ../fluxplane-plugins && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install gitlab >/tmp/fp-install-gitlab.json && test -x "$tmp/.fluxplane/plugins/bin/fluxplane-plugin-gitlab" && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin remove gitlab >/tmp/fp-remove-gitlab.json && test ! -e "$tmp/.fluxplane/plugins/bin/fluxplane-plugin-gitlab"
 # verifies marketplace install cache creation and owned-artifact cleanup
-cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install system && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin auth methods system && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin operation list system && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin datasource list system
-cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin search git && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin list && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin status gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin manifest gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin auth connect gitlab --method personal_access_token --field access_token=smoke && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin auth status gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin auth disconnect gitlab --method personal_access_token && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin remove gitlab
+cd ../fluxplane-plugins && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install system && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin auth methods system && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin operation list system && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin datasource list system
+cd ../fluxplane-plugins && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin search git && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin list && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin status gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin manifest gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin auth connect gitlab --method personal_access_token --field access_token=smoke && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin auth status gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin auth disconnect gitlab --method personal_access_token && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin remove gitlab
 # full CLI smoke over install/search/list/status/manifest/run/auth/remove
 cd ../fluxplane-core && GOWORK=off go test ./orchestration/...
 cd ../coder && GOWORK=off go test ./internal/runtime
@@ -2158,33 +2180,44 @@ cd ../fluxplane-dex && GOWORK=off go list -deps ./... | rg 'github.com/fluxplane
 # no output
 cd ../fluxplane-plugin && GOWORK=off go list -deps ./... | rg 'github.com/fluxplane/fluxplane-core'
 # no output
+cd ../fluxplane-plugin && GOWORK=off go list -deps ./... | rg 'github.com/fluxplane/fluxplane-plugins'
+# no output
+cd ../fluxplane-plugin && GOWORK=off go list -deps ./... | rg 'github.com/fluxplane/fluxplane-(core|dex|plugins)'
+# no output
+cd .. && rg -n 'github.com/fluxplane/fluxplane-dex' coder fluxplane-apps fluxplane-core fluxplane-plugin fluxplane-plugins --glob '*.go' -S
+# no output
+cd .. && rg -n 'internal/defaults|defaults\.MarketplaceJSON|plugins/marketplace.json' fluxplane-dex -S
+# no output
+cd ../fluxplane-plugins && rg -n '\bdex\b|fluxplane-dex|Created by dex|dex secret broker|coreadapter' . -g '!**/go.sum' -g '!**/CHANGELOG*' -g '!**/*_test.go' -S
+# no output
 ```
 
-Result: tests passed. The CLI smoke checks now reject the false-success paths and exercise real installed plugin runtimes through the reusable plugin CLI.
+Result: tests passed. The CLI smoke checks reject the false-success paths and
+exercise real installed plugin runtimes through the marketplace-aware reusable
+plugin CLI. Active plugin code/docs no longer present plugins as Dex-owned,
+while test fixtures, changelog history, and the legacy protocol metadata key may
+still mention Dex.
 
 ### Current Next Large Steps
 
-1. Make `fluxplane-plugins/marketplace.json` the canonical registry source:
-   - remove or generate duplicated Dex compatibility marketplace JSON/defaults;
-   - decide whether `fluxplane-plugin` should embed a default registry package or keep filesystem/env discovery only.
-2. Complete Core bridge coverage:
+1. Complete Core bridge coverage:
    - datasource runtime provider bridge;
    - context provider bridge;
    - host capability adapter from Core runtime services to `fluxplane-plugin/protocol.HostCaller`;
    - auth connect/test integration beyond inert auth method contribution.
-3. Move concrete product/plugin wiring to `fluxplane-plugins` modules:
+2. Move concrete product/plugin wiring to `fluxplane-plugins` modules:
    - start with a small direct plugin module as a real product import;
    - update `coder` / Slack Bot examples to use `BridgePlugin` with concrete modules;
    - keep products free of Dex imports.
-4. Drain remaining Dex-only feature surface:
+3. Drain remaining Dex-only feature surface:
    - compare Dex commands/features against `fluxplane-plugin` CLI;
    - move any missing plugin management/auth/manifest/datasource/operation behavior out;
    - delete or shrink Dex once no unique end-user value remains.
-5. Continue core extraction:
+4. Continue core extraction:
    - move coding/native/language plugins out of Core into `fluxplane-plugins`;
    - keep Core's agent runtime central but reduce optional provider SDK dependencies.
-6. Add boundary tests across repos:
-   - `fluxplane-plugin` must not import Core or Dex;
+5. Add CI architecture gates:
+   - `fluxplane-plugin` must not import Core, Dex, or `fluxplane-plugins`;
    - products must not import Dex;
-   - Core may import `fluxplane-plugin`;
-   - Dex must not import Core unless explicitly kept during a temporary compatibility window.
+   - Dex must not import Core;
+   - Core must not regain provider SDK dependencies except through intentional plugin bridges.
