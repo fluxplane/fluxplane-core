@@ -19,6 +19,7 @@ require (
 	github.com/fluxplane/fluxplane-datasource v0.1.0
 	github.com/fluxplane/fluxplane-endpoint v0.2.0
 	github.com/fluxplane/fluxplane-event v0.2.0
+	github.com/fluxplane/fluxplane-plugin v0.0.0
 	github.com/fluxplane/fluxplane-policy v0.1.1
 	github.com/fluxplane/fluxplane-secret v0.2.0
 	github.com/fluxplane/fluxplane-system v0.1.6
@@ -92,6 +93,8 @@ require (
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/fluxplane/fluxplane-context v0.0.0 // indirect
+	github.com/fluxplane/fluxplane-operation v0.1.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -244,7 +247,7 @@ require (
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
+	go.yaml.in/yaml/v4 v4.0.0-rc.4 // indirect
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	modernc.org/libc v1.72.3 // indirect
@@ -252,3 +255,9 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	mvdan.cc/sh/v3 v3.13.1 // indirect
 )
+
+replace github.com/fluxplane/fluxplane-plugin => ../fluxplane-plugin
+
+replace github.com/fluxplane/fluxplane-operation v0.1.0 => ../fluxplane-operation
+
+replace github.com/fluxplane/fluxplane-context v0.0.0 => ../fluxplane-context

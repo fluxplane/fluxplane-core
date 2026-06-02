@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make `fluxplane-core` a lean agent-runtime repository that contains only the minimum base contracts and runtime primitives needed to build products with agent capabilities. Move product tools and third-party integrations into plugin modules that can be used either directly in-process or installed/run externally through the dex CLI/protocol.
+Make `fluxplane-core` the central agent-runtime repository: agentic domain model, agent loop/session/conversation runtime, contribution composition, policy, projection, and runtime orchestration. Move product tools and third-party integrations into plugin modules that can be used either directly in-process or installed/run externally through the shared plugin SDK/protocol.
 
 Target outcome:
 
@@ -11,8 +11,31 @@ Target outcome:
 - Third-party integrations such as GitLab, Slack, Jira, Confluence, Kubernetes, Docker, Loki, SQL, OpenAI, etc. live outside core.
 - A plugin implementation can expose the same manifest and behavior through:
   - direct Go binding, for embedded product use;
-  - stdio/CLI protocol binding, for dex-managed install-on-demand use.
-- `dex` becomes the plugin manager/runtime/installer, not the long-term home of all plugin contracts and implementations.
+  - stdio/CLI protocol binding, for install-on-demand or external execution.
+- `fluxplane-plugin` owns the reusable plugin SDK, protocol, state provider contracts, local state implementation, and reusable plugin CLI surface.
+- `fluxplane-core` is allowed to depend on `fluxplane-plugin` to bridge plugin manifests/runtime calls into Core Contributions.
+- `dex` is not an end-state dependency target for products. Treat it as a compatibility/drain target until all useful plugin-management/auth/manifest/datasource/operation behavior is available through `fluxplane-plugin` and product/Core integration paths.
+
+## Current Architectural Direction
+
+The current dependency direction is:
+
+```text
+fluxplane-plugin  -> leaf modules only
+fluxplane-plugins -> fluxplane-plugin + leaf modules + provider SDKs
+fluxplane-core    -> fluxplane-plugin + leaf modules
+products          -> fluxplane-core, optionally selected fluxplane-plugins
+dex               -> fluxplane-plugin while useful, then compatibility wrapper or deletion target
+```
+
+Rules:
+
+- `fluxplane-plugin` must not import `fluxplane-core` or `fluxplane-dex`.
+- `fluxplane-core` may import `fluxplane-plugin`.
+- Product apps must not import `fluxplane-dex`.
+- Product apps should consume plugin capabilities through Core's agent runtime/contribution bridge where possible.
+- Concrete plugin implementations belong in `fluxplane-plugins`, not Dex and not Core.
+- Default plugin state for the reusable CLI/backend is under `~/.fluxplane/plugins/*`.
 
 ## Current Problem
 
@@ -114,23 +137,16 @@ Responsibilities:
 
 ### 3. `fluxplane-dex`
 
-Purpose: plugin manager, installer, registry, CLI, and host bridge.
+Purpose: temporary compatibility and inventory/drain target.
 
-Keep dex focused on:
+Do not make products depend on Dex. Useful behavior should be migrated to:
 
-- plugin installation;
-- marketplace/index resolution;
-- plugin binary execution;
-- stdio protocol host implementation;
-- `dex op run`;
-- `dex datasource search/get/list`;
-- `dex auth connect/status`;
-- endpoint management;
-- capability grants;
-- plugin runtime state;
-- compatibility with products that call managed plugins.
+- `fluxplane-plugin` for reusable plugin CLI/state/runtime/auth/manifest/invoke surfaces;
+- `fluxplane-core` for agent-runtime Contribution bridging;
+- `fluxplane-plugins` for concrete implementations;
+- leaf modules for reusable domain contracts.
 
-Move long-term shared SDK/protocol contracts out of dex into `fluxplane-plugin`.
+Delete, shrink, or wrap Dex once its useful end-user behavior exists through those surfaces.
 
 ### 4. `fluxplane-plugins`
 
@@ -2031,8 +2047,8 @@ Completed in this batch:
   - `confluence`.
 - Moved shared Atlassian helpers from dex `internal/atlassian` into `atlassian/internal/atlassian`.
 - Kept separate command entrypoints and plugin identities:
-  - `cmd/dex-plugin-jira`;
-  - `cmd/dex-plugin-confluence`.
+  - `cmd/fluxplane-plugin-jira`;
+  - `cmd/fluxplane-plugin-confluence`.
 - Updated dex workspace, parent workspace, plugin workspace, marketplace defaults, checked-in marketplace JSON, plugin marketplace JSON, docs, and IO-free tests.
 - Removed dex-local Jira, Confluence, and Atlassian helper modules without compatibility packages.
 
@@ -2048,22 +2064,127 @@ cd .. && go list -m all
 
 Result: all tests passed.
 
+### Progress Update: Reusable Plugin CLI/State, Runtime Execution, Core Bridge, Product Wiring
+
+Completed in the current uncommitted batch:
+
+- Expanded `fluxplane-plugin/management` into a reusable plugin state API:
+  - install/update/remove/list/status;
+  - enable/disable activation state;
+  - runtime metadata;
+  - manifest payload/reference;
+  - instances;
+  - auth status/methods/connect/test/disconnect;
+  - operation list/invoke;
+  - datasource list/search/get/lookup.
+- Updated `fluxplane-plugin/management/local`:
+  - default state file under `~/.fluxplane/plugins/state.json`;
+  - marketplace resolution from explicit marketplace files, `FLUXPLANE_PLUGIN_MARKETPLACE`, local dev `../fluxplane-plugins/marketplace.json`, and `~/.fluxplane/plugins/marketplace.json`;
+  - bare `install NAME` now fails when `NAME` is not known in the marketplace;
+  - explicit local/dev installs still require `--source`, `--command`, or `--manifest`;
+  - `run NAME` now fails if no runnable runtime is configured;
+  - marketplace installs in a local workspace prefer `../fluxplane-plugins/<plugin>` and build a cached binary under `~/.fluxplane/plugins/bin`;
+  - marketplace installs without local source fall back to an existing `PATH` binary or `go install` into the same bin directory;
+  - marketplace updates refresh cached artifacts when the plugin source is still marketplace-backed;
+  - marketplace removes delete owned cached artifacts and refuse to delete paths outside the configured plugin bin directory;
+  - `manifest` invokes the installed plugin runtime when no stored manifest is present;
+  - `auth connect` and `auth test` invoke the installed plugin runtime before recording local state;
+  - `operation list/invoke` and `datasource list/search/get/lookup` invoke the installed plugin runtime through the framed stdio protocol;
+  - `run NAME` performs a protocol manifest handshake for stdio plugins when no extra args are passed;
+  - `run NAME -- ARGS...` still executes the configured command and returns stdout/stderr/exit status for raw command use.
+- Normalized active plugin binary names away from Dex-prefixed entrypoints:
+  - renamed every Dex-prefixed command entrypoint directory in `fluxplane-plugins/*/cmd/` to `cmd/fluxplane-plugin-*`;
+  - updated `fluxplane-plugins/marketplace.json`;
+  - updated Dex compatibility marketplace metadata and defaults;
+  - updated active docs/tests/plan references, leaving only changelog history with old binary names.
+- Added a small standalone CLI host caller in `fluxplane-plugin/management/local`:
+  - supports environment lookup;
+  - supports the local `system.info` provider call used by the system plugin;
+  - leaves secret, endpoint, index, HTTP, blob, and arbitrary provider calls as explicit unsupported host capabilities unless a product/Core host supplies them.
+- Expanded the reusable `fluxplane-plugin/cli` command tree:
+  - `install`;
+  - `update`;
+  - `list`;
+  - `status`;
+  - `enable` / `disable`;
+  - `remove`;
+  - `search`;
+  - `manifest`;
+  - `auth status|methods|connect|test|disconnect`;
+  - `operation list|invoke`;
+  - `datasource list|search|get|lookup`;
+  - `run`.
+- Added `fluxplane-core/orchestration/pluginbridge`:
+  - Core depends on `fluxplane-plugin`;
+  - adapts `fluxplane-plugin/pluginruntime.Plugin` into Core `pluginhost.Plugin`;
+  - converts SDK manifests into Core operation/datasource/auth contribution specs;
+  - executes Core operations through the plugin protocol/runtime.
+- Updated `coder` with Go-level plugin extension points:
+  - `Startup.Plugins`;
+  - `WithPlugins`;
+  - `BridgePlugin` helper for SDK runtime plugins through Core's bridge.
+- Updated `fluxplane-apps/slack-bot` with Go-level plugin extension points:
+  - `Config.Plugins`;
+  - `BridgePlugin` helper for SDK runtime plugins through Core's bridge.
+- Verified no product Go imports of `github.com/fluxplane/fluxplane-dex`.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && GOWORK=off go test ./...
+cd ../fluxplane-plugin && HOME=$(mktemp -d) GOWORK=off go run ./cmd/fluxplane-plugin install bananawix
+# exits non-zero: unknown marketplace plugin
+cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install local --source dev >/dev/null && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin run local
+# exits non-zero: no runnable runtime configured
+cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install local --source dev --command /bin/echo --arg plugin >/dev/null && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin run local ok
+# returns stdout: "plugin ok\n"
+cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin run gitlab
+# installs from local fluxplane-plugins marketplace, runs the cached binary, and returns a real plugin manifest handshake
+cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install system && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin operation invoke system system.info --input '{"categories":["os"]}'
+# invokes the system plugin through framed stdio and CLI host provider support
+cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install gitlab >/tmp/fp-install-gitlab.json && test -x "$tmp/.fluxplane/plugins/bin/fluxplane-plugin-gitlab" && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin remove gitlab >/tmp/fp-remove-gitlab.json && test ! -e "$tmp/.fluxplane/plugins/bin/fluxplane-plugin-gitlab"
+# verifies marketplace install cache creation and owned-artifact cleanup
+cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install system && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin auth methods system && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin operation list system && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin datasource list system
+cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin search git && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin list && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin status gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin manifest gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin auth connect gitlab --method personal_access_token --field access_token=smoke && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin auth status gitlab && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin auth disconnect gitlab --method personal_access_token && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin remove gitlab
+# full CLI smoke over install/search/list/status/manifest/run/auth/remove
+cd ../fluxplane-core && GOWORK=off go test ./orchestration/...
+cd ../coder && GOWORK=off go test ./internal/runtime
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../fluxplane-plugins && for d in atlassian asterisk docker duckduckgo gitlab grafana kubernetes loki ollama openai prometheus slack sql system tavily vision websearch; do (cd "$d" && go test ./...) || exit 1; done
+cd ../fluxplane-dex && GOWORK=off go test ./...
+cd .. && old=dex-plugin; rg "$old-" fluxplane-plugins fluxplane-plugin fluxplane-core fluxplane-dex coder fluxplane-apps -S | rg -v 'CHANGELOG|plugin-system-refactor'
+# no output
+cd ../fluxplane-dex && GOWORK=off go list -deps ./... | rg 'github.com/fluxplane/fluxplane-core'
+# no output
+cd ../fluxplane-plugin && GOWORK=off go list -deps ./... | rg 'github.com/fluxplane/fluxplane-core'
+# no output
+```
+
+Result: tests passed. The CLI smoke checks now reject the false-success paths and exercise real installed plugin runtimes through the reusable plugin CLI.
+
 ### Current Next Large Steps
 
-1. Extract websearch provider contracts/helpers out of dex `internal/websearch` into a reusable module or SDK package, then move `duckduckgo` and `tavily` into `../fluxplane-plugins`.
-2. Extract vision provider contracts/helpers out of dex `internal/vision` into a reusable module or SDK package, then move `openai` into `../fluxplane-plugins`.
-3. Move datasource declaration normalization helpers fully through `fluxplane-datasource` and have SDK/dex code consume them from that dedicated module.
-4. Create or complete the remaining pure SDK packages/contracts:
-   - schema helpers in `fluxplane-plugin/schema` unless a dedicated schema module is warranted;
-   - testkit in `fluxplane-plugin/testkit`;
-   - stdio/direct binding packages if `pluginbinding` should be split further.
-5. Extract remaining product-neutral contracts that still block full product/plugin separation:
-   - resource refs;
-   - pluginhost contributor interfaces;
-   - policy metadata;
-   - evidence/reaction contracts;
-   - activation DTOs if still required;
-   - workspace boundary types.
-6. Move any remaining engine-specific adapter code out of base SDK modules into engine/product adapter modules, with deletion targets for temporary staging code.
-7. Move coding/native/language plugins out of core and update `coder` to import them directly.
-8. Remove deprecated core integration packages after product migrations are complete.
+1. Make `fluxplane-plugins/marketplace.json` the canonical registry source:
+   - remove or generate duplicated Dex compatibility marketplace JSON/defaults;
+   - decide whether `fluxplane-plugin` should embed a default registry package or keep filesystem/env discovery only.
+2. Complete Core bridge coverage:
+   - datasource runtime provider bridge;
+   - context provider bridge;
+   - host capability adapter from Core runtime services to `fluxplane-plugin/protocol.HostCaller`;
+   - auth connect/test integration beyond inert auth method contribution.
+3. Move concrete product/plugin wiring to `fluxplane-plugins` modules:
+   - start with a small direct plugin module as a real product import;
+   - update `coder` / Slack Bot examples to use `BridgePlugin` with concrete modules;
+   - keep products free of Dex imports.
+4. Drain remaining Dex-only feature surface:
+   - compare Dex commands/features against `fluxplane-plugin` CLI;
+   - move any missing plugin management/auth/manifest/datasource/operation behavior out;
+   - delete or shrink Dex once no unique end-user value remains.
+5. Continue core extraction:
+   - move coding/native/language plugins out of Core into `fluxplane-plugins`;
+   - keep Core's agent runtime central but reduce optional provider SDK dependencies.
+6. Add boundary tests across repos:
+   - `fluxplane-plugin` must not import Core or Dex;
+   - products must not import Dex;
+   - Core may import `fluxplane-plugin`;
+   - Dex must not import Core unless explicitly kept during a temporary compatibility window.
