@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	auth "github.com/fluxplane/fluxplane-auth"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
@@ -51,6 +52,8 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
+var _ pluginhost.DatasourceProviderContributor = Plugin{}
+var _ pluginhost.ContextProviderContributor = Plugin{}
 
 // New returns a Core pluginhost-compatible adapter for runtime.
 func New(runtime pluginruntime.Plugin, manifest sdkmanifest.PluginManifest, opts ...Option) (Plugin, error) {
@@ -110,7 +113,7 @@ func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.Con
 		ops = append(ops, spec)
 		refs = append(refs, spec.Ref)
 	}
-	bundle := resource.ContributionBundle{Operations: ops, Datasources: datasourceSpecs(p.manifest.Name, p.manifest.Datasources)}
+	bundle := resource.ContributionBundle{Operations: ops, Datasources: datasourceSpecs(p.manifest.Name, p.manifest.Datasources), ContextProviders: contextSpecs(p.manifest.Context)}
 	if len(refs) > 0 {
 		bundle.OperationSets = append(bundle.OperationSets, operation.Set{
 			Name:        p.manifest.Name,
@@ -145,6 +148,43 @@ func (p Plugin) AuthMethods(context.Context, pluginhost.Context) ([]auth.MethodS
 		out = append(out, method.MethodSpec())
 	}
 	return out, nil
+}
+
+// ContextProviders returns runtime context providers backed by plugin protocol
+// context build calls.
+func (p Plugin) ContextProviders(_ context.Context, ctx pluginhost.Context) ([]corecontext.Provider, error) {
+	out := make([]corecontext.Provider, 0, len(p.manifest.Context))
+	for _, declared := range p.manifest.Context {
+		spec := contextSpec(declared)
+		if spec.Name == "" {
+			continue
+		}
+		out = append(out, bridgedContextProvider{
+			spec:       spec,
+			plugin:     p.manifest.Name,
+			instance:   ctx.Ref.InstanceName(),
+			runtime:    p.runtime,
+			hostCaller: p.hostCaller,
+			pluginCtx:  ctx,
+		})
+	}
+	return out, nil
+}
+
+// DatasourceProviders returns runtime datasource providers backed by plugin
+// protocol datasource calls.
+func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) ([]coredatasource.Provider, error) {
+	if len(p.manifest.Datasources) == 0 {
+		return nil, nil
+	}
+	return []coredatasource.Provider{bridgedDatasourceProvider{
+		plugin:       p.manifest.Name,
+		instance:     ctx.Ref.InstanceName(),
+		runtime:      p.runtime,
+		hostCaller:   p.hostCaller,
+		pluginCtx:    ctx,
+		declarations: append([]sdkmanifest.DatasourceSpec(nil), p.manifest.Datasources...),
+	}}, nil
 }
 
 type bridgedOperation struct {
@@ -186,6 +226,227 @@ func (o bridgedOperation) Run(ctx operation.Context, input operation.Value) oper
 		return operation.Failed("plugin_result_decode_failed", err.Error(), nil)
 	}
 	return operation.OK(output)
+}
+
+type bridgedContextProvider struct {
+	spec       corecontext.ProviderSpec
+	plugin     string
+	instance   string
+	runtime    pluginruntime.Plugin
+	hostCaller HostCallerFactory
+	pluginCtx  pluginhost.Context
+}
+
+func (p bridgedContextProvider) Spec() corecontext.ProviderSpec {
+	return p.spec
+}
+
+func (p bridgedContextProvider) Build(ctx context.Context, req corecontext.Request) ([]corecontext.Block, error) {
+	payload := map[string]any{
+		"query": strings.TrimSpace(firstNonEmpty(req.InputText, req.RecentContext)),
+		"limit": req.BudgetTokens,
+	}
+	if len(p.spec.Kinds) > 0 {
+		kinds := make([]string, 0, len(p.spec.Kinds))
+		for _, kind := range p.spec.Kinds {
+			if strings.TrimSpace(string(kind)) != "" {
+				kinds = append(kinds, string(kind))
+			}
+		}
+		payload["kinds"] = kinds
+	}
+	host, err := pluginruntime.NewHost(p.runtime)
+	if err != nil {
+		return nil, err
+	}
+	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(p.instance)}
+	if p.hostCaller != nil {
+		options = append(options, pluginruntime.WithHostCaller(p.hostCaller(p.pluginCtx)))
+	}
+	resp, err := host.Invoke(ctx, p.plugin, protocol.CommandContextBuild, payload, options...)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("%s", pluginErrorMessage(resp.Error))
+	}
+	var result struct {
+		Blocks []struct {
+			ID       string            `json:"id,omitempty"`
+			Kind     string            `json:"kind,omitempty"`
+			Title    string            `json:"title,omitempty"`
+			Content  string            `json:"content,omitempty"`
+			URI      string            `json:"uri,omitempty"`
+			Priority int               `json:"priority,omitempty"`
+			Metadata map[string]string `json:"metadata,omitempty"`
+		} `json:"blocks"`
+	}
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		return nil, err
+	}
+	out := make([]corecontext.Block, 0, len(result.Blocks))
+	for _, block := range result.Blocks {
+		out = append(out, corecontext.Block{
+			ID:       block.ID,
+			Provider: p.spec.Name,
+			Kind:     corecontext.BlockKind(block.Kind),
+			Title:    block.Title,
+			Content:  block.Content,
+			URI:      block.URI,
+			Priority: block.Priority,
+			Metadata: block.Metadata,
+		})
+	}
+	return out, nil
+}
+
+type bridgedDatasourceProvider struct {
+	plugin       string
+	instance     string
+	runtime      pluginruntime.Plugin
+	hostCaller   HostCallerFactory
+	pluginCtx    pluginhost.Context
+	declarations []sdkmanifest.DatasourceSpec
+}
+
+func (p bridgedDatasourceProvider) Entities() []coredatasource.EntitySpec {
+	out := make([]coredatasource.EntitySpec, 0, len(p.declarations))
+	seen := map[coredatasource.EntityType]bool{}
+	for _, declaration := range p.declarations {
+		entity := entitySpec(declaration)
+		if entity.Type == "" || seen[entity.Type] {
+			continue
+		}
+		seen[entity.Type] = true
+		out = append(out, entity)
+	}
+	return out
+}
+
+func (p bridgedDatasourceProvider) Open(_ context.Context, spec coredatasource.Spec) (coredatasource.Accessor, error) {
+	declared, ok := p.declarationFor(spec)
+	if !ok {
+		return nil, fmt.Errorf("pluginbridge: plugin %q does not expose datasource %q", p.plugin, spec.Name)
+	}
+	return bridgedDatasourceAccessor{
+		spec:        spec,
+		entity:      entitySpec(declared),
+		plugin:      p.plugin,
+		instance:    p.instance,
+		runtime:     p.runtime,
+		hostCaller:  p.hostCaller,
+		pluginCtx:   p.pluginCtx,
+		declaration: declared,
+	}, nil
+}
+
+func (p bridgedDatasourceProvider) declarationFor(spec coredatasource.Spec) (sdkmanifest.DatasourceSpec, bool) {
+	name := strings.TrimSpace(string(spec.Name))
+	for _, declaration := range p.declarations {
+		if strings.TrimSpace(declaration.Name) == name {
+			return declaration, true
+		}
+	}
+	if len(p.declarations) == 1 && name == "" {
+		return p.declarations[0], true
+	}
+	return sdkmanifest.DatasourceSpec{}, false
+}
+
+type bridgedDatasourceAccessor struct {
+	spec        coredatasource.Spec
+	entity      coredatasource.EntitySpec
+	plugin      string
+	instance    string
+	runtime     pluginruntime.Plugin
+	hostCaller  HostCallerFactory
+	pluginCtx   pluginhost.Context
+	declaration sdkmanifest.DatasourceSpec
+}
+
+func (a bridgedDatasourceAccessor) Spec() coredatasource.Spec {
+	return a.spec
+}
+
+func (a bridgedDatasourceAccessor) Entities() []coredatasource.EntitySpec {
+	if a.entity.Type == "" {
+		return nil
+	}
+	return []coredatasource.EntitySpec{a.entity}
+}
+
+func (a bridgedDatasourceAccessor) Search(ctx context.Context, req coredatasource.SearchRequest) (coredatasource.SearchResult, error) {
+	payload := map[string]any{
+		"datasource": string(a.spec.Name),
+		"entity":     string(firstEntity(req.Entity, a.entity.Type)),
+		"query":      req.Query,
+		"limit":      req.Limit,
+	}
+	if len(req.Filters) > 0 {
+		payload["filters"] = req.Filters
+	}
+	raw, err := a.call(ctx, protocol.CommandDatasourcesSearch, payload)
+	if err != nil {
+		return coredatasource.SearchResult{}, err
+	}
+	var result struct {
+		Count   int               `json:"count"`
+		Records []json.RawMessage `json:"records"`
+		Errors  []datasourceError `json:"errors,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return coredatasource.SearchResult{}, err
+	}
+	if len(result.Errors) > 0 {
+		return coredatasource.SearchResult{}, fmt.Errorf("pluginbridge: datasource search failed: %s", result.Errors[0].Message)
+	}
+	records, err := decodeDatasourceRecords(a.spec.Name, firstEntity(req.Entity, a.entity.Type), result.Records)
+	if err != nil {
+		return coredatasource.SearchResult{}, err
+	}
+	return coredatasource.SearchResult{Datasource: a.spec.Name, Entity: firstEntity(req.Entity, a.entity.Type), Records: records, Total: result.Count}, nil
+}
+
+func (a bridgedDatasourceAccessor) Get(ctx context.Context, req coredatasource.GetRequest) (coredatasource.Record, error) {
+	payload := map[string]any{
+		"datasource": string(a.spec.Name),
+		"entity":     string(firstEntity(req.Entity, a.entity.Type)),
+		"id":         req.ID,
+	}
+	raw, err := a.call(ctx, protocol.CommandDatasourcesGet, payload)
+	if err != nil {
+		return coredatasource.Record{}, err
+	}
+	var result struct {
+		Record json.RawMessage `json:"record"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return coredatasource.Record{}, err
+	}
+	record, err := decodeDatasourceRecord(a.spec.Name, firstEntity(req.Entity, a.entity.Type), result.Record)
+	if err != nil {
+		return coredatasource.Record{}, err
+	}
+	return record, nil
+}
+
+func (a bridgedDatasourceAccessor) call(ctx context.Context, command string, payload any) (json.RawMessage, error) {
+	host, err := pluginruntime.NewHost(a.runtime)
+	if err != nil {
+		return nil, err
+	}
+	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(a.instance)}
+	if a.hostCaller != nil {
+		options = append(options, pluginruntime.WithHostCaller(a.hostCaller(a.pluginCtx)))
+	}
+	resp, err := host.Invoke(ctx, a.plugin, command, payload, options...)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("%s", pluginErrorMessage(resp.Error))
+	}
+	return append(json.RawMessage(nil), resp.Result...), nil
 }
 
 func operationSpec(plugin string, declared sdkmanifest.OperationSpec) operation.Spec {
@@ -326,6 +587,31 @@ func joinAccess(access []sdkmanifest.OperationAccess) string {
 	return strings.Join(values, ",")
 }
 
+func contextSpecs(declarations []sdkmanifest.ContextSpec) []corecontext.ProviderSpec {
+	out := make([]corecontext.ProviderSpec, 0, len(declarations))
+	for _, declaration := range declarations {
+		spec := contextSpec(declaration)
+		if spec.Name != "" {
+			out = append(out, spec)
+		}
+	}
+	return out
+}
+
+func contextSpec(declaration sdkmanifest.ContextSpec) corecontext.ProviderSpec {
+	name := strings.TrimSpace(declaration.Name)
+	if name == "" {
+		return corecontext.ProviderSpec{}
+	}
+	kinds := make([]corecontext.BlockKind, 0, len(declaration.Kinds))
+	for _, kind := range declaration.Kinds {
+		if strings.TrimSpace(kind) != "" {
+			kinds = append(kinds, corecontext.BlockKind(kind))
+		}
+	}
+	return corecontext.ProviderSpec{Name: corecontext.ProviderName(name), Description: strings.TrimSpace(declaration.Description), Kinds: kinds}
+}
+
 func datasourceSpecs(plugin string, declarations []sdkmanifest.DatasourceSpec) []coredatasource.Spec {
 	out := make([]coredatasource.Spec, 0, len(declarations))
 	for _, declaration := range declarations {
@@ -343,4 +629,134 @@ func datasourceSpecs(plugin string, declarations []sdkmanifest.DatasourceSpec) [
 		})
 	}
 	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func entitySpec(declaration sdkmanifest.DatasourceSpec) coredatasource.EntitySpec {
+	entity := strings.TrimSpace(declaration.Entity)
+	if entity == "" {
+		return coredatasource.EntitySpec{}
+	}
+	return coredatasource.EntitySpec{
+		Type:         coredatasource.EntityType(entity),
+		Description:  strings.TrimSpace(declaration.Description),
+		Capabilities: datasourceCapabilities(declaration.Capabilities),
+		Fields:       datasourceFields(declaration.EntitySchema),
+		Relations:    datasourceRelations(declaration.Relations),
+	}
+}
+
+func datasourceCapabilities(values []string) []coredatasource.EntityCapability {
+	out := make([]coredatasource.EntityCapability, 0, len(values))
+	for _, value := range values {
+		switch strings.TrimSpace(value) {
+		case "search":
+			out = append(out, coredatasource.EntityCapabilitySearch)
+		case "list":
+			out = append(out, coredatasource.EntityCapabilityList)
+		case "get":
+			out = append(out, coredatasource.EntityCapabilityGet)
+		case "index":
+			out = append(out, coredatasource.EntityCapabilityIndex)
+		case "relation":
+			out = append(out, coredatasource.EntityCapabilityRelation)
+		}
+	}
+	return out
+}
+
+func datasourceFields(schema *sdkmanifest.DatasourceEntitySchema) []coredatasource.FieldSpec {
+	if schema == nil {
+		return nil
+	}
+	out := make([]coredatasource.FieldSpec, 0, len(schema.Fields))
+	for _, field := range schema.Fields {
+		if strings.TrimSpace(field.Name) == "" {
+			continue
+		}
+		out = append(out, coredatasource.FieldSpec{
+			Name:        strings.TrimSpace(field.Name),
+			Type:        coredatasource.FieldType(strings.TrimSpace(field.Type)),
+			Description: strings.TrimSpace(field.Description),
+			Identifier:  schema.IDField == field.Name,
+		})
+	}
+	return out
+}
+
+func datasourceRelations(relations []sdkmanifest.DatasourceRelationSpec) []coredatasource.RelationSpec {
+	out := make([]coredatasource.RelationSpec, 0, len(relations))
+	for _, relation := range relations {
+		name := strings.TrimSpace(relation.Name)
+		entity := strings.TrimSpace(relation.Entity)
+		if name == "" || entity == "" {
+			continue
+		}
+		out = append(out, coredatasource.RelationSpec{Name: name, TargetEntity: coredatasource.EntityType(entity)})
+	}
+	return out
+}
+
+func firstEntity(requested, fallback coredatasource.EntityType) coredatasource.EntityType {
+	if strings.TrimSpace(string(requested)) != "" {
+		return requested
+	}
+	return fallback
+}
+
+type datasourceError struct {
+	Message string `json:"message"`
+}
+
+func decodeDatasourceRecords(datasource coredatasource.Name, entity coredatasource.EntityType, values []json.RawMessage) ([]coredatasource.Record, error) {
+	out := make([]coredatasource.Record, 0, len(values))
+	for _, value := range values {
+		record, err := decodeDatasourceRecord(datasource, entity, value)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, record)
+	}
+	return out, nil
+}
+
+func decodeDatasourceRecord(datasource coredatasource.Name, entity coredatasource.EntityType, raw json.RawMessage) (coredatasource.Record, error) {
+	if len(raw) == 0 {
+		return coredatasource.Record{}, nil
+	}
+	var record struct {
+		ID       string            `json:"id"`
+		Entity   string            `json:"entity,omitempty"`
+		Title    string            `json:"title,omitempty"`
+		Content  string            `json:"content,omitempty"`
+		URL      string            `json:"url,omitempty"`
+		Score    float64           `json:"score,omitempty"`
+		Metadata map[string]string `json:"metadata,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return coredatasource.Record{}, err
+	}
+	out := coredatasource.Record{
+		ID:         record.ID,
+		Datasource: datasource,
+		Entity:     entity,
+		Title:      record.Title,
+		Content:    record.Content,
+		URL:        record.URL,
+		Score:      record.Score,
+		Metadata:   record.Metadata,
+		Raw:        json.RawMessage(raw),
+	}
+	if strings.TrimSpace(record.Entity) != "" {
+		out.Entity = coredatasource.EntityType(record.Entity)
+	}
+	return out, nil
 }

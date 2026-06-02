@@ -2198,11 +2198,48 @@ plugin CLI. Active plugin code/docs no longer present plugins as Dex-owned,
 while test fixtures, changelog history, and the legacy protocol metadata key may
 still mention Dex.
 
+### Progress Update: Core Bridge Runtime Datasource And Context Providers
+
+Completed in this batch:
+
+- Extended `fluxplane-core/orchestration/pluginbridge` beyond inert manifest
+  contribution metadata:
+  - bridged SDK datasource declarations into Core `fluxplane-datasource`
+    providers/accessors;
+  - implemented provider-backed `Search` and `Get` calls through
+    `fluxplane-plugin` protocol runtime invocation;
+  - bridged SDK context provider declarations into Core context providers;
+  - implemented Core context `Build` calls through SDK `context.build`.
+- Added focused bridge tests proving:
+  - Core resolves a real datasource provider from a bridged SDK plugin;
+  - datasource `Search` and `Get` call the plugin runtime and normalize records
+    into Core datasource records;
+  - Core resolves a real context provider from a bridged SDK plugin;
+  - context `Build` calls the plugin runtime and maps SDK blocks into Core
+    context blocks.
+- Audited existing boundary gates:
+  - `fluxplane-plugin` already has a boundary test forbidding Core, Dex, and
+    `fluxplane-plugins` imports;
+  - Dex already has a boundary test forbidding `fluxplane-core` imports;
+  - `coder` and Slack Bot already have boundary tests forbidding Dex imports.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-core && go test ./orchestration/pluginbridge
+cd ../fluxplane-core && go test ./orchestration/pluginhost ./orchestration/app
+cd ../fluxplane-datasource && go test ./...
+```
+
+Result: tests passed. `fluxplane-datasource` did not need an extension for this
+slice; the current contracts were sufficient for Core bridge search/get
+coverage. The Core provider-SDK dependency gate still cannot be made failing
+until Core native/language/integration plugin extraction removes the existing
+provider SDK imports from `fluxplane-core/go.mod`.
+
 ### Current Next Large Steps
 
 1. Complete Core bridge coverage:
-   - datasource runtime provider bridge;
-   - context provider bridge;
    - host capability adapter from Core runtime services to `fluxplane-plugin/protocol.HostCaller`;
    - auth connect/test integration beyond inert auth method contribution.
 2. Move concrete product/plugin wiring to `fluxplane-plugins` modules:
