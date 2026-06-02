@@ -1072,6 +1072,25 @@ go test ./core/... ./runtime
 
 Result: all tests passed.
 
+Correction after Option B cleanup:
+
+- Removed the accidental `fluxplane-operation -> fluxplane-datasource` dependency.
+- `fluxplane-operation` now owns its own `Access` vocabulary instead of aliasing datasource access types.
+- `fluxplane-dex` now compares datasource declarations against `fluxplane-datasource` access constants at datasource boundaries and keeps operation access constants for operation declarations.
+- Removed the uncommitted `fluxplane-plugin/manifest` draft package so no additional SDK package work remains staged by this cleanup.
+
+Validation for this cleanup:
+
+```sh
+cd fluxplane-operation
+GOWORK=off go test ./...
+
+cd ../fluxplane-dex
+go test ./...
+```
+
+Result: all tests passed after the dependency cleanup.
+
 ### Progress Update: Plugin SDK No Longer Carries Dex/Core Adapter Copy
 
 Completed in the next uncommitted batch:
@@ -1912,24 +1931,139 @@ These are not just contracts; they should become plugin implementation modules o
 
 ## Updated Immediate Next Actions
 
-1. Move remaining pure dex `core/pluginbinding` contracts into dedicated reusable modules/packages and update imports directly; do not add long-lived compatibility shims.
-2. Move datasource declaration normalization helpers fully through `fluxplane-datasource` and have SDK/dex code consume them from that dedicated module.
-3. Create or complete the remaining pure SDK packages/contracts, with reusable parts landing in dedicated modules:
-   - manifest helpers in `fluxplane-plugin/manifest`, composing existing dedicated modules;
-   - context contracts in `../fluxplane-context` or `fluxplane-plugin/context` if only SDK-facing;
+### Progress Update: Context Module And SDK Pluginbinding
+
+Completed in this batch:
+
+- Created `../fluxplane-context` as a standalone reusable context contract module.
+- Moved plugin manifest/context aggregate ownership into `fluxplane-plugin/manifest`, with context types re-exported from `fluxplane-context`.
+- Added `fluxplane-plugin/pluginbinding` and `fluxplane-plugin/pluginbinding/plugintest` as SDK-owned plugin authoring/test packages.
+- Updated dex `core` manifest/auth/context/index types to alias SDK manifest contracts.
+- Updated dex plugin implementations and provider helpers to import SDK `pluginbinding` and SDK manifest contracts instead of dex `core/pluginbinding` / dex `core`.
+- Updated each dex plugin module to require local SDK contracts during development.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-context && GOWORK=off go test ./...
+cd ../fluxplane-operation && GOWORK=off go test ./...
+cd ../fluxplane-plugin && GOWORK=off go test ./...
+cd ../fluxplane-dex && go test ./...
+cd ../fluxplane-dex/fluxplaneplugin && go test ./...
+cd ../fluxplane-dex && for d in plugins/*; do (cd "$d" && go test ./...); done
+```
+
+Result: all tests passed.
+
+### Progress Update: Removed Dex Pluginbinding And Migrated First Plugin
+
+Completed in this batch:
+
+- Removed `fluxplane-dex/core/pluginbinding` instead of keeping a compatibility layer.
+- Updated the last generated dex fixture to import SDK `manifest` and `pluginbinding` directly.
+- Created `../fluxplane-plugins` as a plugin implementation monorepo with:
+  - `go.work`;
+  - `marketplace.json`;
+  - initial `README.md`;
+  - migrated `system` plugin module.
+- Moved `fluxplane-dex/plugins/system` to `../fluxplane-plugins/system`.
+- Renamed the system plugin module path to `github.com/fluxplane/fluxplane-plugins/system`.
+- Updated the system plugin command entrypoint to import the new module path.
+- Updated dex workspace, parent workspace, marketplace defaults, marketplace JSON, maintainer docs, and CLI tests to use `../fluxplane-plugins/system`.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugins/system && GOWORK=off go test ./...
+cd ../fluxplane-plugins && go test ./system/...
+cd ../fluxplane-dex && go test ./...
+cd ../fluxplane-dex/fluxplaneplugin && go test ./...
+cd ../fluxplane-dex && for d in plugins/*; do (cd "$d" && go test ./...); done
+cd .. && go list -m all
+```
+
+Result: all tests passed.
+
+### Progress Update: Moved Self-Contained Plugin Modules
+
+Completed in this batch:
+
+- Moved ten self-contained plugin modules from `fluxplane-dex/plugins` to `../fluxplane-plugins`:
+  - `asterisk`;
+  - `docker`;
+  - `gitlab`;
+  - `grafana`;
+  - `kubernetes`;
+  - `loki`;
+  - `ollama`;
+  - `prometheus`;
+  - `slack`;
+  - `sql`.
+- Renamed their module paths from `github.com/fluxplane/fluxplane-dex/plugins/<name>` to `github.com/fluxplane/fluxplane-plugins/<name>`.
+- Updated command entrypoints, local SDK replaces, dex workspace entries, parent workspace entries, and the `fluxplane-plugins` workspace.
+- Updated dex marketplace defaults and checked-in marketplace JSON to install moved plugins from `github.com/fluxplane/fluxplane-plugins/...` and load local development plugins from `../fluxplane-plugins/<name>`.
+- Expanded `../fluxplane-plugins/marketplace.json` and `README.md` to include the migrated plugin set.
+- Updated dex tests and active docs to use the new external plugin paths.
+- Left only plugins that still depend on dex-internal provider helper packages in `fluxplane-dex/plugins`:
+  - `duckduckgo` / `tavily` depend on `internal/websearch`;
+  - `openai` depends on `internal/vision`.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-context && go test ./...
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-plugins && go test ./asterisk/... ./docker/... ./gitlab/... ./grafana/... ./kubernetes/... ./loki/... ./ollama/... ./prometheus/... ./slack/... ./sql/... ./system/...
+cd ../fluxplane-dex && go test ./...
+cd ../fluxplane-dex && for d in plugins/*; do [ -d "$d" ] || continue; (cd "$d" && go test ./...) || exit 1; done
+cd .. && go list -m all
+```
+
+Result: all tests passed.
+
+### Progress Update: Moved Atlassian As One Module With Two Plugins
+
+Completed in this batch:
+
+- Created `../fluxplane-plugins/atlassian` as one Go module that serves two dex plugins.
+- Moved Jira and Confluence into sibling packages inside that module:
+  - `jira`;
+  - `confluence`.
+- Moved shared Atlassian helpers from dex `internal/atlassian` into `atlassian/internal/atlassian`.
+- Kept separate command entrypoints and plugin identities:
+  - `cmd/dex-plugin-jira`;
+  - `cmd/dex-plugin-confluence`.
+- Updated dex workspace, parent workspace, plugin workspace, marketplace defaults, checked-in marketplace JSON, plugin marketplace JSON, docs, and IO-free tests.
+- Removed dex-local Jira, Confluence, and Atlassian helper modules without compatibility packages.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugins/atlassian && go test ./...
+cd ../fluxplane-dex && go test ./...
+cd ../fluxplane-dex && for d in plugins/*; do [ -d "$d" ] || continue; (cd "$d" && go test ./...) || exit 1; done
+cd ../fluxplane-plugins && go test ./atlassian/... ./asterisk/... ./docker/... ./gitlab/... ./grafana/... ./kubernetes/... ./loki/... ./ollama/... ./prometheus/... ./slack/... ./sql/... ./system/...
+cd .. && go list -m all
+```
+
+Result: all tests passed.
+
+### Current Next Large Steps
+
+1. Extract websearch provider contracts/helpers out of dex `internal/websearch` into a reusable module or SDK package, then move `duckduckgo` and `tavily` into `../fluxplane-plugins`.
+2. Extract vision provider contracts/helpers out of dex `internal/vision` into a reusable module or SDK package, then move `openai` into `../fluxplane-plugins`.
+3. Move datasource declaration normalization helpers fully through `fluxplane-datasource` and have SDK/dex code consume them from that dedicated module.
+4. Create or complete the remaining pure SDK packages/contracts:
    - schema helpers in `fluxplane-plugin/schema` unless a dedicated schema module is warranted;
-   - testkit in `fluxplane-plugin/testkit`.
-4. Create minimal `../fluxplane-resource` for leaf resource refs/types only.
-5. Move pluginhost contributor contracts into `fluxplane-plugin/pluginhost` or a dedicated `fluxplane-pluginhost` module if they must be product-neutral.
-6. Extract remaining core contracts that currently block full product/plugin separation:
+   - testkit in `fluxplane-plugin/testkit`;
+   - stdio/direct binding packages if `pluginbinding` should be split further.
+5. Extract remaining product-neutral contracts that still block full product/plugin separation:
    - resource refs;
    - pluginhost contributor interfaces;
    - policy metadata;
    - evidence/reaction contracts;
    - activation DTOs if still required;
    - workspace boundary types.
-7. Move any remaining engine-specific adapter code out of base SDK modules into engine/product adapter modules, with deletion targets for temporary staging code.
-8. Create the `fluxplane-plugins` monorepo skeleton and migrate one plugin end-to-end against the new SDK contracts.
-9. Move remaining heavy integrations out of core.
-10. Move coding/native/language plugins out of core and update `coder` to import them directly.
-11. Remove deprecated core integration packages after product migrations are complete.
+6. Move any remaining engine-specific adapter code out of base SDK modules into engine/product adapter modules, with deletion targets for temporary staging code.
+7. Move coding/native/language plugins out of core and update `coder` to import them directly.
+8. Remove deprecated core integration packages after product migrations are complete.
