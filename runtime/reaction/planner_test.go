@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
-	"github.com/fluxplane/fluxplane-core/core/skill"
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
+	"github.com/fluxplane/fluxplane-skill"
 )
 
 func TestPlanFiresOnNewAssertion(t *testing.T) {

@@ -927,7 +927,7 @@ core/llm
 core/operation
 core/reaction
 core/session
-core/skill
+github.com/fluxplane/fluxplane-skill
 core/tool
 core/workflow
 ```
@@ -945,7 +945,7 @@ Preferred split:
    - `PluginRef`;
    - maybe `LoadError` only if the event dependency is acceptable.
 2. Keep `ContributionBundle` in core until its member specs are standalone.
-3. Later, after operation/context/agent/skill/reaction/evidence/etc. contracts are extracted, move a normalized aggregate to a dedicated module such as `../fluxplane-contribution` or to a plugin manifest/contribution package.
+3. Later, after operation/context/agent/reaction/evidence/etc. contracts are extracted, move a normalized aggregate to a dedicated module such as `../fluxplane-contribution` or to a plugin manifest/contribution package.
 
 ### Planning Update: Extraction Order Before Touching Agent/Contribution Bundles
 
@@ -958,8 +958,8 @@ Recommended order:
 3. Move contribution resolver/contributor contracts to `fluxplane-plugin/contributions` unless a separate `../fluxplane-contributions` becomes clearly necessary.
 4. Create `../fluxplane-context` or `fluxplane-plugin/context` for context provider contracts.
 5. Create `../fluxplane-evidence` for observation/assertion/evidence DTOs.
-6. Create `../fluxplane-reaction` for reaction rule contracts.
-7. Create/extract `../fluxplane-skill` if agent/resource specs require skill contracts outside core.
+6. Create/extract `../fluxplane-skill` for portable skill specs and refs. Done.
+7. Create `../fluxplane-reaction` for reaction rule contracts after its remaining command/workflow target refs are portable.
 8. Only then evaluate `../fluxplane-agent` for reusable agent specs.
 9. Only after that evaluate a standalone contribution bundle module.
 
@@ -1985,15 +1985,17 @@ Keep in core/product apps:
 
 #### `../fluxplane-skill`
 
-Move skill contracts out of `runtime/skill` if skill packs/tools are externalized:
+Skill specs and refs are now in `github.com/fluxplane/fluxplane-skill`:
 
-- skill manifest DTOs;
-- skill activation DTOs;
-- skill repository interfaces.
+- `Name`, `Ref`, and `SourceRef`;
+- `Spec` and `ReferenceSpec`;
+- validation helpers;
+- activation event payloads.
 
 Keep in core/product apps:
 
-- skill activation runtime;
+- skill repository interfaces;
+- skill activation read models;
 - session-specific skill context injection.
 
 #### `../fluxplane-identity`
@@ -4206,7 +4208,6 @@ cd ../fluxplane-core && go test ./orchestration/app
 clean move yet. The reaction `Action` DTO currently embeds Core-owned target
 types:
 
-- `core/skill.Ref`;
 - `core/command.Invocation`;
 - `core/workflow.Name`;
 - runtime context provider refs.
@@ -4215,8 +4216,38 @@ Do not extract `fluxplane-reaction` as a module that imports
 `fluxplane-core`. That would recreate the dependency problem under a different
 module name. The clean extraction order is:
 
-1. extract or define portable skill/reference refs;
+1. use the completed `github.com/fluxplane/fluxplane-skill` refs;
 2. extract or define portable command invocation refs;
 3. extract or define portable workflow refs;
-4. then move reaction rules/events to `fluxplane-reaction` and update Core,
+4. decide whether runtime context provider refs stay Core-runtime-owned or need
+   a portable activation target DTO;
+5. then move reaction rules/events to `fluxplane-reaction` and update Core,
    Coder, and Slack Bot to import it directly.
+
+### Progress Update: Portable Skill Contracts Extracted
+
+Completed in this batch:
+
+- Added `github.com/fluxplane/fluxplane-skill` as a standalone leaf module for
+  inert skill contracts:
+  - skill names and refs;
+  - source refs;
+  - skill specs and local reference specs;
+  - validation helpers;
+  - activation event payloads.
+- Updated Core and Coder to import `fluxplane-skill` directly.
+- Removed `fluxplane-core/core/skill` instead of keeping aliases.
+- Updated Core architecture guards so `core/skill` cannot return.
+- Updated historical migration notes so they point at `fluxplane-skill`.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-skill && go test ./...
+cd ../fluxplane-core && go test ./...
+cd ../coder && go test ./...
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test ./...
+rg "github.com/fluxplane/fluxplane-core/core/skill|core/skill" .. -g'*.go' -g'go.mod' -g'*.md'
+```
+
+Result: all test suites passed and the old Core skill path scan is clean.

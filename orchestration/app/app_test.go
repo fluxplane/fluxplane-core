@@ -18,7 +18,6 @@ import (
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
-	"github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
 	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
@@ -36,6 +35,7 @@ import (
 	sdkmanifest "github.com/fluxplane/fluxplane-plugin/manifest"
 	"github.com/fluxplane/fluxplane-plugin/pluginbinding"
 	"github.com/fluxplane/fluxplane-plugin/pluginruntime"
+	"github.com/fluxplane/fluxplane-skill"
 )
 
 func TestComposeRegistersResourceCommandsAgainstProvidedOperations(t *testing.T) {

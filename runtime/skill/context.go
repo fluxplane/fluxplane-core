@@ -8,9 +8,9 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
-	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
+	coreskill "github.com/fluxplane/fluxplane-skill"
 )
 
 const ContextProviderName corecontext.ProviderName = "skills"

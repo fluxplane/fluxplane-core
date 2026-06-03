@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	runtimeskill "github.com/fluxplane/fluxplane-core/runtime/skill"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	coreevent "github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-operation"
+	coreskill "github.com/fluxplane/fluxplane-skill"
 )
 
 func TestContributionsExposeDefaultActivationSet(t *testing.T) {

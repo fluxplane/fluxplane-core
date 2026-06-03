@@ -10,7 +10,6 @@ import (
 	corememory "github.com/fluxplane/fluxplane-core/core/memory"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
-	"github.com/fluxplane/fluxplane-core/core/skill"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/usage"
@@ -22,6 +21,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-operation"
+	"github.com/fluxplane/fluxplane-skill"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 

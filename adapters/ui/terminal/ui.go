@@ -15,7 +15,6 @@ import (
 	"time"
 
 	coreactivation "github.com/fluxplane/fluxplane-core/core/activation"
-	"github.com/fluxplane/fluxplane-core/core/skill"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	"github.com/fluxplane/fluxplane-core/core/testrun"
 	"github.com/fluxplane/fluxplane-core/core/usage"
@@ -30,6 +29,7 @@ import (
 	coreevent "github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
+	"github.com/fluxplane/fluxplane-skill"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 

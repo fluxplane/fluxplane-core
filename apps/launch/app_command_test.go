@@ -15,7 +15,6 @@ import (
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
-	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 	coretool "github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
@@ -23,6 +22,7 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-operation"
+	coreskill "github.com/fluxplane/fluxplane-skill"
 	"github.com/spf13/cobra"
 )
 

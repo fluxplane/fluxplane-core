@@ -6,11 +6,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/fluxplane-core/core/skill"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	"github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-operation"
+	"github.com/fluxplane/fluxplane-skill"
 )
 
 // ReadModel is a compact current prepared-surface view derived from trace

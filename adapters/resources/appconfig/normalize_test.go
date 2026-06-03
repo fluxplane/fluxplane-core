@@ -7,10 +7,10 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/activation"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-operation"
+	coreskill "github.com/fluxplane/fluxplane-skill"
 )
 
 func TestNormalizeBundleExpandsAgentUsesThroughActivationSets(t *testing.T) {

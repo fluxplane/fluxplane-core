@@ -12,7 +12,6 @@ import (
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
-	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/orchestration/agentconfig"
 	appcomposition "github.com/fluxplane/fluxplane-core/orchestration/app"
@@ -22,6 +21,7 @@ import (
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
+	coreskill "github.com/fluxplane/fluxplane-skill"
 )
 
 func TestFactoryBuildsLLMAgentWithProjectedTools(t *testing.T) {

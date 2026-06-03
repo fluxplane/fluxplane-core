@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/reaction"
-	"github.com/fluxplane/fluxplane-core/core/skill"
+	"github.com/fluxplane/fluxplane-skill"
 )
 
 func TestKinds(t *testing.T) {

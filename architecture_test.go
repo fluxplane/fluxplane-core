@@ -70,23 +70,25 @@ func TestCoreGoModDoesNotDependOnDexOrPluginImplementations(t *testing.T) {
 	}
 }
 
-func TestDeprecatedCoreLeafAliasPackagesDoNotReturn(t *testing.T) {
+func TestRemovedCoreLeafPackagesDoNotReturn(t *testing.T) {
 	forbiddenImports := []string{
 		"github.com/fluxplane/fluxplane-core/core/" + "context",
 		"github.com/fluxplane/fluxplane-core/core/" + "evidence",
 		"github.com/fluxplane/fluxplane-core/core/" + "operation",
 		"github.com/fluxplane/fluxplane-core/core/" + "policy",
+		"github.com/fluxplane/fluxplane-core/core/" + "skill",
 	}
 	forbiddenDirs := []string{
 		filepath.Join("core", "context"),
 		filepath.Join("core", "evidence"),
 		filepath.Join("core", "operation"),
 		filepath.Join("core", "policy"),
+		filepath.Join("core", "skill"),
 	}
 	var bad []string
 	for _, dir := range forbiddenDirs {
 		if _, err := os.Stat(dir); err == nil {
-			bad = append(bad, dir+" compatibility package exists")
+			bad = append(bad, dir+" extracted package exists in core")
 		} else if !os.IsNotExist(err) {
 			t.Fatalf("stat %s: %v", dir, err)
 		}
@@ -114,7 +116,7 @@ func TestDeprecatedCoreLeafAliasPackagesDoNotReturn(t *testing.T) {
 			pathValue := strings.Trim(imported.Path.Value, "\"")
 			for _, forbidden := range forbiddenImports {
 				if pathValue == forbidden {
-					bad = append(bad, path+" imports deprecated alias package "+pathValue)
+					bad = append(bad, path+" imports removed core leaf package "+pathValue)
 				}
 			}
 		}
@@ -124,7 +126,7 @@ func TestDeprecatedCoreLeafAliasPackagesDoNotReturn(t *testing.T) {
 		t.Fatalf("walk core module: %v", err)
 	}
 	if len(bad) > 0 {
-		t.Fatalf("deprecated core leaf alias package boundary violations:\n%s", strings.Join(bad, "\n"))
+		t.Fatalf("removed core leaf package boundary violations:\n%s", strings.Join(bad, "\n"))
 	}
 }
 

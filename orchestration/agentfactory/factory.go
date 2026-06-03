@@ -11,7 +11,6 @@ import (
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
-	"github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/orchestration/agentconfig"
 	"github.com/fluxplane/fluxplane-core/orchestration/resourcecatalog"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
@@ -19,6 +18,7 @@ import (
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimeskill "github.com/fluxplane/fluxplane-core/runtime/skill"
+	"github.com/fluxplane/fluxplane-skill"
 )
 
 // ModelResolver resolves the provider-neutral model implementation for one

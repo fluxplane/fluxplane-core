@@ -208,6 +208,7 @@ require (
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fluxplane/fluxplane-evidence v0.1.0
+	github.com/fluxplane/fluxplane-skill v0.1.0
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
@@ -240,3 +241,5 @@ replace (
 )
 
 replace github.com/fluxplane/fluxplane-workspace v0.0.0 => ../fluxplane-workspace
+
+replace github.com/fluxplane/fluxplane-skill v0.1.0 => ../fluxplane-skill

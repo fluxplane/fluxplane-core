@@ -26,7 +26,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
-	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/tool"
@@ -47,6 +46,7 @@ import (
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
+	coreskill "github.com/fluxplane/fluxplane-skill"
 )
 
 // Session is the first orchestration boundary for the observe-decide-apply

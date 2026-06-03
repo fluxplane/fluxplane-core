@@ -476,7 +476,7 @@ we audit every package in detail.
 | Projections/read models | `core/projection` + `runtime/projection` + runtime read models | Checkpoints/projector contracts in core; runner/checkpoint stores in runtime; concrete read models near their concept. |
 | Context providers | `github.com/fluxplane/fluxplane-context` + `runtime/context` | Portable context specs/blocks live in the leaf module; Core runtime owns evidence-aware provider execution/materialization. |
 | Capabilities | `core/capability` + `runtime/capability` | Capability specs/events in core; state machine implementations in runtime/plugins. |
-| Skills | `core/skill` + `plugins/skills` + resource adapters | Metadata/activation in core; discovery/loading in adapters. |
+| Skills | `github.com/fluxplane/fluxplane-skill` + `runtime/skill` + resource adapters | Portable metadata in the leaf module; Core runtime handles activation/materialization; discovery/loading lives in adapters. |
 | Resources | `core/resource` + `adapters/appconfig`/`adapters/agentdir` + `orchestration/app` | Contribution data is core; loading/parsing is adapter; executable composition is orchestration. |
 | Plugins | `core/plugin` or `orchestration/contributions` + `plugins/*` | Keep contracts separate from implementations. |
 | Datasources | `core/datasource` + `plugins/datasources` | Search contract in core; runtime/provider details outward. |
@@ -542,7 +542,7 @@ ported.
 | `runnertest` | test support | Place under relevant runtime test package. |
 | `runtime` | `runtime/agent` | Current engine/history/toolctx likely runtime agent/conversation. |
 | `safety` | `core/safety` + `runtime/operation/safety` | Decision/intents core; gates runtime. |
-| `skill` | `core/skill` + `runtime/skill` | Metadata/refs core; repository/search/install may need adapter/runtime split. |
+| `skill` | `github.com/fluxplane/fluxplane-skill` + `runtime/skill` | Portable metadata/refs in the leaf module; Core runtime owns activation and session materialization. |
 | `stop` | `core/agent/stop` + `runtime/agent/stop` | Config/spec core; runtime evaluation outward. |
 | `terminal` | `adapters/terminal` + `apps/cli` | Rendering and CLI host. |
 | `thread` | `core/thread` + `runtime/thread` | IDs, thread lifecycle event payloads, branch/node model, snapshot helpers, and `thread.Store` port in core. Live/buffered handles and event-store-backed implementation in runtime. |
@@ -617,7 +617,7 @@ Implemented and green:
 - `core/agent`: inert agent specs now carry engineer-style system prompts,
   tool refs, command refs, skill refs, inference hints, max-step policy, and
   stop-condition declarations.
-- `core/skill`: pure skill metadata specs and source refs.
+- `github.com/fluxplane/fluxplane-skill`: pure skill metadata specs and source refs.
 - `github.com/fluxplane/fluxplane-event`: event records, stream store port, registry, append conflict and
   batch append contracts.
 - `core/session`: configured session specs, session lifecycle event payloads,
@@ -960,7 +960,7 @@ apps/engineer/resources/.agents/skills/*/SKILL.md
 Parity should be reached in small slices:
 
 1. **Phase 1A: Pure Resource Model**
-   Add only inert model shape: `core/app`, `core/skill`, stronger
+   Add only inert model shape: `core/app`, `github.com/fluxplane/fluxplane-skill`, stronger
    `core/agent`, stronger `core/workflow`, invocation targets for workflow and
    prompt commands, and matching `core/resource.ContributionBundle` fields. No
    filesystem parsing or execution.

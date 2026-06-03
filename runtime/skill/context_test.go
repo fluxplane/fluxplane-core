@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/core/tool"
+	coreskill "github.com/fluxplane/fluxplane-skill"
 )
 
 func TestStatefulAgentForwardsStepWithTools(t *testing.T) {

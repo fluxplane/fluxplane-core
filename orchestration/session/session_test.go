@@ -21,7 +21,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	corereview "github.com/fluxplane/fluxplane-core/core/review"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
-	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/tool"
@@ -46,6 +45,7 @@ import (
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
+	coreskill "github.com/fluxplane/fluxplane-skill"
 )
 
 func TestExecuteInboundCommandDispatchesOperation(t *testing.T) {
