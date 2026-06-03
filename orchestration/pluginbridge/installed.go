@@ -22,9 +22,10 @@ type InstalledRuntimeFactory func(management.Plugin) (pluginruntime.Plugin, erro
 // InstalledLoadResult contains Core plugin implementations and the plugin refs
 // that should be declared in a contribution bundle to activate them.
 type InstalledLoadResult struct {
-	Plugins []contributions.Provider
-	Refs    []resource.PluginRef
-	Bundle  resource.ContributionBundle
+	Plugins     []contributions.Provider
+	Refs        []resource.PluginRef
+	Diagnostics []resource.Diagnostic
+	Bundle      resource.ContributionBundle
 }
 
 // InstalledLoadOption configures installed plugin loading.
@@ -119,18 +120,22 @@ func LoadInstalled(ctx context.Context, opts ...InstalledLoadOption) (InstalledL
 		}
 		runtime, err := cfg.runtime(installedPlugin)
 		if err != nil {
-			return InstalledLoadResult{}, fmt.Errorf("pluginbridge: installed plugin %q runtime: %w", installedPlugin.Ref.Key(), err)
+			result.Diagnostics = append(result.Diagnostics, installedPluginDiagnostic(installedPlugin, "runtime", err))
+			continue
 		}
 		bridged, err := Load(ctx, runtime, cfg.bridgeOptions...)
 		if err != nil {
-			return InstalledLoadResult{}, fmt.Errorf("pluginbridge: installed plugin %q manifest: %w", installedPlugin.Ref.Key(), err)
+			result.Diagnostics = append(result.Diagnostics, installedPluginDiagnostic(installedPlugin, "manifest", err))
+			continue
 		}
 		manifestName := bridged.Manifest().Name
 		if manifestName == "" {
-			return InstalledLoadResult{}, fmt.Errorf("pluginbridge: installed plugin %q manifest name is empty", installedPlugin.Ref.Key())
+			result.Diagnostics = append(result.Diagnostics, installedPluginDiagnostic(installedPlugin, "manifest", fmt.Errorf("manifest name is empty")))
+			continue
 		}
 		if seenPlugins[manifestName] {
-			return InstalledLoadResult{}, fmt.Errorf("pluginbridge: installed plugin %q registers duplicate Core plugin %q", installedPlugin.Ref.Key(), manifestName)
+			result.Diagnostics = append(result.Diagnostics, installedPluginDiagnostic(installedPlugin, "manifest", fmt.Errorf("registers duplicate Core plugin %q", manifestName)))
+			continue
 		}
 		seenPlugins[manifestName] = true
 		refs := refsForInstalledPlugin(installedPlugin, manifestName, instances[installedPlugin.Ref.Key()])
@@ -147,7 +152,29 @@ func LoadInstalled(ctx context.Context, opts ...InstalledLoadOption) (InstalledL
 		}
 	}
 	result.Bundle = InstalledPluginBundle(result.Refs...)
+	result.Bundle.Diagnostics = append(result.Bundle.Diagnostics, result.Diagnostics...)
 	return result, nil
+}
+
+func installedPluginDiagnostic(plugin management.Plugin, phase string, err error) resource.Diagnostic {
+	key := strings.TrimSpace(plugin.Ref.Key())
+	if key == "" {
+		key = strings.TrimSpace(plugin.Ref.Name)
+	}
+	if key == "" {
+		key = "<unknown>"
+	}
+	return resource.Diagnostic{
+		Severity: resource.SeverityError,
+		Source: resource.SourceRef{
+			ID:        "fluxplane-plugin:installed:" + key,
+			Ecosystem: "fluxplane-plugin",
+			Scope:     resource.ScopeUser,
+			Location:  "~/.fluxplane/plugins",
+			Ref:       key,
+		},
+		Message: fmt.Sprintf("pluginbridge: installed plugin %q %s: %v", key, phase, err),
+	}
 }
 
 // InstalledPluginBundle declares installed plugin refs as a resource bundle so

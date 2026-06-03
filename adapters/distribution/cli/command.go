@@ -18,6 +18,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/adapters/ui/terminal"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	corecommand "github.com/fluxplane/fluxplane-core/core/command"
+	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/usage"
@@ -41,6 +42,10 @@ type CommandOptions struct {
 // generic slash-command/input path.
 type PromptHandler func(context.Context, string, clientapi.SessionHandle, RunOptions) (bool, error)
 
+// DistributionLoader materializes a runnable distribution after command flags
+// have been parsed.
+type DistributionLoader func(context.Context) (distribution.Distribution, error)
+
 // NewCommand builds a Cobra command for a distribution.
 func NewCommand(dist distribution.Distribution) *cobra.Command {
 	return NewCommandWithOptions(dist, CommandOptions{})
@@ -49,17 +54,34 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 // NewCommandWithOptions builds a Cobra command for a distribution with
 // configured launch defaults.
 func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *cobra.Command {
+	return newCommandWithOptions(dist.Spec, func(context.Context) (distribution.Distribution, error) {
+		return dist, nil
+	}, cfg)
+}
+
+// NewLazyCommandWithOptions builds a Cobra command for a distribution that is
+// loaded only after command flags are parsed.
+func NewLazyCommandWithOptions(spec coredistribution.Spec, load DistributionLoader, cfg CommandOptions) *cobra.Command {
+	return newCommandWithOptions(spec, load, cfg)
+}
+
+func newCommandWithOptions(spec coredistribution.Spec, load DistributionLoader, cfg CommandOptions) *cobra.Command {
+	if load == nil {
+		load = func(context.Context) (distribution.Distribution, error) {
+			return distribution.Distribution{Spec: spec}, nil
+		}
+	}
 	opts := options{
-		provider:       dist.Spec.DefaultModel.Provider,
-		model:          dist.Spec.DefaultModel.Model,
+		provider:       spec.DefaultModel.Provider,
+		model:          spec.DefaultModel.Model,
 		thinking:       "auto",
 		workspaceRoots: append([]string(nil), cfg.WorkspaceRoots...),
 		envFiles:       append([]string(nil), cfg.EnvFiles...),
 		workspace:      cloneWorkspaceConfig(cfg.Workspace),
 	}
 	cmd := &cobra.Command{
-		Use:   dist.Spec.Name,
-		Short: shortDescription(dist),
+		Use:   spec.Name,
+		Short: shortDescription(distribution.Distribution{Spec: spec}),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := distrun.ValidateReasoningFlags(opts.thinking, cmd.Flags().Changed("thinking"), opts.effort, cmd.Flags().Changed("effort")); err != nil {
@@ -68,6 +90,10 @@ func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *
 			maxToolRisk, err := operation.ParseRiskLevel(opts.allowMaxToolRisk)
 			if err != nil {
 				return fmt.Errorf("invalid --allow-max-tool-risk: %w", err)
+			}
+			dist, err := load(cmd.Context())
+			if err != nil {
+				return err
 			}
 			return Run(cmd.Context(), dist, RunOptions{
 				Provider:            opts.provider,
@@ -89,7 +115,7 @@ func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *
 				WorkspaceRoots:      opts.workspaceRoots,
 				EnvFiles:            opts.envFiles,
 				Workspace:           opts.workspace,
-				Prompt:              dist.Spec.Name,
+				Prompt:              spec.Name,
 				PromptHandler:       cfg.PromptHandler,
 				In:                  os.Stdin,
 				Out:                 os.Stdout,
@@ -116,8 +142,8 @@ func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *
 	cmd.Flags().StringVar(&opts.allowMaxToolRisk, "allow-max-tool-risk", "", "maximum model-visible tool risk: low|medium|high|critical; omitted allows all")
 	cmd.Flags().StringArrayVar(&opts.workspaceRoots, "workspace-root", opts.workspaceRoots, "additional workspace root as PATH or NAME=PATH; may be repeated")
 	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", opts.envFiles, "root workspace env file or glob to load; may be repeated")
-	cmd.AddCommand(newDescribeCommand(dist))
-	cmd.AddCommand(newModelsCommand(dist))
+	cmd.AddCommand(newLazyDescribeCommand(load))
+	cmd.AddCommand(newLazyModelsCommand(load))
 	return cmd
 }
 
@@ -428,12 +454,22 @@ func trimStrings(values []string) []string {
 }
 
 func newDescribeCommand(dist distribution.Distribution) *cobra.Command {
+	return newLazyDescribeCommand(func(context.Context) (distribution.Distribution, error) {
+		return dist, nil
+	})
+}
+
+func newLazyDescribeCommand(load DistributionLoader) *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
 		Use:   "describe",
 		Short: "Describe distribution metadata and bundled resources",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			dist, err := load(cmd.Context())
+			if err != nil {
+				return err
+			}
 			switch output {
 			case "", "tree", "pretty":
 				return distdescribe.RenderTree(cmd.OutOrStdout(), dist)
@@ -447,17 +483,27 @@ func newDescribeCommand(dist distribution.Distribution) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&output, "output", "o", "tree", "Output format: tree|json|yaml")
-	cmd.AddCommand(newDescribeAgentCommand(dist))
+	cmd.AddCommand(newLazyDescribeAgentCommand(load))
 	return cmd
 }
 
 func newDescribeAgentCommand(dist distribution.Distribution) *cobra.Command {
+	return newLazyDescribeAgentCommand(func(context.Context) (distribution.Distribution, error) {
+		return dist, nil
+	})
+}
+
+func newLazyDescribeAgentCommand(load DistributionLoader) *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
 		Use:   "agent <name-or-ref>",
 		Short: "Describe a bundled agent",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			dist, err := load(cmd.Context())
+			if err != nil {
+				return err
+			}
 			switch output {
 			case "", "tree", "pretty":
 				return distdescribe.RenderAgentTree(cmd.OutOrStdout(), dist, args[0])
@@ -475,12 +521,22 @@ func newDescribeAgentCommand(dist distribution.Distribution) *cobra.Command {
 }
 
 func newModelsCommand(dist distribution.Distribution) *cobra.Command {
+	return newLazyModelsCommand(func(context.Context) (distribution.Distribution, error) {
+		return dist, nil
+	})
+}
+
+func newLazyModelsCommand(load DistributionLoader) *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
 		Use:   "models",
 		Short: "List available model providers and models",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			dist, err := load(cmd.Context())
+			if err != nil {
+				return err
+			}
 			providers, aliases, err := distributionModels(dist)
 			if err != nil {
 				return err

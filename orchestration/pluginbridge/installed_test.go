@@ -89,6 +89,37 @@ func TestLoadInstalledPluginsCanFilterByName(t *testing.T) {
 	}
 }
 
+func TestLoadInstalledPluginsReportsBrokenRecordsAsDiagnostics(t *testing.T) {
+	store := fakeInstalledStore{
+		plugins: []management.Plugin{
+			{Ref: management.Ref{Name: "broken"}, Installed: true, Enabled: true, Runtime: management.RuntimeSpec{Kind: "direct"}},
+			{Ref: management.Ref{Name: "echo"}, Installed: true, Enabled: true, Runtime: management.RuntimeSpec{Kind: "direct"}},
+		},
+	}
+	result, err := LoadInstalled(
+		context.Background(),
+		WithInstalledStore(store),
+		WithInstalledRuntimeFactory(func(plugin management.Plugin) (pluginruntime.Plugin, error) {
+			if plugin.Ref.Name == "broken" {
+				return nil, fmt.Errorf("boom")
+			}
+			return fakeInstalledRuntime(plugin)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("LoadInstalled: %v", err)
+	}
+	if got, want := pluginRefKeys(result.Refs), []string{"echo/default"}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("refs = %#v, want %#v", got, want)
+	}
+	if len(result.Diagnostics) != 1 || !strings.Contains(result.Diagnostics[0].Message, `installed plugin "broken" runtime: boom`) {
+		t.Fatalf("diagnostics = %#v, want broken runtime diagnostic", result.Diagnostics)
+	}
+	if len(result.Bundle.Diagnostics) != 1 {
+		t.Fatalf("bundle diagnostics = %#v, want copied diagnostic", result.Bundle.Diagnostics)
+	}
+}
+
 func TestStdioRuntimeFromInstalledPluginRejectsUnsupportedRuntime(t *testing.T) {
 	_, err := StdioRuntimeFromInstalledPlugin(management.Plugin{
 		Ref:     management.Ref{Name: "echo"},
