@@ -23,7 +23,9 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/orchestration/agentfactory"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginbridge"
 	orchestrationsession "github.com/fluxplane/fluxplane-core/orchestration/session"
+	"github.com/fluxplane/fluxplane-plugin/management"
 	"github.com/fluxplane/fluxplane-policy"
 
 	"github.com/fluxplane/fluxplane-core/orchestration/channelruntime"
@@ -77,6 +79,8 @@ type ServeDistributionOptions struct {
 	Dev                    bool
 	EnableInstalledPlugins bool
 	InstalledPluginNames   []string
+	InstalledPluginStore   management.Store
+	InstalledRuntime       pluginbridge.InstalledRuntimeFactory
 	Plugins                func(PluginFactoryContext) []pluginhost.Plugin
 	PluginFactory          func(PluginFactoryContext) []pluginhost.Plugin
 	ToolProjection         fluxplane.ToolProjectionConfig
@@ -147,6 +151,8 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 		Dev:                    opts.Dev,
 		EnableInstalledPlugins: opts.EnableInstalledPlugins,
 		InstalledPluginNames:   append([]string(nil), opts.InstalledPluginNames...),
+		InstalledPluginStore:   opts.InstalledPluginStore,
+		InstalledRuntime:       opts.InstalledRuntime,
 		Plugins:                opts.Plugins,
 		PluginFactory:          opts.PluginFactory,
 		ToolProjection:         opts.ToolProjection,

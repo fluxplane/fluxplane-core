@@ -35,6 +35,10 @@ import (
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-plugin/management"
+	sdkmanifest "github.com/fluxplane/fluxplane-plugin/manifest"
+	"github.com/fluxplane/fluxplane-plugin/pluginbinding"
+	"github.com/fluxplane/fluxplane-plugin/pluginruntime"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
@@ -167,6 +171,51 @@ func TestLaunchUsesOnlyDeclaredPlugins(t *testing.T) {
 	}
 	if hasOperationSpec(runtime, "shell_exec") {
 		t.Fatal("did not expect coding shell operation without coding plugin ref")
+	}
+}
+
+func TestLaunchCanLoadInstalledPluginsFromInjectedState(t *testing.T) {
+	withStateDir(t)
+	runtime, err := Launch(context.Background(), RuntimeOptions{
+		Root:                   t.TempDir(),
+		AllowPrivateNetwork:    true,
+		EnableInstalledPlugins: true,
+		InstalledPluginStore: fakeInstalledPluginStore{
+			plugins: []management.Plugin{{
+				Ref:       management.Ref{Name: "installed_echo"},
+				Installed: true,
+				Enabled:   true,
+				Runtime:   management.RuntimeSpec{Kind: "direct"},
+			}},
+			instances: []management.Instance{{
+				Plugin:  management.Ref{Name: "installed_echo"},
+				Name:    management.DefaultInstance,
+				Enabled: true,
+			}},
+		},
+		InstalledRuntime: func(plugin management.Plugin) (pluginruntime.Plugin, error) {
+			return pluginruntime.Direct(installedEchoPlugin()), nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer runtime.Close()
+
+	if !hasOperationSpec(runtime, "installed_echo.say") {
+		t.Fatal("expected installed plugin operation installed_echo.say")
+	}
+	op, ok := runtime.Composition.Operations.Resolve(operation.Ref{Name: "installed_echo.say"})
+	if !ok {
+		t.Fatal("installed_echo.say operation not executable")
+	}
+	result := op.Run(operation.NewContext(context.Background(), nil), map[string]any{"text": "core"})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("operation result = %#v", result)
+	}
+	output, ok := result.Output.(map[string]any)
+	if !ok || output["text"] != "core installed" {
+		t.Fatalf("operation output = %#v", result.Output)
 	}
 }
 
@@ -740,6 +789,54 @@ type fakeRuntime struct{}
 
 func (fakeRuntime) OpenSession(context.Context, distribution.OpenRequest) (clientapi.SessionHandle, error) {
 	return nil, nil
+}
+
+type fakeInstalledPluginStore struct {
+	plugins   []management.Plugin
+	instances []management.Instance
+}
+
+func (s fakeInstalledPluginStore) ListPlugins(context.Context, management.ListRequest) ([]management.Plugin, error) {
+	return append([]management.Plugin(nil), s.plugins...), nil
+}
+
+func (s fakeInstalledPluginStore) PluginStatus(context.Context, management.StatusRequest) (management.StatusResult, error) {
+	return management.StatusResult{
+		Plugins:   append([]management.Plugin(nil), s.plugins...),
+		Instances: append([]management.Instance(nil), s.instances...),
+	}, nil
+}
+
+func (s fakeInstalledPluginStore) SetPluginEnabled(context.Context, management.SetEnabledRequest) (management.SetEnabledResult, error) {
+	return management.SetEnabledResult{}, nil
+}
+
+func (s fakeInstalledPluginStore) RemovePlugin(context.Context, management.RemoveRequest) (management.RemoveResult, error) {
+	return management.RemoveResult{}, nil
+}
+
+type installedEchoInput struct {
+	Text string `json:"text"`
+}
+
+type installedEchoOutput struct {
+	Text string `json:"text"`
+}
+
+func installedEchoPlugin() *pluginbinding.Plugin {
+	return pluginbinding.Define(
+		pluginbinding.ManifestSpec{Name: "installed_echo", Description: "Installed echo test plugin."},
+		pluginbinding.RegisterOperation(
+			sdkmanifest.OperationSpec{
+				Name:        "installed_echo.say",
+				Description: "Echo installed plugin input.",
+				ReadOnly:    true,
+			},
+			func(_ pluginbinding.Context, input installedEchoInput) (installedEchoOutput, error) {
+				return installedEchoOutput{Text: input.Text + " installed"}, nil
+			},
+		),
+	)
 }
 
 type staticContributionPlugin struct {

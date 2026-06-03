@@ -3839,3 +3839,51 @@ Completed in this batch:
 Architectural result: Core is now the agent runtime bridge for installed
 `fluxplane-plugin` plugins. Products can opt into installed plugin state through
 Core launch options while Dex remains outside every product dependency path.
+
+### Progress Update: Installed Plugin Product UX
+
+Completed in this batch:
+
+- Added a Core launch-level integration test for installed plugins:
+  - injects a fake `fluxplane-plugin/management.Store`;
+  - injects a direct in-memory plugin runtime;
+  - launches the real Core local runtime path;
+  - verifies the installed plugin manifest contributes an operation;
+  - resolves and executes the operation through the composed Core runtime.
+- Extended Core launch options with injectable installed-plugin state/runtime
+  hooks:
+  - `InstalledPluginStore`;
+  - `InstalledRuntime`;
+  - pass-through on `RuntimeOptions`, `LocalRuntimeConfig`, and
+    `ServeDistributionOptions`.
+- Added Coder user-facing installed plugin controls:
+  - `.coder.toml` `[plugins].installed = ["name"]`;
+  - `.coder.toml` `[plugins].installed_all = true`;
+  - `coder --installed-plugin=name`;
+  - `coder --installed-plugins` for all enabled installed plugins.
+- Updated Coder docs/help so installed plugins are described as
+  `fluxplane-plugin` state loaded through Core, not as Dex-backed defaults.
+- Updated Slack Bot config comments and example config so `[runtime].plugins`
+  clearly means installed `fluxplane-plugin` plugin names loaded through Core.
+- Added Coder static inspection wiring for installed plugins:
+  - `coder discover` now reads installed plugin manifests through Core's
+    `pluginbridge.LoadInstalled`;
+  - static discovery appends the installed plugin declaration bundle and
+    bridged plugin implementations;
+  - `coder serve` now forwards installed-plugin options to Core serve launch.
+- Smoke-tested the real installed-plugin path using an isolated default state
+  directory:
+  - `fluxplane-plugin install sleep` built a marketplace plugin into
+    `~/.fluxplane/plugins/bin`;
+  - `fluxplane-plugin run sleep` started the cached stdio runtime and returned
+    its manifest;
+  - `fluxplane-plugin operation invoke sleep sleep --input '{"duration":0.001}'`
+    executed the plugin operation successfully;
+  - `fluxplane-plugin install clock` plus
+    `coder --installed-plugin clock discover` showed
+    `fluxplane-plugin:installed`, `plugin:clock/default`, and the clock context
+    provider in Coder's static resource view.
+
+Architectural result: end-user products can now turn on installed provider
+plugins without importing Dex, without importing `fluxplane-plugins`, and
+without hand-rolling the installed state/runtime bridge.

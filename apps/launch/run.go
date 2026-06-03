@@ -59,6 +59,7 @@ import (
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-plugin/management"
 	"github.com/fluxplane/fluxplane-policy"
 )
 
@@ -78,6 +79,8 @@ type LocalRuntimeConfig struct {
 	Dev                    bool
 	EnableInstalledPlugins bool
 	InstalledPluginNames   []string
+	InstalledPluginStore   management.Store
+	InstalledRuntime       pluginbridge.InstalledRuntimeFactory
 }
 
 type AttachOptions struct {
@@ -86,6 +89,8 @@ type AttachOptions struct {
 	Dev                    bool
 	EnableInstalledPlugins bool
 	InstalledPluginNames   []string
+	InstalledPluginStore   management.Store
+	InstalledRuntime       pluginbridge.InstalledRuntimeFactory
 }
 
 // RuntimeOptions describes the surface-neutral local launch inputs shared by
@@ -108,6 +113,8 @@ type RuntimeOptions struct {
 	Dev                    bool
 	EnableInstalledPlugins bool
 	InstalledPluginNames   []string
+	InstalledPluginStore   management.Store
+	InstalledRuntime       pluginbridge.InstalledRuntimeFactory
 	Plugins                func(PluginFactoryContext) []pluginhost.Plugin
 	PluginFactory          func(PluginFactoryContext) []pluginhost.Plugin
 	ToolProjection         fluxplane.ToolProjectionConfig
@@ -163,6 +170,8 @@ func AttachLocalRuntimeWithOptions(loaded distribution.Loaded, opts AttachOption
 		Dev:                    opts.Dev,
 		EnableInstalledPlugins: opts.EnableInstalledPlugins,
 		InstalledPluginNames:   append([]string(nil), opts.InstalledPluginNames...),
+		InstalledPluginStore:   opts.InstalledPluginStore,
+		InstalledRuntime:       opts.InstalledRuntime,
 	})
 	return loaded
 }
@@ -207,6 +216,8 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 		Dev:                    cfg.Dev || req.Dev,
 		EnableInstalledPlugins: cfg.EnableInstalledPlugins,
 		InstalledPluginNames:   append([]string(nil), cfg.InstalledPluginNames...),
+		InstalledPluginStore:   cfg.InstalledPluginStore,
+		InstalledRuntime:       cfg.InstalledRuntime,
 		Plugins:                cfg.Plugins,
 		PluginFactory:          cfg.PluginFactory,
 		ModelResolver:          cfg.ModelResolver,
@@ -371,10 +382,19 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		available = replacePlugin(available, task.NewWithConfig(task.Config{Runner: taskScheduler, Workspace: runtimeWorkspace}))
 	}
 	if opts.EnableInstalledPlugins || len(opts.InstalledPluginNames) > 0 {
-		installed, err := pluginbridge.LoadInstalled(
-			ctx,
+		installedOptions := []pluginbridge.InstalledLoadOption{
 			pluginbridge.WithInstalledPluginNames(opts.InstalledPluginNames...),
 			pluginbridge.WithInstalledBridgeOptions(pluginbridge.WithHostCallerFactory(pluginbridge.NewSystemHostCallerFactory(runtimeSystem))),
+		}
+		if opts.InstalledPluginStore != nil {
+			installedOptions = append(installedOptions, pluginbridge.WithInstalledStore(opts.InstalledPluginStore))
+		}
+		if opts.InstalledRuntime != nil {
+			installedOptions = append(installedOptions, pluginbridge.WithInstalledRuntimeFactory(opts.InstalledRuntime))
+		}
+		installed, err := pluginbridge.LoadInstalled(
+			ctx,
+			installedOptions...,
 		)
 		if err != nil {
 			closeRuntime()
