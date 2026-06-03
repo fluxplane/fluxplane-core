@@ -4181,3 +4181,42 @@ cd ../fluxplane-core && go test ./...
 ```
 
 Result: all three test suites passed in the workspace.
+
+### Progress Update: Evidence CLI And Core Composition Smoke
+
+Completed in this batch:
+
+- Extended `fluxplane-plugin` management/local backend and reusable CLI with:
+  - `fluxplane-plugin evidence list PLUGIN`;
+  - `fluxplane-plugin evidence observe PLUGIN`.
+- Added a Core app composition smoke test proving a selected SDK plugin can
+  cross the Core plugin bridge, run as a Core evidence observer, and produce a
+  derived `integration.available` assertion through normal composition wiring.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-core && go test ./orchestration/app
+```
+
+### Planning Update: Reaction Extraction Depends On Portable Action Targets
+
+`core/reaction` is the next attractive leaf-module candidate, but it is not a
+clean move yet. The reaction `Action` DTO currently embeds Core-owned target
+types:
+
+- `core/skill.Ref`;
+- `core/command.Invocation`;
+- `core/workflow.Name`;
+- runtime context provider refs.
+
+Do not extract `fluxplane-reaction` as a module that imports
+`fluxplane-core`. That would recreate the dependency problem under a different
+module name. The clean extraction order is:
+
+1. extract or define portable skill/reference refs;
+2. extract or define portable command invocation refs;
+3. extract or define portable workflow refs;
+4. then move reaction rules/events to `fluxplane-reaction` and update Core,
+   Coder, and Slack Bot to import it directly.

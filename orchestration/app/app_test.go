@@ -24,6 +24,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	"github.com/fluxplane/fluxplane-core/orchestration/identity"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginbridge"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessioncontrol"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
@@ -32,6 +33,9 @@ import (
 	coreevent "github.com/fluxplane/fluxplane-event"
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
+	sdkmanifest "github.com/fluxplane/fluxplane-plugin/manifest"
+	"github.com/fluxplane/fluxplane-plugin/pluginbinding"
+	"github.com/fluxplane/fluxplane-plugin/pluginruntime"
 )
 
 func TestComposeRegistersResourceCommandsAgainstProvidedOperations(t *testing.T) {
@@ -635,6 +639,34 @@ func TestComposeRunsPluginAssertionDeriverSpecsAsTemplates(t *testing.T) {
 	}
 	if len(assertions) != 1 || assertions[0].Kind != "template.assertion" || assertions[0].Scope != "workspace:/repo" {
 		t.Fatalf("assertions = %#v, want template assertion", assertions)
+	}
+}
+
+func TestComposeRunsBridgedSDKPluginEvidence(t *testing.T) {
+	sdkPlugin := evidenceSDKPlugin()
+	bridge, err := pluginbridge.New(pluginruntime.Direct(sdkPlugin), sdkPlugin.Manifest())
+	if err != nil {
+		t.Fatalf("pluginbridge.New: %v", err)
+	}
+	composition, err := Compose(Config{
+		Plugins: []contributions.Provider{bridge},
+		Bundles: []resource.ContributionBundle{{
+			Plugins: []resource.PluginRef{{Name: "sdk-evidence", Instance: "work"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	observations, diagnostics := runtimeevidence.RunObservers(context.Background(), composition.EnvironmentObservers, runtimeevidence.ObservationRequest{Phase: coreevidence.PhaseTurn})
+	if len(diagnostics) != 0 {
+		t.Fatalf("observer diagnostics = %#v", diagnostics)
+	}
+	assertions, diagnostics := runtimeevidence.DeriveAssertions(context.Background(), composition.AssertionDerivers, runtimeevidence.AssertionDeriveRequest{Observations: observations})
+	if len(diagnostics) != 0 {
+		t.Fatalf("assertion diagnostics = %#v", diagnostics)
+	}
+	if !hasAssertion(assertions, "integration.available", "sdk-evidence") {
+		t.Fatalf("assertions = %#v, want sdk-evidence integration.available", assertions)
 	}
 }
 
@@ -1307,6 +1339,45 @@ func (templateAssertionPlugin) Contributions(context.Context, contributions.Cont
 			}},
 		}},
 	}, nil
+}
+
+func evidenceSDKPlugin() *pluginbinding.Plugin {
+	observer := sdkmanifest.ObserverSpec{
+		Name:            "sdk-evidence.environment",
+		Environment:     coreevidence.Ref{Name: "sdk-evidence"},
+		Phase:           coreevidence.PhaseTurn,
+		ObservableKinds: []string{"sdk-evidence.available"},
+		Dynamic:         true,
+	}
+	return pluginbinding.Define(pluginbinding.ManifestSpec{
+		Name:      "sdk-evidence",
+		Observers: []sdkmanifest.ObserverSpec{observer},
+		AssertionDerivers: []sdkmanifest.AssertionDeriverSpec{{
+			Name:             "sdk-evidence.assertions",
+			ObservationKinds: []string{"sdk-evidence.available"},
+			Assertions: []sdkmanifest.AssertionTemplate{{
+				Kind:    "integration.available",
+				Target:  "sdk-evidence",
+				Subject: coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: "sdk-evidence"},
+			}},
+		}},
+	}, pluginbinding.RegisterEvidenceObserver(observer, func(pluginbinding.Context, pluginbinding.EvidenceObserveInput) (pluginbinding.EvidenceObserveResult, error) {
+		return pluginbinding.EvidenceObserveResult{Observations: []coreevidence.Observation{{
+			ID:      "sdk-evidence:available",
+			Kind:    "sdk-evidence.available",
+			Scope:   "integration:sdk-evidence",
+			Content: map[string]any{"available": true},
+		}}}, nil
+	}))
+}
+
+func hasAssertion(assertions []coreevidence.Assertion, kind, target string) bool {
+	for _, assertion := range assertions {
+		if assertion.Kind == kind && assertion.Target == target {
+			return true
+		}
+	}
+	return false
 }
 
 type sameNamePlugin struct {
