@@ -3640,6 +3640,51 @@ cd ../coder && GOWORK=off go test ./internal/runtime
 Result: tests passed. The reusable plugin CLI/backend now owns the `auth auto`
 surface that was previously Dex-only.
 
+### Progress Update: Dex Drain Decisions For Grants And Endpoint Prompts
+
+Completed in this batch:
+
+- Decided that secret grant inspection stays host/runtime-internal for now:
+  - grant DTOs already live in `fluxplane-secret`;
+  - grant creation/validation is tied to short-lived runtime invocation state;
+  - grants carry capability/purpose authorization and no secret material;
+  - exposing grant inspection in the reusable end-user CLI would make an
+    internal runtime authorization artifact part of the public plugin
+    management surface before there is a real product use case.
+- Decided not to preserve Dex's interactive endpoint selection prompt as a
+  reusable CLI feature:
+  - `fluxplane-plugin` already owns non-interactive `endpoint discover`,
+    `endpoint import`, `endpoint save`, `endpoint test`, and `endpoint doctor`;
+  - the final reusable surface should remain automation-friendly and scriptable;
+  - products may add their own interactive UI on top of discovery/import if
+    their users need it.
+
+Result: the remaining Dex drain work is now focused on deleting or shrinking Dex
+after one final feature comparison, not on adding new reusable grant or prompt
+commands.
+
+### Progress Update: Plugin Implementation Boundary Gate
+
+Completed in this batch:
+
+- Added a `fluxplane-plugins` architecture test that fails if any standalone
+  plugin implementation imports or depends on:
+  - `github.com/fluxplane/fluxplane-core`;
+  - `github.com/fluxplane/fluxplane-dex`.
+- The gate checks both Go imports and every `go.mod` in the plugin repo,
+  including nested plugin modules.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugins && go test ./...
+cd ../fluxplane-plugins && for mod in atlassian clock git openapi sleep; do (cd "$mod" && go test ./...); done
+rg "github.com/fluxplane/fluxplane-dex" ../coder ../fluxplane-apps ../fluxplane-core ../fluxplane-plugin ../fluxplane-plugins -g'*.go' -g'go.mod'
+rg "github.com/fluxplane/fluxplane-core" ../fluxplane-plugin ../fluxplane-plugins ../fluxplane-dex -g'*.go' -g'go.mod'
+```
+
+Result: tests passed. The import scans returned no matches.
+
 ### Current Next Large Steps
 
 1. Expand concrete product/plugin wiring beyond system, sleep, clock, Slack,
@@ -3654,11 +3699,6 @@ surface that was previously Dex-only.
    - compare Dex commands/features against `fluxplane-plugin` CLI;
    - move remaining reusable plugin management/auth/secret/manifest/datasource/
      operation/index behavior out;
-   - decide whether secret grant inspection belongs in the reusable CLI or stays
-     host-internal only;
-   - decide whether Dex's interactive endpoint selection prompt is worth
-     preserving in the reusable CLI, or whether non-interactive import is the
-     final automation-friendly surface;
    - delete or shrink Dex once no unique end-user value remains.
 3. Continue core extraction:
    - keep the Core integration tree limited to explicit runtime/evidence
@@ -3669,7 +3709,9 @@ surface that was previously Dex-only.
      second non-coder product needs the same surface.
 4. Tighten CI architecture gates as extraction lands:
    - keep existing `fluxplane-plugin`, Dex, product, and Core gates passing;
-   - shrink the Core provider-SDK transitional allowlist as plugins leave Core;
+   - keep the `fluxplane-plugins` no-Core/no-Dex gate passing;
+   - shrink the Core provider-SDK transitional allowlist as remaining provider
+     SDK usage is proven to be runtime adapter or non-plugin infrastructure;
    - convert the provider-SDK gate from "no new provider SDKs" to "no provider
      SDKs" once extraction is complete.
 5. Split remaining product-facing Core contracts only when needed for extraction:
