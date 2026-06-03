@@ -12,8 +12,10 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
+	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	sdkmanifest "github.com/fluxplane/fluxplane-plugin/manifest"
 	"github.com/fluxplane/fluxplane-plugin/pluginbinding"
@@ -57,6 +59,8 @@ var _ contributions.AuthMethodProvider = Plugin{}
 var _ contributions.AuthTestProvider = Plugin{}
 var _ contributions.DatasourceProviderProvider = Plugin{}
 var _ contributions.ContextProviderProvider = Plugin{}
+var _ contributions.ObserverProvider = Plugin{}
+var _ contributions.AssertionDeriverProvider = Plugin{}
 
 // New returns a Core contributions-compatible adapter for runtime.
 func New(runtime pluginruntime.Plugin, manifest sdkmanifest.PluginManifest, opts ...Option) (Plugin, error) {
@@ -116,7 +120,13 @@ func (p Plugin) Contributions(context.Context, contributions.Context) (resource.
 		ops = append(ops, spec)
 		refs = append(refs, spec.Ref)
 	}
-	bundle := resource.ContributionBundle{Operations: ops, Datasources: datasourceSpecs(p.manifest.Name, p.manifest.Datasources), ContextProviders: contextSpecs(p.manifest.Context)}
+	bundle := resource.ContributionBundle{
+		Operations:        ops,
+		Datasources:       datasourceSpecs(p.manifest.Name, p.manifest.Datasources),
+		ContextProviders:  contextSpecs(p.manifest.Context),
+		Observers:         append([]coreevidence.ObserverSpec(nil), p.manifest.Observers...),
+		AssertionDerivers: append([]coreevidence.AssertionDeriverSpec(nil), p.manifest.AssertionDerivers...),
+	}
 	if len(refs) > 0 {
 		bundle.OperationSets = append(bundle.OperationSets, operation.Set{
 			Name:        p.manifest.Name,
@@ -265,6 +275,32 @@ func (p Plugin) DatasourceProviders(_ context.Context, ctx contributions.Context
 	}}, nil
 }
 
+// EnvironmentObservers returns Core runtime observers backed by plugin protocol
+// evidence observe calls.
+func (p Plugin) EnvironmentObservers(_ context.Context, ctx contributions.Context) ([]runtimeevidence.Observer, error) {
+	out := make([]runtimeevidence.Observer, 0, len(p.manifest.Observers))
+	for _, spec := range p.manifest.Observers {
+		if strings.TrimSpace(spec.Name) == "" {
+			continue
+		}
+		out = append(out, bridgedEvidenceObserver{
+			spec:       spec,
+			plugin:     p.manifest.Name,
+			instance:   ctx.Ref.InstanceName(),
+			runtime:    p.runtime,
+			hostCaller: p.hostCaller,
+			pluginCtx:  ctx,
+		})
+	}
+	return out, nil
+}
+
+// AssertionDerivers returns Core runtime derivers backed by declarative
+// assertion templates from the plugin manifest.
+func (p Plugin) AssertionDerivers(context.Context, contributions.Context) ([]runtimeevidence.AssertionDeriver, error) {
+	return runtimeevidence.TemplateAssertionDerivers(p.manifest.AssertionDerivers), nil
+}
+
 type bridgedOperation struct {
 	plugin     string
 	instance   string
@@ -381,6 +417,48 @@ type bridgedDatasourceProvider struct {
 	hostCaller   HostCallerFactory
 	pluginCtx    contributions.Context
 	declarations []sdkmanifest.DatasourceSpec
+}
+
+type bridgedEvidenceObserver struct {
+	spec       coreevidence.ObserverSpec
+	plugin     string
+	instance   string
+	runtime    pluginruntime.Plugin
+	hostCaller HostCallerFactory
+	pluginCtx  contributions.Context
+}
+
+func (o bridgedEvidenceObserver) Spec() coreevidence.ObserverSpec {
+	return o.spec
+}
+
+func (o bridgedEvidenceObserver) Observe(ctx context.Context, req runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
+	host, err := pluginruntime.NewHost(o.runtime)
+	if err != nil {
+		return nil, err
+	}
+	payload := protocol.EvidenceObserveRequest{
+		Phase:        req.Phase,
+		Observations: append([]coreevidence.Observation(nil), req.Observations...),
+	}
+	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(o.instance)}
+	if o.hostCaller != nil {
+		options = append(options, pluginruntime.WithHostCaller(o.hostCaller(o.pluginCtx)))
+	}
+	resp, err := host.Invoke(ctx, o.plugin, protocol.CommandEvidenceObserve, payload, options...)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("%s", pluginErrorMessage(resp.Error))
+	}
+	var result protocol.EvidenceObserveResult
+	if len(resp.Result) > 0 {
+		if err := json.Unmarshal(resp.Result, &result); err != nil {
+			return nil, err
+		}
+	}
+	return append([]coreevidence.Observation(nil), result.Observations...), nil
 }
 
 func (p bridgedDatasourceProvider) Entities() []coredatasource.EntitySpec {

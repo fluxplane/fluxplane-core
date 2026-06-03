@@ -467,10 +467,9 @@ selected kubernetes plugin contributes:
 
 AWS local environment configuration now lives in the standalone
 `fluxplane-plugins/aws` SDK plugin. It exposes non-secret profile, region, and
-credential-presence data as a context provider and an inspect operation. If Core
-needs to turn that plugin output into ambient observations and derived
-integration signals, the Core plugin bridge should materialize that explicitly
-from installed plugin state.
+credential-presence data as a context provider, an inspect operation, and
+portable evidence declarations. Core materializes those declarations through the
+plugin bridge when the AWS plugin is selected.
 
 ```text
 plugins:
@@ -480,6 +479,8 @@ plugins:
 selected aws plugin contributes:
   ContextSpec: aws.environment
   OperationSpec: aws.environment.inspect
+  ObserverSpec: aws.environment
+  AssertionDeriverSpec: aws.environment.configured/aws.environment.available
   Runtime behavior: reads configured profile/region and credential presence without
     exposing access key, secret key, or session token values
 ```

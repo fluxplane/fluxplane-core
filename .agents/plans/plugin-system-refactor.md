@@ -4123,9 +4123,9 @@ Completed in this batch:
 
 Architectural result: Core no longer contains reusable provider implementation
 packages. AWS is now a normal external plugin implementation. Core can still
-bridge installed plugin operations/context providers through `fluxplane-plugin`;
-portable evidence observer/assertion bridging remains a separate Core bridge
-capability decision, not a reason to keep AWS implementation code inside Core.
+bridge installed plugin operations, context providers, observers, and assertion
+deriver templates through `fluxplane-plugin`; evidence bridging is not a reason
+to keep AWS implementation code inside Core.
 
 ### Progress Update: Portable Evidence Contracts Extracted
 
@@ -4151,6 +4151,33 @@ Completed in this batch:
   compatibility package.
 
 Architectural result: plugin and product code can now reference portable
-observation/assertion DTOs without importing Core. The remaining bridge work is
-to expose plugin-produced observations through `fluxplane-plugin` protocol and
-materialize them into Core `runtime/evidence`.
+observation/assertion DTOs without importing Core.
+
+### Progress Update: Plugin-Produced Evidence Bridged Into Core
+
+Completed in this batch:
+
+- Extended `fluxplane-plugin` manifest, protocol, and binding layers with
+  portable evidence observer specs, assertion-deriver specs, and an
+  `evidence.observe` command.
+- Updated `fluxplane-plugins/aws` to contribute non-secret AWS environment
+  evidence:
+  - `aws.environment.configured` is emitted only when AWS is configured;
+  - `aws.environment.available` is emitted only when AWS is usable;
+  - assertion templates map those observation kinds to
+    `integration.configured` and `integration.available` without inspecting
+    secrets or overclaiming availability.
+- Updated Core's `orchestration/pluginbridge` so SDK plugin manifests contribute
+  observer and assertion-deriver specs, direct/stdio runtimes can be invoked as
+  Core evidence observers, and manifest assertion templates execute as Core
+  runtime assertion derivers.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-plugins/aws && go test ./...
+cd ../fluxplane-core && go test ./...
+```
+
+Result: all three test suites passed in the workspace.

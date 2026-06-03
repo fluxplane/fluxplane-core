@@ -9,7 +9,9 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
+	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	sdkmanifest "github.com/fluxplane/fluxplane-plugin/manifest"
 	"github.com/fluxplane/fluxplane-plugin/pluginbinding"
@@ -42,6 +44,12 @@ func TestPluginContributesManifestOperations(t *testing.T) {
 	}
 	if len(bundle.Datasources) != 1 || bundle.Datasources[0].Name != "echo.items" {
 		t.Fatalf("datasources = %#v", bundle.Datasources)
+	}
+	if len(bundle.Observers) != 1 || bundle.Observers[0].Name != "echo.environment" {
+		t.Fatalf("observers = %#v", bundle.Observers)
+	}
+	if len(bundle.AssertionDerivers) != 1 || bundle.AssertionDerivers[0].Name != "echo.environment.assertions" {
+		t.Fatalf("assertion derivers = %#v", bundle.AssertionDerivers)
 	}
 }
 
@@ -185,6 +193,63 @@ func TestPluginDatasourceProviderInvokesRuntime(t *testing.T) {
 	}
 }
 
+func TestPluginEvidenceObserverInvokesRuntime(t *testing.T) {
+	bridge, err := New(pluginruntime.Direct(testSDKPlugin()), testSDKPlugin().Manifest())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	observers, err := bridge.EnvironmentObservers(context.Background(), contributions.Context{Ref: resource.PluginRef{Name: "echo", Instance: "work"}})
+	if err != nil {
+		t.Fatalf("EnvironmentObservers: %v", err)
+	}
+	if len(observers) != 1 || observers[0].Spec().Name != "echo.environment" {
+		t.Fatalf("observers = %#v", observers)
+	}
+	observations, diagnostics := runtimeevidence.RunObservers(context.Background(), observers, runtimeevidence.ObservationRequest{Phase: coreevidence.PhaseTurn})
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+	if len(observations) != 1 {
+		t.Fatalf("observations = %#v", observations)
+	}
+	observation := observations[0]
+	if observation.Kind != "echo.ready" || observation.Source != "echo.environment" || observation.Environment.Name != "echo" {
+		t.Fatalf("observation = %#v", observation)
+	}
+}
+
+func TestPluginAssertionDeriversUseManifestTemplates(t *testing.T) {
+	bridge, err := New(pluginruntime.Direct(testSDKPlugin()), testSDKPlugin().Manifest())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	derivers, err := bridge.AssertionDerivers(context.Background(), contributions.Context{Ref: resource.PluginRef{Name: "echo", Instance: "work"}})
+	if err != nil {
+		t.Fatalf("AssertionDerivers: %v", err)
+	}
+	assertions, diagnostics := runtimeevidence.DeriveAssertions(context.Background(), derivers, runtimeevidence.AssertionDeriveRequest{
+		Observations: []coreevidence.Observation{{
+			ID:          "echo:ready",
+			Kind:        "echo.ready",
+			Scope:       "integration:echo",
+			Environment: coreevidence.Ref{Name: "echo"},
+		}},
+	})
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+	if len(assertions) != 1 {
+		t.Fatalf("assertions = %#v", assertions)
+	}
+	assertion := assertions[0]
+	if assertion.Kind != "integration.available" || assertion.Target != "echo" || assertion.Source != "echo.environment.assertions" {
+		t.Fatalf("assertion = %#v", assertion)
+	}
+	if len(assertion.ObservationIDs) != 1 || assertion.ObservationIDs[0] != "echo:ready" {
+		t.Fatalf("assertion observations = %#v", assertion.ObservationIDs)
+	}
+}
+
 type echoInput struct {
 	Text string `json:"text"`
 }
@@ -214,6 +279,14 @@ func testSDKPlugin() *pluginbinding.Plugin {
 		Capabilities: []string{pluginbinding.CapabilitySearch, pluginbinding.CapabilityGet},
 	}
 	contextSpec := pluginbinding.ContextSpec("echo.context", "Echo context.", pluginbinding.ContextKindText)
+	observerSpec := sdkmanifest.ObserverSpec{
+		Name:            "echo.environment",
+		Description:     "Echo environment.",
+		Environment:     coreevidence.Ref{Name: "echo"},
+		Phase:           coreevidence.PhaseTurn,
+		ObservableKinds: []string{"echo.ready"},
+		Dynamic:         true,
+	}
 	return pluginbinding.Define(
 		pluginbinding.ManifestSpec{
 			Name:        "echo",
@@ -229,6 +302,17 @@ func testSDKPlugin() *pluginbinding.Plugin {
 			}},
 			Datasources: []sdkmanifest.DatasourceSpec{datasourceSpec},
 			Context:     []sdkmanifest.ContextSpec{contextSpec},
+			Observers:   []sdkmanifest.ObserverSpec{observerSpec},
+			AssertionDerivers: []sdkmanifest.AssertionDeriverSpec{{
+				Name:             "echo.environment.assertions",
+				Description:      "Echo assertions.",
+				ObservationKinds: []string{"echo.ready"},
+				Assertions: []sdkmanifest.AssertionTemplate{{
+					Kind:    "integration.available",
+					Target:  "echo",
+					Subject: coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: "echo"},
+				}},
+			}},
 		},
 		pluginbinding.RegisterOperation(
 			sdkmanifest.OperationSpec{
@@ -260,6 +344,14 @@ func testSDKPlugin() *pluginbinding.Plugin {
 				Content:   "context: " + input.Query + " " + input.ThreadID + " " + input.TurnID + " " + string(input.Reason) + " " + input.Scope["env"],
 				MediaType: "text/plain",
 				Freshness: corecontext.FreshnessDynamic,
+			}}}, nil
+		}),
+		pluginbinding.RegisterEvidenceObserver(observerSpec, func(ctx pluginbinding.Context, _ pluginbinding.EvidenceObserveInput) (pluginbinding.EvidenceObserveResult, error) {
+			return pluginbinding.EvidenceObserveResult{Observations: []coreevidence.Observation{{
+				ID:      "echo:ready:" + ctx.Request.Instance,
+				Kind:    "echo.ready",
+				Scope:   "integration:echo",
+				Content: map[string]any{"ready": true},
 			}}}, nil
 		}),
 		func(plugin *pluginbinding.Plugin) {
