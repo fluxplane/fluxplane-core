@@ -3,90 +3,59 @@ package context
 import (
 	stdcontext "context"
 	"fmt"
-	"strings"
 
+	fpcontext "github.com/fluxplane/fluxplane-context"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-event"
-	"github.com/fluxplane/fluxplane-policy"
 )
 
-// ProviderName identifies a context provider.
-type ProviderName string
+type ProviderName = fpcontext.ProviderName
 
 // AnnotationAutoContext marks providers that should remain visible even when an
 // agent declares an explicit context-provider allowlist.
 const AnnotationAutoContext = "fluxplane.auto_context"
 
-// ProviderRef identifies a provider by name.
-type ProviderRef struct {
-	Name ProviderName `json:"name"`
-}
+type ProviderRef = fpcontext.ProviderRef
 
-// BlockKind describes the shape or purpose of a context block.
-type BlockKind string
+type BlockKind = fpcontext.BlockKind
 
 const (
-	BlockText      BlockKind = "text"
-	BlockReference BlockKind = "reference"
-	BlockData      BlockKind = "data"
+	BlockText      = fpcontext.BlockText
+	BlockReference = fpcontext.BlockReference
+	BlockData      = fpcontext.BlockData
 )
 
-// Freshness describes whether a block is static or time-sensitive.
-type Freshness string
+type Freshness = fpcontext.Freshness
 
 const (
-	FreshnessStatic  Freshness = "static"
-	FreshnessDynamic Freshness = "dynamic"
+	FreshnessStatic  = fpcontext.FreshnessStatic
+	FreshnessDynamic = fpcontext.FreshnessDynamic
 )
 
-// Placement describes where a context block should be rendered in the
-// provider-visible request.
-type Placement string
+type Placement = fpcontext.Placement
 
 const (
-	PlacementUser      Placement = "user_context"
-	PlacementSystem    Placement = "system_context"
-	PlacementDeveloper Placement = "developer_context"
+	PlacementUser      = fpcontext.PlacementUser
+	PlacementSystem    = fpcontext.PlacementSystem
+	PlacementDeveloper = fpcontext.PlacementDeveloper
 )
 
 // NormalizePlacement returns the default provider-visible placement.
 func NormalizePlacement(placement Placement) Placement {
-	switch placement {
-	case PlacementSystem, PlacementDeveloper:
-		return placement
-	default:
-		return PlacementUser
-	}
+	return fpcontext.NormalizePlacement(placement)
 }
 
-// RenderReason describes why context is being materialized.
-type RenderReason string
+type RenderReason = fpcontext.RenderReason
 
 const (
-	RenderInitial      RenderReason = "initial"
-	RenderTurn         RenderReason = "turn"
-	RenderToolFollowup RenderReason = "tool_followup"
-	RenderContinuation RenderReason = "continuation"
-	RenderResume       RenderReason = "resume"
+	RenderInitial      = fpcontext.RenderInitial
+	RenderTurn         = fpcontext.RenderTurn
+	RenderToolFollowup = fpcontext.RenderToolFollowup
+	RenderContinuation = fpcontext.RenderContinuation
+	RenderResume       = fpcontext.RenderResume
 )
 
-// ProviderSpec describes a context provider without binding it to an
-// implementation.
-type ProviderSpec struct {
-	Name             ProviderName      `json:"name"`
-	Description      string            `json:"description,omitempty"`
-	Kinds            []BlockKind       `json:"kinds,omitempty"`
-	DefaultPlacement Placement         `json:"default_placement,omitempty"`
-	Annotations      map[string]string `json:"annotations,omitempty"`
-}
-
-// Validate checks that the context provider spec has a stable identity.
-func (s ProviderSpec) Validate() error {
-	if strings.TrimSpace(string(s.Name)) == "" {
-		return fmt.Errorf("context: provider spec name is empty")
-	}
-	return nil
-}
+type ProviderSpec = fpcontext.Spec
 
 // Request describes one context-building request.
 type Request struct {
@@ -102,22 +71,36 @@ type Request struct {
 	Previous      *ProviderRenderRecord      `json:"previous,omitempty"`
 }
 
-// Block is one structured context contribution.
-type Block struct {
-	ID          string             `json:"id,omitempty"`
-	Provider    ProviderName       `json:"provider,omitempty"`
-	Kind        BlockKind          `json:"kind,omitempty"`
-	Placement   Placement          `json:"placement,omitempty"`
-	Title       string             `json:"title,omitempty"`
-	Content     string             `json:"content,omitempty"`
-	URI         string             `json:"uri,omitempty"`
-	MediaType   string             `json:"media_type,omitempty"`
-	Priority    int                `json:"priority,omitempty"`
-	Tokens      int                `json:"tokens,omitempty"`
-	Sensitivity policy.Sensitivity `json:"sensitivity,omitempty"`
-	Freshness   Freshness          `json:"freshness,omitempty"`
-	Metadata    map[string]string  `json:"metadata,omitempty"`
+// RequestFromPortable wraps a runtime-neutral context request in Core's
+// evidence-aware request shape.
+func RequestFromPortable(req fpcontext.Request) Request {
+	return Request{
+		ThreadID:      req.ThreadID,
+		BranchID:      req.BranchID,
+		TurnID:        req.TurnID,
+		Reason:        req.Reason,
+		InputText:     req.InputText,
+		RecentContext: req.RecentContext,
+		Scope:         cloneStringMap(req.Scope),
+		BudgetTokens:  req.BudgetTokens,
+	}
 }
+
+// Portable returns the runtime-neutral portion of this Core context request.
+func (r Request) Portable() fpcontext.Request {
+	return fpcontext.Request{
+		ThreadID:      r.ThreadID,
+		BranchID:      r.BranchID,
+		TurnID:        r.TurnID,
+		Reason:        r.Reason,
+		InputText:     r.InputText,
+		RecentContext: r.RecentContext,
+		Scope:         cloneStringMap(r.Scope),
+		BudgetTokens:  r.BudgetTokens,
+	}
+}
+
+type Block = fpcontext.Block
 
 // Provider is the minimal core port for producing structured context blocks.
 type Provider interface {
@@ -177,6 +160,20 @@ type BuildRequest struct {
 	Observations  []coreevidence.Observation            `json:"observations,omitempty"`
 	BudgetTokens  int                                   `json:"budget_tokens,omitempty"`
 	Previous      map[ProviderName]ProviderRenderRecord `json:"previous,omitempty"`
+}
+
+// Portable returns the runtime-neutral portion of this materialization request.
+func (r BuildRequest) Portable() fpcontext.Request {
+	return fpcontext.Request{
+		ThreadID:      r.ThreadID,
+		BranchID:      r.BranchID,
+		TurnID:        r.TurnID,
+		Reason:        r.Reason,
+		InputText:     r.InputText,
+		RecentContext: r.RecentContext,
+		Scope:         cloneStringMap(r.Scope),
+		BudgetTokens:  r.BudgetTokens,
+	}
 }
 
 // BuildResult is the context delta and next committed render state.
@@ -243,4 +240,15 @@ func RegisterEvents(registry *event.Registry) error {
 		}
 	}
 	return nil
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }

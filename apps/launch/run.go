@@ -36,14 +36,10 @@ import (
 	security "github.com/fluxplane/fluxplane-core/orchestration/security"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/taskexecutor"
-	"github.com/fluxplane/fluxplane-core/plugins/bundles/coding"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/openapi"
 	"github.com/fluxplane/fluxplane-core/plugins/integrations/slack"
-	browserplugin "github.com/fluxplane/fluxplane-core/plugins/native/browser"
 	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/fluxplane/fluxplane-core/plugins/native/discovery"
 	goalplugin "github.com/fluxplane/fluxplane-core/plugins/native/goal"
-	"github.com/fluxplane/fluxplane-core/plugins/native/human"
 	"github.com/fluxplane/fluxplane-core/plugins/native/identity"
 	"github.com/fluxplane/fluxplane-core/plugins/native/loop"
 	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
@@ -124,11 +120,6 @@ type PluginFactoryContext struct {
 	TaskRunner         task.TaskRunner
 	NativeAuthStore    sharedsecret.FileStore
 	NativeAuthResolver sharedsecret.Resolver
-}
-
-type nativePluginOptions struct {
-	Browser *browserplugin.Plugin
-	Human   *human.Plugin
 }
 
 // Runtime is the composed local runtime plus the resources needed by hosting
@@ -290,18 +281,6 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	}
 	runtimeSystem := security.WithAuthorization(hostSystem, security.AuthConfig{TraceAllows: opts.Debug})
 	runtimeWorkspace := security.WorkspaceWithAuthorization(hostSystem.Workspace(), security.AuthConfig{TraceAllows: opts.Debug})
-	clarifier := terminal.Prompter{In: os.Stdin, Out: os.Stderr}
-	browserPlugin := browserplugin.New(browserplugin.Config{
-		AuthorizeURL: security.NetworkURLAuthorizer(security.AuthConfig{TraceAllows: opts.Debug}),
-		FileSystem:   runtimeWorkspace.System().FileSystem(),
-		Headless:     browserHeadless(),
-	})
-	humanPlugin := human.NewWithConfig(human.Config{
-		Process:   runtimeSystem.Process(),
-		Clarifier: clarifier,
-	})
-	nativePlugins := nativePluginOptions{Browser: &browserPlugin, Human: &humanPlugin}
-
 	var semanticIndex interface{ Close() error }
 	var dataStore coredata.Store
 	var closeDataStore func() error
@@ -364,7 +343,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		AuthPath:           opts.AuthPath,
 		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 	})
-	available := availablePluginsWithOptions(runtimeSystem, runtimeWorkspace, dispatcher, taskScheduler, auth.Store, auth.Resolver, nativePlugins)
+	available := availablePluginsWithOptions(runtimeSystem, runtimeWorkspace, dispatcher, taskScheduler, auth.Store, auth.Resolver)
 	if opts.PluginFactory != nil {
 		available = opts.PluginFactory(PluginFactoryContext{
 			System:             runtimeSystem,
@@ -557,15 +536,6 @@ func systemWorkspaceConfig(cfg distribution.WorkspaceConfig) runtimeworkspace.Wo
 	return out
 }
 
-func browserHeadless() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("FLUXPLANE_BROWSER_HEADLESS"))) {
-	case "0", "false", "no", "off":
-		return false
-	default:
-		return true
-	}
-}
-
 func firstToolProjection(value, fallback fluxplane.ToolProjectionConfig) fluxplane.ToolProjectionConfig {
 	if value.AllowSideEffects ||
 		value.AllowApprovalRequired ||
@@ -644,15 +614,13 @@ func availablePlugins(hostSystem fpsystem.System, ws runtimeworkspace.Workspace,
 }
 
 func availablePluginsWithAuth(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver) []pluginhost.Plugin {
-	return availablePluginsWithOptions(hostSystem, ws, dispatcher, taskRunner, nativeStore, nativeResolver, nativePluginOptions{})
+	return availablePluginsWithOptions(hostSystem, ws, dispatcher, taskRunner, nativeStore, nativeResolver)
 }
 
-func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver, opts nativePluginOptions) []pluginhost.Plugin {
-	var process fpsystem.ProcessManager
+func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver) []pluginhost.Plugin {
 	var environment fpsystem.Environment
 	var network fpsystem.Network
 	if hostSystem != nil {
-		process = hostSystem.Process()
 		environment = hostSystem.Environment()
 		network = hostSystem.Network()
 	}
@@ -660,18 +628,9 @@ func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace
 		workspace.New(ws),
 		discovery.New(),
 		identity.New(),
-		coding.New(coding.Config{
-			Workspace:   ws,
-			Process:     process,
-			Environment: environment,
-			Network:     network,
-			Browser:     opts.Browser,
-			Human:       opts.Human,
-		}),
 		goalplugin.New(),
 		loop.New(),
 		slack.NewWithBoundariesAndResolver(slack.Boundaries{Network: network, Environment: environment}, dispatcher, nativeResolver, nativeStore),
-		openapi.NewWithBoundaries(openapi.Boundaries{Network: network, Environment: environment}, ws),
 		memory.New(),
 		task.NewWithConfig(task.Config{Runner: taskRunner, Workspace: ws}),
 		skills.New(),

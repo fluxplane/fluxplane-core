@@ -56,14 +56,10 @@ func TestIntentForProvider(t *testing.T) {
 }
 
 func TestIntentTargetMarkerMethods(t *testing.T) {
-	// Ensure all intentTarget() marker implementations compile and are callable.
+	// Ensure all target variants satisfy the marker interface through Core's
+	// operation re-export.
 	var _ IntentTarget = PathTarget{}
 	var _ IntentTarget = URLTarget{}
 	var _ IntentTarget = ProcessTarget{}
 	var _ IntentTarget = BrowserTarget{}
-	// Call each to confirm they don't panic.
-	PathTarget{}.intentTarget()
-	URLTarget{}.intentTarget()
-	ProcessTarget{}.intentTarget()
-	BrowserTarget{}.intentTarget()
 }

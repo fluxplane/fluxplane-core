@@ -1,6 +1,8 @@
-// Package context defines pure context model types.
+// Package context defines Core's agent-runtime context materialization layer.
 //
-// Context providers produce structured blocks. Core defines provider specs,
-// block metadata, sensitivity, freshness, and request shape. Provider execution
-// and IO-backed providers live outside core.
+// Portable provider specs, block metadata, freshness, placement, and request
+// fields live in github.com/fluxplane/fluxplane-context and are re-exported
+// here where Core APIs already use them. This package adds only Core-specific
+// runtime concerns: provider interfaces, evidence-aware requests, render
+// records/diffs, committed state, and context render events.
 package context

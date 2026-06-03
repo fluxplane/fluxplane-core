@@ -1,11 +1,8 @@
-// Package operation defines the pure core model for executable units.
+// Package operation re-exports the portable operation contract from
+// github.com/fluxplane/fluxplane-operation for existing Core APIs.
 //
-// An Operation is the smallest executable domain primitive: it receives one
-// input value and returns one result. The core package describes operation
-// identity, input/output contracts, semantic effect claims, result/error shapes,
-// and inert event payloads.
-//
-// Core operation intentionally does not define middleware, validators,
+// Runtime and orchestration packages may add middleware, validators,
 // persistence, logging, approval prompts, retries, timeouts, rendering, or live
-// event emission. Those are runtime or orchestration concerns.
+// event emission around this contract. The contract itself is owned by the leaf
+// module.
 package operation

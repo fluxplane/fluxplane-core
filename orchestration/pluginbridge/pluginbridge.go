@@ -16,8 +16,10 @@ import (
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	sdkmanifest "github.com/fluxplane/fluxplane-plugin/manifest"
+	"github.com/fluxplane/fluxplane-plugin/pluginbinding"
 	"github.com/fluxplane/fluxplane-plugin/pluginruntime"
 	"github.com/fluxplane/fluxplane-plugin/protocol"
+	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 
 const (
@@ -52,6 +54,7 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
+var _ pluginhost.AuthTestContributor = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.ContextProviderContributor = Plugin{}
 
@@ -150,6 +153,81 @@ func (p Plugin) AuthMethods(context.Context, pluginhost.Context) ([]auth.MethodS
 	return out, nil
 }
 
+// TestConnection asks the SDK plugin runtime to test auth for one Core plugin
+// instance.
+func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context, req pluginhost.AuthTestRequest, reports chan<- pluginhost.AuthTestReport) error {
+	ref := req.Ref
+	if ref.Name == "" {
+		ref = pluginCtx.Ref
+	}
+	if ref.Name == "" {
+		ref.Name = p.manifest.Name
+	}
+	method := firstNonEmpty(req.Method, firstAuthMethod(p.manifest.Auth))
+	material, err := p.authMaterial(ctx, ref.InstanceName(), method, req.Secrets)
+	if err != nil {
+		sendAuthTestReport(reports, p.manifest.Name, ref.InstanceName(), method, "auth.test", "failed", err.Error(), nil)
+		return nil
+	}
+	host, err := pluginruntime.NewHost(p.runtime)
+	if err != nil {
+		sendAuthTestReport(reports, p.manifest.Name, ref.InstanceName(), method, "auth.test", "failed", err.Error(), nil)
+		return nil
+	}
+	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(ref.InstanceName())}
+	if p.hostCaller != nil {
+		options = append(options, pluginruntime.WithHostCaller(p.hostCaller(pluginCtx)))
+	}
+	resp, err := host.Invoke(ctx, p.manifest.Name, protocol.CommandAuthTest, material, options...)
+	if err != nil {
+		sendAuthTestReport(reports, p.manifest.Name, ref.InstanceName(), method, "auth.test", "failed", err.Error(), nil)
+		return nil
+	}
+	if !resp.OK {
+		sendAuthTestReport(reports, p.manifest.Name, ref.InstanceName(), method, "auth.test", "failed", pluginErrorMessage(resp.Error), nil)
+		return nil
+	}
+	status, message, details := decodeAuthTestResult(resp.Result)
+	sendAuthTestReport(reports, p.manifest.Name, ref.InstanceName(), method, "auth.test", status, message, details)
+	return nil
+}
+
+func (p Plugin) authMaterial(ctx context.Context, instance, method string, resolver sharedsecret.Resolver) (sdkmanifest.AuthMaterial, error) {
+	material := sdkmanifest.AuthMaterial{Method: strings.TrimSpace(method)}
+	if resolver == nil {
+		return material, nil
+	}
+	declared, ok := authMethodDeclaration(p.manifest.Auth, material.Method)
+	if !ok {
+		return material, nil
+	}
+	values := map[string]string{}
+	for _, field := range declared.Fields {
+		slot := strings.TrimSpace(field.Name)
+		if slot == "" {
+			continue
+		}
+		if value, ok, err := resolveSecretString(ctx, resolver, sharedsecret.Plugin(p.manifest.Name, instance, sharedsecret.Slot(slot))); err != nil {
+			return material, err
+		} else if ok {
+			values[slot] = value
+			continue
+		}
+		for _, env := range field.Env {
+			if value, ok, err := resolveSecretString(ctx, resolver, sharedsecret.Env(env)); err != nil {
+				return material, err
+			} else if ok {
+				values[slot] = value
+				break
+			}
+		}
+	}
+	if len(values) > 0 {
+		material.Values = values
+	}
+	return material, nil
+}
+
 // ContextProviders returns runtime context providers backed by plugin protocol
 // context build calls.
 func (p Plugin) ContextProviders(_ context.Context, ctx pluginhost.Context) ([]corecontext.Provider, error) {
@@ -219,9 +297,12 @@ func (o bridgedOperation) Run(ctx operation.Context, input operation.Value) oper
 		return operation.Failed("plugin_operation_failed", err.Error(), nil)
 	}
 	if !resp.OK {
+		if pluginErrorCode(resp.Error, "") == "canceled" {
+			return operation.Canceled(pluginErrorMessage(resp.Error))
+		}
 		return operation.Failed(pluginErrorCode(resp.Error, "plugin_operation_failed"), pluginErrorMessage(resp.Error), nil)
 	}
-	output, err := decodeValue(resp.Result)
+	output, err := decodeOperationOutput(resp.Result)
 	if err != nil {
 		return operation.Failed("plugin_result_decode_failed", err.Error(), nil)
 	}
@@ -242,9 +323,18 @@ func (p bridgedContextProvider) Spec() corecontext.ProviderSpec {
 }
 
 func (p bridgedContextProvider) Build(ctx context.Context, req corecontext.Request) ([]corecontext.Block, error) {
-	payload := map[string]any{
-		"query": strings.TrimSpace(firstNonEmpty(req.InputText, req.RecentContext)),
-		"limit": req.BudgetTokens,
+	portable := req.Portable()
+	payload := pluginbinding.ContextBuildInput{
+		ThreadID:      portable.ThreadID,
+		BranchID:      portable.BranchID,
+		TurnID:        portable.TurnID,
+		Reason:        portable.Reason,
+		InputText:     portable.InputText,
+		RecentContext: portable.RecentContext,
+		Scope:         cloneStringMap(portable.Scope),
+		BudgetTokens:  portable.BudgetTokens,
+		Query:         strings.TrimSpace(firstNonEmpty(portable.InputText, portable.RecentContext)),
+		Limit:         portable.BudgetTokens,
 	}
 	if len(p.spec.Kinds) > 0 {
 		kinds := make([]string, 0, len(p.spec.Kinds))
@@ -253,7 +343,7 @@ func (p bridgedContextProvider) Build(ctx context.Context, req corecontext.Reque
 				kinds = append(kinds, string(kind))
 			}
 		}
-		payload["kinds"] = kinds
+		payload.Kinds = kinds
 	}
 	host, err := pluginruntime.NewHost(p.runtime)
 	if err != nil {
@@ -270,32 +360,16 @@ func (p bridgedContextProvider) Build(ctx context.Context, req corecontext.Reque
 	if !resp.OK {
 		return nil, fmt.Errorf("%s", pluginErrorMessage(resp.Error))
 	}
-	var result struct {
-		Blocks []struct {
-			ID       string            `json:"id,omitempty"`
-			Kind     string            `json:"kind,omitempty"`
-			Title    string            `json:"title,omitempty"`
-			Content  string            `json:"content,omitempty"`
-			URI      string            `json:"uri,omitempty"`
-			Priority int               `json:"priority,omitempty"`
-			Metadata map[string]string `json:"metadata,omitempty"`
-		} `json:"blocks"`
-	}
+	var result pluginbinding.ContextBuildResult
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
 		return nil, err
 	}
 	out := make([]corecontext.Block, 0, len(result.Blocks))
 	for _, block := range result.Blocks {
-		out = append(out, corecontext.Block{
-			ID:       block.ID,
-			Provider: p.spec.Name,
-			Kind:     corecontext.BlockKind(block.Kind),
-			Title:    block.Title,
-			Content:  block.Content,
-			URI:      block.URI,
-			Priority: block.Priority,
-			Metadata: block.Metadata,
-		})
+		if block.Provider == "" {
+			block.Provider = p.spec.Name
+		}
+		out = append(out, block)
 	}
 	return out, nil
 }
@@ -563,6 +637,23 @@ func decodeValue(raw json.RawMessage) (any, error) {
 	return value, nil
 }
 
+func decodeOperationOutput(raw json.RawMessage) (any, error) {
+	value, err := decodeValue(raw)
+	if err != nil {
+		return nil, err
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return value, nil
+	}
+	text, _ := object["text"].(string)
+	data, hasData := object["data"]
+	if strings.TrimSpace(text) == "" || !hasData {
+		return value, nil
+	}
+	return operation.Rendered{Text: text, Data: data}, nil
+}
+
 func pluginErrorCode(err *protocol.Error, fallback string) string {
 	if err != nil && strings.TrimSpace(err.Code) != "" {
 		return err.Code
@@ -599,13 +690,13 @@ func contextSpecs(declarations []sdkmanifest.ContextSpec) []corecontext.Provider
 }
 
 func contextSpec(declaration sdkmanifest.ContextSpec) corecontext.ProviderSpec {
-	name := strings.TrimSpace(declaration.Name)
+	name := strings.TrimSpace(string(declaration.Name))
 	if name == "" {
 		return corecontext.ProviderSpec{}
 	}
 	kinds := make([]corecontext.BlockKind, 0, len(declaration.Kinds))
 	for _, kind := range declaration.Kinds {
-		if strings.TrimSpace(kind) != "" {
+		if strings.TrimSpace(string(kind)) != "" {
 			kinds = append(kinds, corecontext.BlockKind(kind))
 		}
 	}
@@ -638,6 +729,109 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func firstAuthMethod(methods []sdkmanifest.AuthMethod) string {
+	for _, method := range methods {
+		if strings.TrimSpace(method.Name) != "" {
+			return strings.TrimSpace(method.Name)
+		}
+	}
+	return ""
+}
+
+func authMethodDeclaration(methods []sdkmanifest.AuthMethod, name string) (sdkmanifest.AuthMethod, bool) {
+	trimmed := strings.TrimSpace(name)
+	for _, method := range methods {
+		if strings.TrimSpace(method.Name) == trimmed {
+			return method, true
+		}
+	}
+	if trimmed == "" && len(methods) == 1 {
+		return methods[0], true
+	}
+	return sdkmanifest.AuthMethod{}, false
+}
+
+func resolveSecretString(ctx context.Context, resolver sharedsecret.Resolver, ref sharedsecret.Ref) (string, bool, error) {
+	if resolver == nil {
+		return "", false, nil
+	}
+	material, ok, err := resolver.ResolveSecret(ctx, ref)
+	if err != nil || !ok {
+		return "", ok, err
+	}
+	value := strings.TrimSpace(string(material.Value))
+	if value == "" {
+		return "", false, nil
+	}
+	return value, true, nil
+}
+
+func decodeAuthTestResult(raw json.RawMessage) (string, string, map[string]string) {
+	var result struct {
+		Status  string         `json:"status,omitempty"`
+		Message string         `json:"message,omitempty"`
+		Text    string         `json:"text,omitempty"`
+		Summary string         `json:"summary,omitempty"`
+		Data    map[string]any `json:"data,omitempty"`
+		Details map[string]any `json:"details,omitempty"`
+	}
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &result)
+	}
+	status := firstNonEmpty(result.Status, stringFromAny(result.Data["status"]), "ok")
+	message := firstNonEmpty(result.Message, result.Text, result.Summary, stringFromAny(result.Data["message"]))
+	details := stringMap(result.Details)
+	if len(details) == 0 {
+		if nested, ok := result.Data["details"].(map[string]any); ok {
+			details = stringMap(nested)
+		}
+	}
+	return status, message, details
+}
+
+func sendAuthTestReport(reports chan<- pluginhost.AuthTestReport, plugin, instance, method, check, status, message string, details map[string]string) {
+	if reports == nil {
+		return
+	}
+	reports <- pluginhost.AuthTestReport{
+		Plugin:   strings.TrimSpace(plugin),
+		Instance: strings.TrimSpace(instance),
+		Method:   strings.TrimSpace(method),
+		Check:    strings.TrimSpace(check),
+		Status:   strings.TrimSpace(status),
+		Message:  strings.TrimSpace(message),
+		Details:  details,
+	}
+}
+
+func stringFromAny(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case fmt.Stringer:
+		return typed.String()
+	default:
+		return ""
+	}
+}
+
+func stringMap(values map[string]any) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for key, value := range values {
+		str := stringFromAny(value)
+		if strings.TrimSpace(key) != "" && str != "" {
+			out[strings.TrimSpace(key)] = str
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func entitySpec(declaration sdkmanifest.DatasourceSpec) coredatasource.EntitySpec {
@@ -759,4 +953,15 @@ func decodeDatasourceRecord(datasource coredatasource.Name, entity coredatasourc
 		out.Entity = coredatasource.EntityType(record.Entity)
 	}
 	return out, nil
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }

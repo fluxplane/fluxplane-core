@@ -6,9 +6,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/plugins/languages/golang"
 	"github.com/fluxplane/fluxplane-core/plugins/native/human"
-	"github.com/fluxplane/fluxplane-core/plugins/native/project"
 	coreevent "github.com/fluxplane/fluxplane-event"
 )
 
@@ -57,18 +55,8 @@ func TestAllCoversPluginContributedEventTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("human contributions: %v", err)
 	}
-	projectBundle, err := project.New(project.Config{}).Contributions(context.Background(), pluginhost.Context{})
-	if err != nil {
-		t.Fatalf("project contributions: %v", err)
-	}
-	goBundle, err := golang.New(golang.Config{}).Contributions(context.Background(), pluginhost.Context{})
-	if err != nil {
-		t.Fatalf("go contributions: %v", err)
-	}
 	var samples []coreevent.Event
 	samples = append(samples, humanBundle.EventTypes...)
-	samples = append(samples, projectBundle.EventTypes...)
-	samples = append(samples, goBundle.EventTypes...)
 	for _, sample := range samples {
 		if !catalog[string(sample.EventName())] {
 			t.Fatalf("catalog missing contributed event %s", sample.EventName())

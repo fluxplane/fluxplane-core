@@ -14,6 +14,7 @@ import (
 	sdkmanifest "github.com/fluxplane/fluxplane-plugin/manifest"
 	"github.com/fluxplane/fluxplane-plugin/pluginbinding"
 	"github.com/fluxplane/fluxplane-plugin/pluginruntime"
+	"github.com/fluxplane/fluxplane-plugin/protocol"
 	"github.com/fluxplane/fluxplane-secret"
 )
 
@@ -58,6 +59,36 @@ func TestPluginContributesAuthMethods(t *testing.T) {
 	}
 }
 
+func TestPluginAuthTestInvokesRuntime(t *testing.T) {
+	bridge, err := New(pluginruntime.Direct(testSDKPlugin()), testSDKPlugin().Manifest())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	reports := make(chan pluginhost.AuthTestReport, 1)
+	err = bridge.TestConnection(
+		context.Background(),
+		pluginhost.Context{Ref: resource.PluginRef{Name: "echo", Instance: "work"}},
+		pluginhost.AuthTestRequest{
+			Ref:    resource.PluginRef{Name: "echo", Instance: "work"},
+			Method: "token",
+			Secrets: secret.ResolverFunc(func(_ context.Context, ref secret.Ref) (secret.Material, bool, error) {
+				if ref != secret.Plugin("echo", "work", "token") {
+					return secret.Material{}, false, nil
+				}
+				return secret.Material{Ref: ref, Value: []byte("abc123")}, true, nil
+			}),
+		},
+		reports,
+	)
+	if err != nil {
+		t.Fatalf("TestConnection: %v", err)
+	}
+	report := <-reports
+	if report.Plugin != "echo" || report.Instance != "work" || report.Method != "token" || report.Status != "ok" || report.Details["token"] != "abc123" {
+		t.Fatalf("report = %#v", report)
+	}
+}
+
 func TestPluginOperationInvokesRuntime(t *testing.T) {
 	bridge, err := New(pluginruntime.Direct(testSDKPlugin()), testSDKPlugin().Manifest())
 	if err != nil {
@@ -92,12 +123,21 @@ func TestPluginContextProviderInvokesRuntime(t *testing.T) {
 	if len(providers) != 1 || providers[0].Spec().Name != "echo.context" {
 		t.Fatalf("providers = %#v", providers)
 	}
-	blocks, err := providers[0].Build(context.Background(), corecontext.Request{InputText: "hello"})
+	blocks, err := providers[0].Build(context.Background(), corecontext.Request{
+		ThreadID:  "thread-1",
+		TurnID:    "turn-1",
+		Reason:    corecontext.RenderTurn,
+		InputText: "hello",
+		Scope:     map[string]string{"env": "prod"},
+	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(blocks) != 1 || blocks[0].Provider != "echo.context" || blocks[0].Kind != corecontext.BlockText || blocks[0].Content != "context: hello" {
+	if len(blocks) != 1 || blocks[0].Provider != "echo.context" || blocks[0].Kind != corecontext.BlockText || blocks[0].Content != "context: hello thread-1 turn-1 turn prod" {
 		t.Fatalf("blocks = %#v", blocks)
+	}
+	if blocks[0].Placement != corecontext.PlacementSystem || blocks[0].MediaType != "text/plain" || blocks[0].Freshness != corecontext.FreshnessDynamic {
+		t.Fatalf("block metadata = %#v", blocks[0])
 	}
 }
 
@@ -214,10 +254,29 @@ func testSDKPlugin() *pluginbinding.Plugin {
 		}),
 		pluginbinding.RegisterContextProvider(contextSpec, func(_ pluginbinding.Context, input pluginbinding.ContextBuildInput) (pluginbinding.ContextBuildResult, error) {
 			return pluginbinding.ContextBuildResult{Blocks: []sdkmanifest.ContextBlock{{
-				ID:      "echo/context",
-				Kind:    pluginbinding.ContextKindText,
-				Content: "context: " + input.Query,
+				ID:        "echo/context",
+				Kind:      pluginbinding.ContextKindText,
+				Placement: corecontext.PlacementSystem,
+				Content:   "context: " + input.Query + " " + input.ThreadID + " " + input.TurnID + " " + string(input.Reason) + " " + input.Scope["env"],
+				MediaType: "text/plain",
+				Freshness: corecontext.FreshnessDynamic,
 			}}}, nil
 		}),
+		func(plugin *pluginbinding.Plugin) {
+			plugin.Command(protocol.CommandAuthTest, func(ctx pluginbinding.Context) protocol.Response {
+				material, err := protocol.DecodePayload[sdkmanifest.AuthMaterial](ctx.Request.Payload)
+				if err != nil {
+					return protocol.Fail("bad_auth_payload", err.Error())
+				}
+				if material.Method != "token" || material.Values["token"] != "abc123" {
+					return protocol.Fail("bad_auth_material", "unexpected auth material")
+				}
+				return protocol.OK(map[string]any{
+					"status":  "ok",
+					"message": "token accepted",
+					"details": map[string]string{"token": material.Values["token"]},
+				})
+			})
+		},
 	)
 }

@@ -8,7 +8,7 @@ Target outcome:
 
 - `fluxplane-core` no longer carries heavy optional integration dependencies.
 - `coder` and `fluxplane-apps/slack-bot` are products built on top of `fluxplane-core` plus selected plugins.
-- Third-party integrations such as GitLab, Slack, Jira, Confluence, Kubernetes, Docker, Loki, SQL, OpenAI, etc. live outside core.
+- Third-party operation/datasource integrations such as GitLab, Slack API surfaces, Jira, Confluence, Kubernetes, Docker, Loki, SQL, OpenAI, etc. live outside core. Runtime/channel adapters such as the Slack channel belong to Core.
 - A plugin implementation can expose the same manifest and behavior through:
   - direct Go binding, for embedded product use;
   - stdio/CLI protocol binding, for install-on-demand or external execution.
@@ -299,7 +299,8 @@ A product may embed a plugin directly when the integration is core to the produc
 
 Example:
 
-- `fluxplane-apps/slack-bot` may directly import the Slack plugin.
+- `fluxplane-apps/slack-bot` uses Core's Slack channel adapter for transport/runtime integration.
+- `fluxplane-apps/slack-bot` may also directly import the standalone Slack plugin for Slack operations/datasources.
 - `coder` should usually use GitLab/Jira/Slack via managed external plugins unless a distribution intentionally embeds them.
 
 ## Direct Binding + Stdio Binding
@@ -373,7 +374,6 @@ fluxplane-plugin
   ├── fluxplane-core
   ├── fluxplane-dex
   ├── fluxplane-plugins/native
-  ├── fluxplane-plugins/languages/golang
   ├── fluxplane-plugins/integrations/gitlab
   └── ...
 
@@ -540,18 +540,28 @@ Acceptance criteria:
   - OpenAI SDK.
 - Core tests pass.
 
-### Phase 4: Move Coding/Native/Language Plugins Out of Core
+### Phase 4: Move Product Plugins Out of Core
 
-Create modules for product-native tools:
+Move coding-product tools into coder-owned packages:
 
 ```text
-fluxplane-plugins/coding
-fluxplane-plugins/native/*
-fluxplane-plugins/languages/golang
-fluxplane-plugins/languages/markdown
+coder/internal/plugins/coding
+coder/internal/plugins/native/filesystem
+coder/internal/plugins/native/shell
+coder/internal/plugins/native/project
+coder/internal/plugins/native/browser
+coder/internal/plugins/native/code
+coder/internal/plugins/languages/golang
+coder/internal/plugins/languages/markdown
 ```
 
-Move:
+Move reusable external integrations into `fluxplane-plugins`:
+
+```text
+fluxplane-plugins/integrations/git
+```
+
+Source packages:
 
 ```text
 fluxplane-core/plugins/bundles/coding
@@ -560,7 +570,6 @@ fluxplane-core/plugins/native/shell
 fluxplane-core/plugins/native/project
 fluxplane-core/plugins/native/browser
 fluxplane-core/plugins/native/code
-fluxplane-core/plugins/native/human
 fluxplane-core/plugins/languages/golang
 fluxplane-core/plugins/languages/markdown
 fluxplane-core/plugins/integrations/git
@@ -568,13 +577,16 @@ fluxplane-core/plugins/integrations/git
 
 Product decision:
 
-- `coder` directly imports the coding bundle.
-- `fluxplane-core` does not.
+- `coder` directly embeds coding/native/language plugins.
+- `fluxplane-core` keeps runtime/session/domain plugins such as `human` until
+  that boundary is intentionally redesigned.
+- Do not create a shared `fluxplane-language` module unless a second non-coder
+  consumer needs the same language DTOs.
 
 Acceptance criteria:
 
 - `coder` has the same default coding tools after migration.
-- `fluxplane-core` no longer exports product-level plugin bundles.
+- `fluxplane-core` no longer exports product-level coding bundles.
 - Core dependency tree shrinks further.
 
 ### Phase 5: Make Product Plugin Policy Explicit
@@ -681,13 +693,13 @@ Optional managed plugin set:
 Target:
 
 - imports `fluxplane-core` for runtime;
-- either imports Slack plugin directly because Slack is product-essential, or uses managed external Slack;
-- Slack plugin remains outside core either way.
+- uses Core's Slack channel adapter for channel transport and runtime IO;
+- may import the standalone Slack plugin directly for Slack operations/datasources, or use it as a managed external plugin.
 
 Recommendation:
 
-- Direct import is acceptable for a Slack bot because Slack is not optional for that product.
-- Still keep Slack dependencies outside `fluxplane-core`.
+- Keep channel transport in Core because channels are part of the agent runtime boundary.
+- Keep Slack API operation/datasource implementation outside Core unless it is required by the channel adapter itself.
 
 ## Release and Compatibility Strategy
 
@@ -841,10 +853,16 @@ Implications for the plan:
 
 ### Planning Update: Reusable Plugin Management CLI Package Belongs In `fluxplane-plugin`
 
-`fluxplane-plugin` should provide an importable plugin-management CLI package and
-backend contracts. The default marketplace-aware standalone binary should live
-in `fluxplane-plugins`, because that repository owns the canonical plugin
-catalog.
+`fluxplane-plugin` should provide backend contracts, an importable
+plugin-management CLI package, and a standalone default CLI entrypoint. The
+standalone entrypoint must remain registry-agnostic: it discovers marketplace
+metadata through explicit files, `FLUXPLANE_PLUGIN_MARKETPLACE`, local
+development paths such as `../fluxplane-plugins/marketplace.json`, and the
+user-level `~/.fluxplane/plugins/marketplace.json` location.
+
+`fluxplane-plugins` may still provide a convenience marketplace-aware wrapper or
+registry package for distributions that want to embed the canonical plugin
+catalog, but that wrapper is not the reusable CLI source of truth.
 
 Target layout:
 
@@ -852,11 +870,12 @@ Target layout:
 fluxplane-plugin/
   management/             # backend-neutral plugin management interfaces and DTOs
   cli/                    # importable Cobra command tree
+  cmd/fluxplane-plugin/    # registry-agnostic standalone CLI entrypoint
 
 fluxplane-plugins/
   marketplace.json
   registry.go             # embedded canonical marketplace
-  cmd/fluxplane-plugin/   # marketplace-aware standalone CLI binary
+  cmd/fluxplane-plugin/   # optional canonical-registry wrapper/distribution binary
 ```
 
 Expected future UX:
@@ -873,14 +892,16 @@ Architecture:
 
 - `fluxplane-plugin/management` defines backend-neutral interfaces such as installer, registry, store, remover, runner, and manifest inspector.
 - `fluxplane-plugin/cli` owns the reusable Cobra command tree and depends only on `management`, not dex.
-- `fluxplane-plugins/cmd/fluxplane-plugin` imports `fluxplane-plugin/cli`, wires the local/default backend, and injects the canonical `fluxplane-plugins` registry.
+- `fluxplane-plugin/cmd/fluxplane-plugin` wires `fluxplane-plugin/cli` to the local/default backend without importing Dex, Core, or concrete plugin implementations.
+- `fluxplane-plugins/cmd/fluxplane-plugin`, if retained, imports `fluxplane-plugin/cli`, wires the local/default backend, and injects the canonical `fluxplane-plugins` registry for distribution convenience.
 - `fluxplane-dex`, while it exists, imports `fluxplane-plugin/cli` or SDK/runtime packages only as a compatibility wrapper. Products must not import Dex.
 
 Dependency rule:
 
 ```text
 fluxplane-plugin/cli -> fluxplane-plugin/management
-fluxplane-plugins    -> fluxplane-plugin/cli + fluxplane-plugin/management/local
+fluxplane-plugin/cmd -> fluxplane-plugin/cli + fluxplane-plugin/management/local
+fluxplane-plugins    -> fluxplane-plugin/cli + fluxplane-plugin/management/local, only for optional registry wrapper
 fluxplane-dex        -> fluxplane-plugin and fluxplane-plugins only while retained
 fluxplane-plugin     -> not fluxplane-dex
 fluxplane-plugin     -> not fluxplane-plugins
@@ -952,7 +973,8 @@ Completed in this batch:
 - `fluxplane-plugin` now owns a backend-neutral plugin management API under `management`.
 - `fluxplane-plugin` now owns an importable Cobra command tree under `cli`.
 - Added a `management/local` filesystem-backed backend owned by `fluxplane-plugin`, so consumers can install/list/search/remove local plugin metadata without dex.
-- The local backend currently stores plugin metadata in a JSON state file and does not yet execute plugin processes; `run` validates installation and reports that process execution is not implemented in the local backend yet.
+- The local backend stores plugin metadata in a JSON state file and executes configured stdio/CLI plugin processes for runtime-backed calls.
+- The reusable CLI/backend now covers plugin install/list/search/status/update/enable/disable/remove, auth methods/connect/test/status/disconnect, manifest inspection, operation list/invoke/batch, datasource list/search/get/lookup/records/batch-get, context list/build, endpoint discover/list/get/save/remove, and plugin `run`.
 - `fluxplane-plugin/protocol` is now consumed directly by `fluxplane-dex`.
 - Removed the duplicate `fluxplane-dex/protocol` package instead of adding a compatibility shim.
 - Updated dex test fixture module setup to replace/import `fluxplane-plugin` directly.
@@ -982,6 +1004,113 @@ Current caveat:
   `fluxplane-plugin` remains core-free/dex-free and registry-agnostic, while
   `fluxplane-plugins/cmd/fluxplane-plugin` owns the default marketplace-aware
   binary.
+
+### Progress Update: Reusable Endpoint Store Moved Into Plugin CLI Backend
+
+Completed in the current uncommitted batch:
+
+- Extended `fluxplane-plugin/management` with backend-neutral endpoint store contracts:
+  - list stored endpoint refs with optional product filtering;
+  - get endpoint refs by bare ID or `@endpoint/...` ref;
+  - save validated endpoint refs;
+  - remove endpoint refs, including dry-run support.
+- Implemented endpoint persistence in `fluxplane-plugin/management/local` using the local `~/.fluxplane/plugins/*` state model.
+- Added reusable CLI commands:
+
+  ```sh
+  fluxplane-plugin endpoint list --product loki
+  fluxplane-plugin endpoint get @endpoint/loki-dev
+  fluxplane-plugin endpoint save loki-dev http://loki:3100 --product loki
+  fluxplane-plugin endpoint remove loki-dev
+  ```
+
+- Added CLI fake-backend coverage for endpoint list/get/save/remove wiring.
+- Added local backend coverage proving endpoint save/list/get/remove persists through the state backend and normalizes endpoint URLs.
+
+Validation completed:
+
+```sh
+cd fluxplane-plugin
+go test ./management ./management/local ./cli
+go test ./...
+```
+
+Result: all `fluxplane-plugin` tests passed.
+
+### Progress Update: Endpoint Records And Health Are Now Reusable
+
+Completed in the current uncommitted batch:
+
+- Extended `fluxplane-plugin/management` endpoint store results to include full `fluxplane-endpoint.Record` values while preserving simple endpoint refs for existing CLI consumers.
+- Added reusable endpoint health storage contracts:
+  - `EndpointHealthRequest`;
+  - `EndpointHealthResult`;
+  - `EndpointStore.SaveEndpointHealth`.
+- Updated `fluxplane-plugin/management/local` to persist endpoint records with created/updated timestamps and `LastHealth`.
+- Preserved existing endpoint health when an endpoint ref is updated.
+- Added a reusable CLI command:
+
+  ```sh
+  fluxplane-plugin endpoint health @endpoint/loki-dev --ok --method tcp_connect --duration-ms 42
+  ```
+
+- Added CLI fake-backend coverage for endpoint health command wiring.
+- Added local backend coverage for endpoint records, health save, health preservation on update, and removal.
+
+Validation completed:
+
+```sh
+cd fluxplane-plugin
+go test ./management ./management/local ./cli
+go test ./...
+go test . -run 'Test.*Boundary|Test.*Import|Test.*Depend'
+rg "github.com/fluxplane/fluxplane-(core|dex)" . -g'*.go'
+```
+
+Result: all `fluxplane-plugin` tests passed, the boundary test passed, and the import scan found no Core/Dex Go imports.
+
+### Progress Update: Context Boundary Tightened Without Breaking Core APIs
+
+Completed in the current uncommitted batch:
+
+- Confirmed `fluxplane-context` is the canonical portable context DTO module for provider specs, request fields, block metadata, placement, freshness, and sensitivity.
+- Kept `fluxplane-core/core/context` as Core's agent-runtime materialization layer for evidence-aware requests, render records/diffs, committed render state, and context render events.
+- Added non-breaking conversion helpers in Core:
+  - `core/context.RequestFromPortable(fpcontext.Request)`;
+  - `core/context.Request.Portable()`;
+  - `core/context.BuildRequest.Portable()`.
+- Updated Core's plugin bridge to build SDK context payloads from the portable request projection instead of manually treating Core's evidence-aware request as the SDK shape.
+- Added tests proving portable conversion preserves runtime-neutral fields and copies mutable scope maps.
+
+Validation completed:
+
+```sh
+cd fluxplane-core
+go test ./core/context ./orchestration/pluginbridge
+
+cd ../fluxplane-context
+go test ./...
+```
+
+Result: all focused context and pluginbridge tests passed.
+
+### Progress Update: Coder No Longer Imports Core Integration Plugins In Tests
+
+Completed in the current uncommitted batch:
+
+- Removed remaining `github.com/fluxplane/fluxplane-core/plugins/integrations/*` imports from `coder` test code.
+- Replaced test-only dependency on old Core integration constants with local string constants for legacy operation/plugin names under assertion.
+- Added a `coder` architecture gate that fails if any Go source imports old Core integration plugin packages.
+
+Validation completed:
+
+```sh
+cd coder
+go test . ./internal/product ./internal/runtime
+rg "github.com/fluxplane/fluxplane-core/plugins/integrations/" . -g'*.go'
+```
+
+Result: the focused coder tests passed. The import scan found only the forbidden prefix literal inside the new architecture test.
 
 ### Progress Update: Pure Datasource And Host SDK Packages
 
@@ -1558,41 +1687,29 @@ Acceptance criteria:
 
 - Datasource plugin contracts do not require core or dex.
 
-### Step 15: Decide Where The Dex-To-Core Adapter Lives
+### Step 15: Delete Dex As An Integration Bridge
 
-After the SDK contracts are extracted, the original copied package is really an adapter:
+The end state does not need a Dex-to-Core adapter. Dex is, at most, a temporary
+CLI compatibility/drain target. Products and Core should use `fluxplane-plugin`
+contracts and selected concrete `fluxplane-plugins` modules directly.
 
-```text
-dex plugin registry/runtime -> Fluxplane host plugin/contributor surfaces
-```
+Actions:
 
-That adapter should not be in the base SDK long-term.
-
-Options:
-
-1. Move it back to dex:
-
-   ```text
-   fluxplane-dex/adapter/fluxplane
-   ```
-
-2. Create a separate module:
-
-   ```text
-   ../fluxplane-dex-adapter
-   ```
-
-3. Keep it temporarily under `fluxplane-plugin/adapter/dexcore` while extracting contracts, then move it out.
-
-Recommendation:
-
-- Keep base SDK pure.
-- Move dex-engine-specific adapter code to dex or `fluxplane-dex-adapter` after the standalone contracts exist.
+1. Move any remaining useful Dex behavior into `fluxplane-plugin` reusable CLI,
+   management, auth, datasource, endpoint, manifest, and operation packages.
+2. Keep Core plugin integration in Core bridge packages that adapt
+   `fluxplane-plugin` runtime contracts into Core contribution/runtime
+   surfaces.
+3. Remove Dex-facing adapter packages once parity is reached.
+4. Keep products free of Dex imports permanently.
 
 Acceptance criteria:
 
-- `github.com/fluxplane/fluxplane-plugin` root/base packages do not import dex or core.
-- Any adapter that imports both dex and core is in a clearly named adapter module/package, not in SDK contract packages.
+- `github.com/fluxplane/fluxplane-plugin` root/base packages do not import Dex
+  or Core.
+- `fluxplane-core` does not import Dex.
+- `coder` and `fluxplane-apps/slack-bot` do not import Dex.
+- No adapter imports both Dex and Core.
 
 ### Step 16: Update Dex To Consume `fluxplane-plugin`
 
@@ -1903,20 +2020,20 @@ Keep in coding/native plugin modules:
 - concrete project inventory scanning;
 - language-specific project detection.
 
-#### `../fluxplane-language`
+#### Coding Language Contracts
 
-Move generic language/toolchain contracts out of `core/language` and `runtime/language`:
+Do not extract a generic `fluxplane-language` module by default. The current Go
+and Markdown language surfaces are coding-product capabilities, not broad
+runtime primitives.
 
-- language IDs;
-- package/symbol/ref DTOs;
-- toolchain metadata;
-- build/test/fmt/vet operation contracts.
+Keep coding language contracts and implementations with the product that owns
+the coding experience:
 
-Keep implementations in plugin modules:
-
-- Go language plugin;
-- Markdown plugin;
-- future language plugins.
+- move Go language DTOs/operations and implementation into `coder`;
+- move Markdown language DTOs/operations and implementation into `coder`;
+- move coding bundle composition into `coder`;
+- only revisit a standalone language contract if a non-coder product needs the
+  same language DTOs without importing coder.
 
 #### `../fluxplane-data` Or Continue `../fluxplane-datasource`
 
@@ -1929,21 +2046,23 @@ Move only pure DTOs/interfaces. Keep stores, mirrors, field indexes, semantic in
 
 ### Product/Plugin Implementation Modules To Move Out Of Core
 
-These are not just contracts; they should become plugin implementation modules or move into a plugin monorepo:
+These are not just contracts. They split by ownership: coding-specific
+capabilities move into `coder`; reusable external integrations move into
+`fluxplane-plugins`; Core-runtime capabilities stay in Core.
 
 ```text
-../fluxplane-plugins/coding
-../fluxplane-plugins/native/filesystem
-../fluxplane-plugins/native/shell
-../fluxplane-plugins/native/project
-../fluxplane-plugins/native/browser
-../fluxplane-plugins/native/code
-../fluxplane-plugins/native/human
-../fluxplane-plugins/languages/golang
-../fluxplane-plugins/languages/markdown
+coder/internal/plugins/coding
+coder/internal/plugins/filesystem
+coder/internal/plugins/shell
+coder/internal/plugins/project
+coder/internal/plugins/browser
+coder/internal/plugins/code
+coder/internal/plugins/languages/golang
+coder/internal/plugins/languages/markdown
+
 ../fluxplane-plugins/integrations/git
 ../fluxplane-plugins/integrations/gitlab
-../fluxplane-plugins/integrations/slack
+../fluxplane-plugins/integrations/slack        # operations/datasources only
 ../fluxplane-plugins/integrations/jira
 ../fluxplane-plugins/integrations/confluence
 ../fluxplane-plugins/integrations/kubernetes
@@ -1952,9 +2071,31 @@ These are not just contracts; they should become plugin implementation modules o
 ../fluxplane-plugins/integrations/sql
 ../fluxplane-plugins/integrations/aws
 ../fluxplane-plugins/integrations/openai
-../fluxplane-plugins/integrations/openapi
+../fluxplane-plugins/openapi                       # generated operations/datasources from OpenAPI specs
 ../fluxplane-plugins/integrations/websearch
+
+fluxplane-core/plugins/integrations/slack      # channel adapter stays in Core
+fluxplane-core/plugins/native/identity         # runtime/domain plugin stays
+fluxplane-core/plugins/native/goal             # runtime/domain plugin stays
+fluxplane-core/plugins/native/loop             # runtime/domain plugin stays
+fluxplane-core/plugins/native/sessionhistory   # runtime/domain plugin stays
+fluxplane-core/plugins/native/usage            # runtime/domain plugin stays
+fluxplane-core/plugins/native/task             # runtime/domain plugin stays
 ```
+
+Notes:
+
+- Coding, language, and coding bundle plugins are product-owned by `coder`.
+- Native filesystem/shell/project/browser/code plugins should move with coder
+  while they model coding workspace behavior. Extract them later only if another
+  product needs the same non-coding behavior.
+- Git is a reusable external integration and should move to
+  `fluxplane-plugins`.
+- Slack has two surfaces: Core owns the channel adapter; `fluxplane-plugins`
+  owns Slack operation/datasource behavior.
+- Core keeps agent-runtime, channel, session, loop, goal, identity, task, usage,
+  memory, skills, datasource/discovery, and contribution-domain plugins until a
+  deliberate leaf contract exists for each boundary.
 
 ## Updated Immediate Next Actions
 
@@ -2237,24 +2378,1310 @@ coverage. The Core provider-SDK dependency gate still cannot be made failing
 until Core native/language/integration plugin extraction removes the existing
 provider SDK imports from `fluxplane-core/go.mod`.
 
+### Progress Update: Core Bridge Host Capabilities And Auth Test
+
+Completed in this batch:
+
+- Added `fluxplane-core/orchestration/pluginbridge.NewSystemHostCaller`:
+  - adapts Core's `fluxplane-system` boundary to
+    `fluxplane-plugin/protocol.HostCaller`;
+  - supports SDK host capability calls for environment lookup, HTTP, blob
+    read/write/info, and pluggable provider calls;
+  - routes HTTP through Core's `systemkit.DoHTTP` / `fluxplane-system.Network`;
+  - routes blob reads/writes through Core's `fluxplane-system.FileSystem`;
+  - exposes `NewSystemHostCallerFactory` so products can wire the adapter into
+    `WithHostCallerFactory` without duplicating closure glue.
+- Extended `pluginbridge.Plugin` to implement Core
+  `pluginhost.AuthTestContributor`:
+  - maps Core auth-test requests into SDK `auth.test` runtime calls;
+  - resolves declared auth fields from Core `fluxplane-secret.Resolver`
+    instances when available;
+  - normalizes SDK auth-test responses into Core `AuthTestReport` records.
+- Clarified the bridge boundary:
+  - Core has an auth-test contributor contract and now bridges SDK auth tests;
+  - auth connect remains owned by the reusable `fluxplane-plugin` CLI/backend
+    because Core currently has no auth-connect contributor contract.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-core && go test ./orchestration/pluginbridge
+cd ../fluxplane-core && go test ./orchestration/...
+```
+
+Result: tests passed for the focused bridge package and the broader
+orchestration packages.
+
+### Progress Update: Concrete Product Wiring To Fluxplane Plugins
+
+Completed in this batch:
+
+- Added concrete product helpers for the canonical
+  `github.com/fluxplane/fluxplane-plugins/system` module:
+  - `coder/internal/runtime.SystemPlugin`;
+  - `fluxplane-apps/slack-bot.SystemPlugin`.
+- Updated product `BridgePlugin` helpers to accept Core bridge options, so
+  products can pass host capability factories without reimplementing bridge
+  glue.
+- Wired the system plugin helpers with:
+  - `pluginruntime.Direct(systemplugin.NewPlugin())`;
+  - `pluginbridge.WithHostCallerFactory`;
+  - `pluginbridge.NewSystemHostCallerFactory`;
+  - `pluginbridge.WithSystemInfoProvider`.
+- Added product tests proving coder and Slack Bot can import a real
+  `fluxplane-plugins` module, resolve it through Core's pluginhost, and execute
+  `system.info` through the Core host-capability bridge.
+- Added local `go.mod` requirements/replaces for
+  `github.com/fluxplane/fluxplane-plugins/system` in coder and Slack Bot.
+
+Validation completed:
+
+```sh
+cd ../coder && GOWORK=off go test ./internal/runtime
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+```
+
+Result: tests passed. Products still do not import Dex; they import Core,
+`fluxplane-plugin`, and an explicit concrete plugin module from
+`fluxplane-plugins`.
+
+### Progress Update: Core Architecture Gates
+
+Completed in this batch:
+
+- Added a Core module architecture test that forbids Core Go imports of:
+  - `github.com/fluxplane/fluxplane-dex`;
+  - `github.com/fluxplane/fluxplane-plugins`.
+- Added a Core `go.mod` provider-SDK gate:
+  - records the current direct provider SDK dependencies as a transitional
+    extraction allowlist;
+  - fails if new direct provider SDK dependencies are added to Core before the
+    extraction plan is updated.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-core && go test .
+cd ../fluxplane-core && go test ./orchestration/...
+```
+
+Result: tests passed. The provider-SDK gate intentionally does not fail on the
+existing Core provider SDK debt; it prevents the debt from growing while
+native/language/integration plugin extraction proceeds.
+
+### Progress Update: Canonical Context Contract
+
+Completed in this batch:
+
+- Promoted portable context concepts into the leaf `fluxplane-context` module:
+  - provider names/refs;
+  - block kinds;
+  - freshness;
+  - placement;
+  - render reasons;
+  - provider specs with default placement and annotations;
+  - blocks with provider, placement, media type, token, sensitivity, and
+    freshness metadata.
+- Changed `fluxplane-core/core/context` to reuse those portable leaf types via
+  aliases instead of redefining parallel DTOs.
+- Kept Core-only runtime concerns in `fluxplane-core/core/context`:
+  - provider execution interface;
+  - request observations;
+  - render records/diffs;
+  - context render events.
+- Updated `fluxplane-plugin/pluginbinding` to handle typed leaf context names
+  and block kinds while keeping its caller-facing helper API string-friendly.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-context && go test ./...
+cd ../fluxplane-plugin && go test ./pluginbinding ./pluginruntime ./management/local ./cli ./manifest ./protocol
+cd ../fluxplane-core && go test . ./core/... ./orchestration/...
+```
+
+Result: tests passed. Context-heavy plugin extraction can now target the leaf
+contract without losing Core placement/freshness metadata.
+
+### Progress Update: First Native Plugin Extracted From Core
+
+Completed in this batch:
+
+- Added `github.com/fluxplane/fluxplane-plugins/sleep`:
+  - SDK manifest;
+  - direct plugin constructor;
+  - stdio binary at `cmd/fluxplane-plugin-sleep`;
+  - operation tests for manifest quality, validation, rendered output, and
+    direct-runtime cancellation.
+- Extended `fluxplane-plugin/pluginbinding` and direct runtime execution so
+  direct SDK plugin handlers receive the caller's `context.Context`.
+- Added `sleep` to:
+  - `fluxplane-plugins/go.work`;
+  - root `go.work`;
+  - `fluxplane-plugins/README.md`;
+  - `fluxplane-plugins/marketplace.json`.
+- Switched coder's foundational sleep plugin from
+  `fluxplane-core/plugins/native/sleep` to the concrete
+  `fluxplane-plugins/sleep` module through Core's plugin bridge.
+- Removed the old Core-native `plugins/native/sleep` package.
+- Updated Core's plugin bridge so SDK operation responses shaped as
+  `{text,data}` become Core `operation.Rendered`, and SDK `canceled` errors map
+  back to Core canceled operation results.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugins/sleep && go test ./...
+cd ../fluxplane-plugins/sleep && GOWORK=off go test ./...
+cd ../fluxplane-plugins && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install sleep && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin operation invoke sleep sleep --input '{"duration":0}'
+cd ../coder && GOWORK=off go test ./internal/runtime
+cd ../fluxplane-core && go test . ./core/... ./orchestration/...
+```
+
+Result: tests passed. Coder now imports one concrete product-native plugin from
+`fluxplane-plugins` instead of Core, and the corresponding Core-native plugin
+package is gone.
+
+### Progress Update: Second Native Plugin Extracted From Core
+
+Implemented in this uncommitted batch:
+
+- Added `github.com/fluxplane/fluxplane-plugins/clock`:
+  - SDK manifest;
+  - direct plugin constructor with injectable clock/timezone options;
+  - stdio binary at `cmd/fluxplane-plugin-clock`;
+  - tests for manifest quality, caching, uptime/timezone rendering, and
+    context block metadata.
+- Added `clock` to:
+  - `fluxplane-plugins/go.work`;
+  - root `go.work`;
+  - `fluxplane-plugins/README.md`;
+  - `fluxplane-plugins/marketplace.json`.
+- Switched Slack Bot's default wall-clock context provider from
+  `fluxplane-core/plugins/native/clock` to the concrete
+  `fluxplane-plugins/clock` module through Core's plugin bridge.
+- Removed the old Core-native `plugins/native/clock` package.
+- Updated package documentation to make the context split explicit:
+  - `fluxplane-context` owns portable provider specs, requests, and blocks;
+  - `fluxplane-core/core/context` owns Core runtime materialization, render
+    records/diffs, evidence-aware requests, and events.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugins/clock && go test ./...
+cd ../fluxplane-plugins/clock && GOWORK=off go test ./...
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../fluxplane-core && go test . ./core/... ./orchestration/...
+cd ../fluxplane-context && GOWORK=off go test ./...
+cd ../fluxplane-plugin && go test ./...
+cd ../coder && GOWORK=off go test ./internal/runtime && go test .
+cd ../fluxplane-plugins && GOWORK=off go test ./...
+cd ../fluxplane-plugins && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install clock && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin manifest clock
+```
+
+Boundary checks completed:
+
+```sh
+rg '"github.com/fluxplane/fluxplane-dex' coder fluxplane-apps/slack-bot fluxplane-core fluxplane-plugin fluxplane-plugins -g '*.go' -g 'go.mod'
+rg 'plugins/native/(sleep|clock)|sleep\.New\(|clock\.New\(|github.com/fluxplane/fluxplane-core/plugins/native/clock|github.com/fluxplane/fluxplane-core/plugins/native/sleep' fluxplane-core coder fluxplane-apps/slack-bot -g '*.go'
+rg 'github.com/fluxplane/fluxplane-plugins' fluxplane-core -g '*.go' -g 'go.mod'
+rg 'github.com/fluxplane/fluxplane-core' fluxplane-plugin fluxplane-context fluxplane-plugins/clock fluxplane-plugins/sleep -g '*.go' -g 'go.mod'
+```
+
+Result: tests passed. Boundary searches returned no code imports. Slack Bot now
+uses the extracted clock plugin through Core's plugin bridge, and the reusable
+plugin CLI can install and inspect the `clock` plugin from marketplace metadata.
+
+### Progress Update: Reusable Context CLI Surface
+
+Completed in this batch:
+
+- Extended `fluxplane-plugin/management` with reusable context-provider
+  backend contracts:
+  - `ListContextProviders`;
+  - `BuildContext`.
+- Implemented the local backend behavior:
+  - `context list` reads provider declarations from the plugin manifest;
+  - `context build` invokes the existing SDK `context.build` protocol command.
+- Added CLI commands:
+  - `fluxplane-plugin context list PLUGIN[@VERSION]`;
+  - `fluxplane-plugin context build PLUGIN[@VERSION]`;
+  - aliases `ctx`/`contexts` for the command group and `run` for build.
+- Added context build flags:
+  - `--instance`;
+  - `--query`;
+  - repeated `--kind`;
+  - `--limit`;
+  - raw `--input` / `--input-file` JSON.
+- Extended unit coverage for:
+  - CLI request wiring;
+  - local backend stdio runtime context listing/building.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-plugins && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install clock >/tmp/fluxplane-clock-install.json && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin context list clock && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin context build clock --query now --kind data --limit 1
+```
+
+Result: tests passed. The reusable `fluxplane-plugin` CLI can now execute
+context-provider plugins without Dex.
+
+### Progress Update: Dependency Boundary Gates
+
+Completed in this batch:
+
+- Extended boundary tests so they check both Go imports and `go.mod`
+  dependencies:
+  - `fluxplane-plugin` must not depend on Core, Dex, or `fluxplane-plugins`;
+  - `fluxplane-dex` must not depend on Core;
+  - `fluxplane-core` must not depend on Dex or `fluxplane-plugins`;
+  - `coder` must not depend on Dex;
+  - Slack Bot must not depend on Dex.
+- Kept product apps allowed to depend on Core and selected
+  `fluxplane-plugins` modules directly.
+- Kept Core allowed to depend on `fluxplane-plugin`, but not on concrete
+  plugin implementation modules.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test .
+cd ../fluxplane-dex && go test .
+cd ../coder && go test .
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../fluxplane-core && go test .
+```
+
+Result: tests passed. The dependency gates now catch accidental module-level
+dependencies, not only source import statements.
+
+### Progress Update: Product Runtime System Plugin Wiring
+
+Completed in this batch:
+
+- Wired the canonical `fluxplane-plugins/system` plugin into actual product
+  default plugin lists when a runtime `fluxplane-system.System` boundary is
+  available:
+  - coder's `Startup.PluginFactory`;
+  - Slack Bot's `buildPlugins`.
+- Kept products responsible for the wiring:
+  - products import the concrete `fluxplane-plugins/system` module;
+  - products pass Core's `NewSystemHostCallerFactory`;
+  - Core still does not import concrete `fluxplane-plugins` modules.
+- Updated product tests so `system.info` is resolved and executed from the
+  default product runtime plugin list, not only from manually injected test
+  plugins.
+
+Validation completed:
+
+```sh
+cd ../coder && GOWORK=off go test ./internal/runtime
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+```
+
+Result: tests passed. The Core bridge host-capability adapter is now exercised
+through concrete product runtime paths.
+
+### Progress Update: Reusable Operation Batch CLI Surface
+
+Completed in this batch:
+
+- Added reusable operation batch support to `fluxplane-plugin/management`:
+  - `OperationBatchRequest`;
+  - `OperationBatchResult`;
+  - `Backend.BatchOperations`.
+- Implemented local backend execution through the existing SDK
+  `operations.call_batch` protocol command.
+- Added CLI command:
+  - `fluxplane-plugin operation batch PLUGIN[@VERSION]`;
+  - accepts either a JSON array of calls or `{ "calls": [...] }`;
+  - supports `--instance`, `--input`, and `--input-file`.
+- Extended tests for:
+  - CLI request wiring;
+  - stdio-backed local backend batch execution.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-plugins && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install sleep >/tmp/fluxplane-sleep-install.json && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin operation batch sleep --input '{"calls":[{"name":"sleep","input":{"duration":0}},{"name":"sleep","input":{"duration":0}}]}'
+```
+
+Result: tests passed. Dex's operation-batch behavior now has a reusable
+`fluxplane-plugin` CLI/backend home.
+
+### Progress Update: Reusable Endpoint Discovery CLI Surface
+
+Completed in this batch:
+
+- Added reusable endpoint discovery support to `fluxplane-plugin/management`:
+  - `EndpointDiscoverRequest`;
+  - `EndpointDiscoverResult`;
+  - `Backend.DiscoverEndpoints`.
+- Implemented local backend execution through the existing SDK
+  `endpoints.discover` protocol command.
+- Added CLI command:
+  - `fluxplane-plugin endpoint discover PLUGIN[@VERSION] [PRODUCT]`;
+  - supports `--instance`, `--context`, `--namespace`, `--limit`,
+    `--input`, and `--input-file`.
+- Extended tests for:
+  - CLI request wiring;
+  - stdio-backed local backend endpoint discovery.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-plugins && tmp=$(mktemp -d); HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin install clock >/tmp/fluxplane-clock-install.json && HOME=$tmp GOWORK=off go run ./cmd/fluxplane-plugin endpoint discover clock test --limit 1
+```
+
+Result: tests passed. The reusable CLI can now invoke plugin endpoint discovery.
+Dex's host-side endpoint store/import/doctor commands still need a separate
+state/provider design before they can be fully drained.
+
+### Progress Update: Plugin CLI Entrypoint And Datasource Record Commands
+
+Completed in this batch:
+
+- Restored the reusable standalone CLI entrypoint under
+  `fluxplane-plugin/cmd/fluxplane-plugin`:
+  - wires `fluxplane-plugin/cli` to `fluxplane-plugin/management/local`;
+  - imports neither Dex nor Core nor `fluxplane-plugins`;
+  - keeps marketplace discovery file/env/path based through the local backend.
+- Extended `fluxplane-plugin/protocol` with datasource runtime commands that do
+  not collide with declaration listing:
+  - `datasources.records` for provider-backed record listing;
+  - `datasources.batch_get` for efficient multi-record retrieval.
+- Extended `fluxplane-plugin/pluginbinding`:
+  - added `CapabilityBatchGet`;
+  - added `RegisterDatasourceList`;
+  - added `RegisterDatasourceBatchGet`;
+  - routed the new protocol commands to typed datasource handlers.
+- Extended `fluxplane-plugin/datasource` and `pluginbinding` aliases so plugin
+  authors can use portable datasource list and batch-get DTOs through the SDK.
+- Extended the reusable CLI datasource surface:
+  - `fluxplane-plugin datasource records PLUGIN[@VERSION]`;
+  - `fluxplane-plugin datasource batch-get PLUGIN[@VERSION]`;
+  - preserved `fluxplane-plugin datasource list` as manifest/declaration
+    listing.
+- Extended local backend and CLI tests to cover request wiring and actual stdio
+  runtime execution for datasource search, record list, and batch-get.
+
+Validation:
+
+```sh
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-plugin && go run ./cmd/fluxplane-plugin --help
+cd ../fluxplane-plugin && go run ./cmd/fluxplane-plugin datasource --help
+cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp go run ./cmd/fluxplane-plugin install sleep >/tmp/fluxplane-plugin-install-sleep.json && HOME=$tmp go run ./cmd/fluxplane-plugin operation batch sleep --input '{"calls":[{"name":"sleep","input":{"duration":0}}]}'
+```
+
+Result: tests passed. The reusable `fluxplane-plugin` module now owns a working
+standalone CLI entrypoint and the datasource record-list/batch-get features
+needed to continue draining Dex datasource behavior.
+
+### Progress Update: Slack Bot Uses Standalone Slack Plugin Surface
+
+Completed in this batch:
+
+- Extended Core's `orchestration/pluginbridge` host caller so SDK-hosted HTTP
+  calls can resolve auth material through Core/plugin-scoped
+  `fluxplane-secret.Resolver`:
+  - bearer token purposes map to `Authorization: Bearer ...`;
+  - username/password purposes map to HTTP Basic auth;
+  - header purposes map to explicit HTTP headers;
+  - `NewSystemHostCallerFactory` now derives plugin name, instance, and secret
+    resolver from `pluginhost.Context`.
+- Kept `fluxplane-plugin` Core-free. The auth-capable host bridge lives in
+  Core, where Core adapts plugin SDK calls into the agent runtime.
+- Added `fluxplane-apps/slack-bot` direct wiring for
+  `github.com/fluxplane/fluxplane-plugins/slack`:
+  - `slack_channel` remains the Core channel adapter for daemon/channel IO;
+  - `slack` is now the standalone plugin-owned operation/datasource surface;
+  - the app manifest declares both roles explicitly.
+- Added Slack Bot coverage proving both `slack_channel` and the standalone
+  `slack` plugin resolve through Core's pluginhost and that the standalone
+  Slack plugin exposes operations and datasource providers.
+
+Validation:
+
+```sh
+cd ../fluxplane-core && go test ./orchestration/pluginbridge
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../fluxplane-apps/slack-bot && rg -n 'github.com/fluxplane/fluxplane-dex' . -g '*.go' -g 'go.mod'
+cd ../fluxplane-apps/slack-bot && GOWORK=off go list -deps . | rg 'github.com/fluxplane/fluxplane-plugins/slack|github.com/fluxplane/fluxplane-dex'
+```
+
+Result: tests passed. Slack Bot has a product-level direct dependency on the
+standalone `fluxplane-plugins/slack` operation plugin without using Dex, while
+Core still owns the channel-adapter runtime role.
+
+### Progress Update: Slack Bot Uses Standalone Websearch Plugin Surface
+
+Completed in this batch:
+
+- Replaced Slack Bot's optional direct source import of Core's
+  `plugins/integrations/web` runtime with standalone plugin modules:
+  - `github.com/fluxplane/fluxplane-plugins/websearch`;
+  - `github.com/fluxplane/fluxplane-plugins/duckduckgo`;
+  - `github.com/fluxplane/fluxplane-plugins/tavily`.
+- Added a product-local `websearch.ProviderRuntime` implementation that:
+  - discovers provider metadata from the standalone provider plugin manifests;
+  - invokes provider operations through the SDK pluginbinding path;
+  - reuses the aggregator's existing result normalization.
+- Kept Slack Bot's public web access datasource-centered:
+  - app bundle now declares `websearch.results` with kind `websearch`;
+  - the surface catalog points the model at
+    `datasource_search(datasource="websearch.results", ...)`.
+- Added Slack Bot coverage proving:
+  - `websearch` is registered when web access is granted;
+  - the old Core `web` plugin is not registered by Slack Bot;
+  - `websearch.provider.list` and `websearch.search` resolve through
+    Core's pluginhost bridge;
+  - the provider list includes the standalone DuckDuckGo and Tavily provider
+    plugins.
+
+Validation:
+
+```sh
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../fluxplane-apps/slack-bot && rg -n 'github.com/fluxplane/fluxplane-core/plugins/integrations/web|github.com/fluxplane/fluxplane-dex' . -g '*.go' -g 'go.mod'
+cd ../fluxplane-apps/slack-bot && GOWORK=off go list -deps . | rg 'github.com/fluxplane/fluxplane-plugins/(websearch|duckduckgo|tavily)|github.com/fluxplane/fluxplane-core/plugins/integrations/web|github.com/fluxplane/fluxplane-dex'
+```
+
+Result: tests passed. Slack Bot source no longer imports Core's web integration
+or Dex. `go list -deps` still includes Core's web package through the broad
+`fluxplane-core` module dependency graph, which will only disappear after the
+Core plugin tree itself is drained or split.
+
+### Progress Update: Typed Portable Context Build Payload
+
+Completed in this batch:
+
+- Extended `fluxplane-plugin/pluginbinding.ContextBuildInput` to carry the
+  portable `fluxplane-context.Request` fields used by agent runtimes:
+  - thread, branch, and turn ids;
+  - render reason;
+  - current input text and recent context;
+  - scope values;
+  - token budget.
+- Kept the existing `query`, `kinds`, and `limit` fields for plugin CLI and
+  compatibility callers.
+- Updated Core's `orchestration/pluginbridge` context-provider adapter to send
+  a typed SDK context-build payload instead of an ad hoc `map[string]any`.
+- Updated Core's bridge to decode `pluginbinding.ContextBuildResult` directly,
+  so plugin protocol context blocks remain the standalone
+  `fluxplane-context`/SDK block type at the bridge boundary.
+- Added regression coverage proving Core request fields survive through the SDK
+  bridge into a plugin context provider.
+- Updated Slack Bot's manifest/build path to import `fluxplane-context`
+  directly for portable provider refs instead of reaching through Core's
+  context re-export. Its executable surface catalog provider still implements
+  Core's runtime context-provider interface, which remains a deliberate
+  Core-runtime concern for now.
+- Updated Coder's runtime test helper to import `fluxplane-context` directly for
+  portable context blocks instead of Core's context re-export.
+
+Validation:
+
+```sh
+cd ../fluxplane-plugin && go test ./pluginbinding
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-core && go test ./orchestration/pluginbridge ./runtime/context ./core/context
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../fluxplane-apps/slack-bot && rg -n 'fluxplane-core/core/context|corecontext\.' bot.go
+cd ../coder && GOWORK=off go test ./internal/runtime
+cd ../coder && rg -n 'fluxplane-core/core/context|corecontext\.' internal/runtime/session_test.go
+```
+
+Result: tests passed. This does not rename `fluxplane-core/core/context` yet;
+it makes the portable context contract more real at the SDK/Core bridge and
+narrows the remaining reason for Core's context package to runtime provider
+interfaces, render records/diffs, materialization state, and Core events.
+
+### Progress Update: Slack Bot Granted Integrations Use Standalone Plugin Modules
+
+Completed in this batch:
+
+- Wired Slack Bot's granted integration surfaces to standalone
+  `fluxplane-plugins` modules through Core's plugin bridge:
+  - `github.com/fluxplane/fluxplane-plugins/gitlab`;
+  - `github.com/fluxplane/fluxplane-plugins/atlassian/jira`;
+  - `github.com/fluxplane/fluxplane-plugins/atlassian/confluence`;
+  - `github.com/fluxplane/fluxplane-plugins/kubernetes`;
+  - `github.com/fluxplane/fluxplane-plugins/loki`;
+  - `github.com/fluxplane/fluxplane-plugins/prometheus`.
+- Added Slack Bot runtime bridge constructors for those plugins using
+  Core's host-caller factory, so HTTP/env/secret/endpoint-capability calls
+  stay host mediated.
+- Updated Slack Bot manifest building to declare granted standalone plugin
+  refs instead of only mentioning the surfaces in the prompt catalog.
+- Updated the main agent datasource grants to use the real standalone
+  datasource names, for example `gitlab.merge_requests`, `jira.issues`,
+  `confluence.pages`, `kubernetes.inventory`, `loki.log_entries`, and
+  `prometheus.query_results`.
+- Updated the surface catalog hints to use the actual datasource names and
+  removed stale Dex wording from the Slack catalog test.
+- Removed stale active Slack Bot config/example comments that described
+  optional plugin surfaces as Dex marketplace plugins.
+- Added regression coverage proving each granted standalone integration plugin
+  is registered, resolves through Core's pluginhost, contributes an expected
+  operation, contributes an expected datasource declaration, and exposes
+  datasource providers.
+
+Validation:
+
+```sh
+cd ../fluxplane-apps/slack-bot && GOWORK=off go mod tidy
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../fluxplane-apps/slack-bot && rg -n 'github.com/fluxplane/fluxplane-core/plugins/(integrations/(gitlab|jira|confluence|kubernetes|loki|web|docker|mysql)|native/(clock|sleep))|github.com/fluxplane/fluxplane-dex' . -g '*.go' -g 'go.mod'
+cd ../fluxplane-apps/slack-bot && GOWORK=off go list -deps . | rg 'github.com/fluxplane/fluxplane-plugins/(atlassian|gitlab|kubernetes|loki|prometheus)|github.com/fluxplane/fluxplane-dex'
+cd ../fluxplane-apps/slack-bot && rg -n 'github.com/fluxplane/fluxplane-core/plugins/integrations' . -g '*.go'
+cd ../fluxplane-apps/slack-bot && rg -n '\bDex\b|fluxplane-dex|\bdex\b' . -S
+```
+
+Result: tests passed. Slack Bot source no longer imports Core's GitLab, Jira,
+Confluence, Kubernetes, Loki, or Web integrations, and it does not import Dex.
+The remaining Core integration import in Slack Bot is the `slack` channel
+adapter; standalone Slack operations/datasources are already provided by
+`fluxplane-plugins/slack`. The remaining Dex text in Slack Bot is limited to
+boundary tests and historical changelog entries.
+
+### Progress Update: Product And Core Architecture Gates Tightened
+
+Completed in this batch:
+
+- Added a Slack Bot import boundary gate that prevents regressions to migrated
+  Core plugin imports:
+  - no direct Core GitLab, Jira, Confluence, Kubernetes, Loki, Web, Docker, or
+    MySQL integration imports;
+  - no direct Core native clock/sleep imports;
+  - current Core integration imports are limited to the Slack channel adapter.
+- Added a Core provider-SDK import placement gate:
+  - provider SDK imports are allowed only in the explicit transitional Core
+    plugin tree or pinned adapter paths that still own provider integration
+    work today;
+  - this keeps provider SDK usage from spreading while extraction continues.
+- Confirmed that standalone OpenAPI is not a mechanical package move:
+  - Core OpenAPI currently generates Core `operation.Spec`,
+    `resource.ContributionBundle`, Core datasource/data-source specs, and
+    runtime operations from workspace/config state;
+  - a final standalone OpenAPI plugin should be an SDK plugin that uses
+    `fluxplane-plugin` host capabilities for HTTP/blob/env/secret access and
+    exposes generated operations/datasources through a bridge-aware manifest
+    lifecycle.
+
+Validation:
+
+```sh
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../fluxplane-core && go test .
+```
+
+Result: tests passed. The new gates protect the product/Core boundaries already
+migrated while documenting the remaining OpenAPI design issue instead of hiding
+it behind a transitional copy.
+
+### Progress Update: Reusable Endpoint Test And Doctor CLI Surface
+
+Completed in this batch:
+
+- Added reusable endpoint health probing to `fluxplane-plugin/cli`:
+  - `fluxplane-plugin endpoint test ID`;
+  - `fluxplane-plugin endpoint doctor [PRODUCT]`.
+- The shared CLI now probes stored endpoints and persists health through the
+  backend-neutral `management.EndpointStore.SaveEndpointHealth` contract.
+- Generic endpoints use a TCP connect probe with scheme default ports for HTTP,
+  HTTPS, MySQL/MariaDB, and PostgreSQL-style URLs.
+- Kubernetes and SQL endpoints are routed through backend operation invocation
+  instead of Dex runtime internals:
+  - Kubernetes uses `kubernetes.cluster.test`;
+  - SQL uses `sql.query` with `select 1 as ok`.
+- Probe output redacts URL password material before rendering or storing
+  details.
+- Added CLI coverage proving:
+  - `endpoint doctor` performs a real TCP probe against a local listener and
+    persists an OK `tcp_connect` health result;
+  - `endpoint test` for Kubernetes endpoints invokes the plugin operation
+    through the backend and stores the resulting health.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./cli
+cd ../fluxplane-plugin && go test ./management ./management/local
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-plugin && rg "github.com/fluxplane/fluxplane-(core|dex)" . -g'*.go' -g'go.mod'
+```
+
+Result: all `fluxplane-plugin` tests passed. The import scan found no Core or
+Dex dependencies in `fluxplane-plugin`.
+
+### Progress Update: Slack Bot Context Imports Split By Responsibility
+
+Completed in this batch:
+
+- Updated Slack Bot's surface catalog provider to import portable context DTOs
+  and constants from `fluxplane-context`:
+  - provider name;
+  - provider spec;
+  - block kind;
+  - placement;
+  - freshness;
+  - rendered blocks.
+- Kept the remaining `fluxplane-core/core/context` import only where Slack Bot
+  must satisfy Core's runtime provider interface:
+  - `corecontext.Provider`;
+  - `corecontext.Request`.
+- Updated Slack Bot tests to compare portable placement/freshness values through
+  `fluxplane-context` while still passing Core runtime requests to Core-hosted
+  providers.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd .. && rg -n "corecontext\\.|fluxplane-core/core/context|fpcontext\\." fluxplane-apps/slack-bot/surface_catalog.go fluxplane-apps/slack-bot/surface_catalog_test.go fluxplane-apps/slack-bot/pluginbridge_test.go
+```
+
+Result: Slack Bot tests passed. Remaining Core context references in the touched
+files are runtime interface/request references, not portable DTO/spec/block
+references.
+
+### Progress Update: Reusable Endpoint Import CLI Surface
+
+Completed in this batch:
+
+- Added reusable endpoint candidate import to `fluxplane-plugin/cli`:
+
+  ```sh
+  fluxplane-plugin endpoint import [JSON|-]
+  ```
+
+- The import command can read from:
+  - a JSON argument;
+  - stdin with `-`;
+  - `--from <file>`.
+- It accepts the useful non-interactive Dex import controls:
+  - `--candidate <index>`;
+  - `--id <override>`;
+  - `--source <override>`;
+  - `--label key=value`;
+  - `--annotation key=value`;
+  - `--dry-run`.
+- The parser accepts both Dex-style discovery JSON and the reusable CLI's own
+  `EndpointDiscoverResult` wrapper, so this pipeline works without hand-editing
+  JSON:
+
+  ```sh
+  fluxplane-plugin endpoint discover kubernetes loki | fluxplane-plugin endpoint import -
+  ```
+
+- Imported candidates are converted through `fluxplane-endpoint.Candidate` into
+  stored `EndpointRef` values and persisted through
+  `management.EndpointStore.SaveEndpoint`.
+- Added CLI coverage proving:
+  - selected candidates preserve URL, product, protocol, source, credential ref,
+    and merged labels/annotations;
+  - reusable discover-result wrapper output can be imported directly.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./cli
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-plugin && rg "github.com/fluxplane/fluxplane-(core|dex)" . -g'*.go' -g'go.mod'
+cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp go run ./cmd/fluxplane-plugin endpoint import '{"id":"loki-dev","url":"http://loki.example.test:3100","product":"loki","protocol":"http"}' >/tmp/fluxplane-endpoint-import.json && HOME=$tmp go run ./cmd/fluxplane-plugin endpoint get loki-dev
+```
+
+Result: all `fluxplane-plugin` tests passed, the boundary import scan found no
+Core/Dex dependencies, and the standalone CLI smoke test imported and read back
+a stored endpoint from the local state store.
+
+### Progress Update: Portable Workspace DTOs Extracted
+
+Completed in this batch:
+
+- Added a new leaf module:
+
+  ```text
+  github.com/fluxplane/fluxplane-workspace
+  ```
+
+- Moved inert workspace identity and selection DTOs into the leaf module:
+  - workspace IDs;
+  - root/origin/alias shapes;
+  - durability;
+  - selected workspace;
+  - validation helpers.
+- Updated `fluxplane-core/core/workspace` to re-export the leaf types and
+  constants for existing Core APIs.
+- Kept runtime path resolution, filesystem IO, declaration loading, and
+  workspace manager behavior in Core runtime packages.
+- Added the leaf module to the root Go workspace and Core's local replace list.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-workspace && go test ./...
+cd ../fluxplane-core && go test ./core/workspace ./runtime/workspace
+cd ../fluxplane-core && go test ./core/...
+cd .. && rg -n "github.com/fluxplane/fluxplane-workspace|core/workspace" fluxplane-workspace fluxplane-core -g'*.go' -g'go.mod' -g'go.work'
+cd .. && rg -n "fluxplane-core/core/workspace|coreworkspace\\.|workspace\\." coder fluxplane-apps/slack-bot -g'*.go'
+```
+
+Result: focused leaf/Core tests and all Core domain package tests passed.
+Product code does not import Core workspace DTOs directly; remaining product
+workspace references are runtime workspace wiring.
+
+### Progress Update: Core Operation Contract Aliased To Leaf Module
+
+Completed in this batch:
+
+- Removed Core's duplicate implementation of the portable operation contract.
+- Updated `fluxplane-core/core/operation` to re-export
+  `github.com/fluxplane/fluxplane-operation` for existing Core APIs:
+  - operation refs;
+  - operation specs;
+  - sets;
+  - semantics/effects/risk/idempotency;
+  - executable operation interface;
+  - operation context;
+  - results/rendered outputs;
+  - lifecycle events;
+  - intent models;
+  - registry helpers.
+- Kept Core tests in place against the Core import path so existing consumers
+  continue to exercise compatibility.
+- Adjusted one package-local marker test to assert the public marker-interface
+  contract instead of calling the leaf package's unexported marker method
+  through Core's re-export.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-core && go test ./core/operation
+cd ../fluxplane-core && go test ./core/...
+cd ../fluxplane-core && go test ./runtime/...
+cd ../fluxplane-core && go test ./orchestration/pluginbridge ./orchestration/pluginhost
+cd ../fluxplane-core && go test ./orchestration/...
+```
+
+Result: Core operation compatibility tests, all Core domain package tests,
+runtime package tests, and orchestration package tests passed with the leaf
+operation contract.
+
+### Progress Update: Plugin Ownership Map Corrected
+
+Completed in this batch:
+
+- Abandoned the interrupted shared `fluxplane-language` extraction. Go and
+  Markdown language surfaces are currently coding-product behavior and should
+  move with `coder`, not into a shared platform module.
+- Clarified that coding bundle/code/native workspace tools are coder-owned
+  while they model coding workspace behavior.
+- Clarified that Core owns runtime/channel surfaces, including the Slack channel
+  adapter used by `fluxplane-apps/slack-bot`.
+- Clarified that `fluxplane-plugins/slack` remains the standalone Slack
+  operation/datasource plugin surface, separate from Core channel transport.
+- Clarified that reusable external integrations such as Git, GitLab, Jira,
+  Confluence, Kubernetes, Loki, Docker, SQL, AWS, OpenAI, OpenAPI, and websearch
+  belong in `fluxplane-plugins`.
+- Added local product-module `fluxplane-workspace` requirements/replaces for
+  `coder` and `fluxplane-apps/slack-bot`, so their `GOWORK=off` validation can
+  resolve Core's new workspace leaf dependency.
+
+Validation completed:
+
+```sh
+find ../fluxplane-language -maxdepth 3 -type f
+cd ../fluxplane-core && go test ./core/operation ./core/workspace
+cd ../fluxplane-plugin && go test ./cli
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../coder && GOWORK=off go test ./internal/runtime
+rg -n 'fluxplane-plugins/languages|Slack plugin remains outside core|dexcore|move coding/native/language plugins out of Core into `fluxplane-plugins`|extracting `fluxplane-language`|Slack plugin directly because Slack' ../fluxplane-core/.agents/plans/plugin-system-refactor.md
+```
+
+Result: no `fluxplane-language` files remain from the abandoned extraction,
+focused Core/plugin/product tests passed, and the stale wording scan found no
+matches.
+
+### Progress Update: Coder Owns Its Coding Plugin Implementations
+
+Completed in this batch:
+
+- Moved coder's coding-product plugin implementations into
+  `coder/internal/plugins`:
+  - coding bundle;
+  - browser/code/filesystem/project/shell workspace tools;
+  - Go and Markdown language plugins;
+  - Git and web operations needed by the coder coding bundle.
+- Updated coder runtime and product activation/feature wiring to import those
+  coder-owned packages instead of Core plugin packages.
+- Added a coder architecture gate that forbids reintroducing direct imports of
+  Core's old coding bundle, language plugins, and coder-owned native workspace
+  plugin packages.
+- Preserved Core runtime/domain plugin usage for task, memory, image, workspace,
+  identity, goal, loop, discovery, skills, and related runtime surfaces.
+
+Validation completed:
+
+```sh
+cd ../coder && GOWORK=off go test . ./internal/product ./internal/runtime ./internal/plugins/...
+cd ../coder && GOWORK=off go test ./...
+cd ../coder && rg -n "github.com/fluxplane/fluxplane-core/plugins/(bundles/coding|languages/(golang|markdown)|native/(browser|code|filesystem|project|shell)|integrations/)" . -g'*.go'
+cd ../coder && GOWORK=off go list -deps ./internal/product ./internal/plugins/coding | rg 'github.com/fluxplane/fluxplane-core/plugins/(bundles/coding|languages/(golang|markdown)|native/(browser|code|filesystem|project|shell)|integrations/(git|web))'
+```
+
+Result: the full coder test suite passed; the source import scan found only
+boundary-test literals; product and coding bundle dependency scans resolve the
+coder-owned plugin paths, not the old Core plugin paths.
+
+Remaining Core-side issue:
+
+- `coder/internal/runtime` still depends on `fluxplane-core/apps/launch`.
+  That package no longer wires Core's old coding defaults, but it remains a
+  broad Core runtime entrypoint and should keep shrinking toward runtime-only
+  concerns.
+
+### Progress Update: Core Launch Defaults No Longer Wire Coding Product Plugins
+
+Completed in this batch:
+
+- Removed Core launch's default construction of the old Core coding bundle.
+- Removed the launch-only browser/human helper construction that existed only
+  to feed that coding bundle.
+- Updated launch tests to validate product plugin injection with local test
+  plugins instead of importing Core's old coding/web plugin packages.
+- Verified `coder/internal/runtime` no longer sees Core's old coding bundle,
+  language plugins, coder-owned native workspace plugins, or Core git/web
+  integration packages through `go list -deps`.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-core && go test ./apps/launch
+cd ../fluxplane-core && go test .
+cd ../coder && GOWORK=off go test ./...
+cd ../coder && GOWORK=off go list -deps ./internal/runtime > /tmp/coder-runtime-deps.txt
+rg 'github.com/fluxplane/fluxplane-core/plugins/(bundles/coding|languages/(golang|markdown)|native/(browser|code|filesystem|project|shell)|integrations/(git|web))' /tmp/coder-runtime-deps.txt
+rg -n 'plugins/(bundles/coding|languages/(golang|markdown)|native/(browser|code|filesystem|project|shell)|integrations/(git|web))|coding\.New|browserHeadless' ../fluxplane-core/apps/launch -g'*.go'
+```
+
+Result: Core launch tests, Core architecture tests, and the full coder suite
+passed. Both scans returned no matches.
+
+### Progress Update: Old Core Coding Product Packages Removed
+
+Completed in this batch:
+
+- Deleted Core's old product-level coding package files:
+  - `plugins/bundles/coding`;
+  - `plugins/languages/golang`;
+  - `plugins/languages/markdown`;
+  - `plugins/native/browser`;
+  - `plugins/native/code`;
+  - `plugins/native/filesystem`;
+  - `plugins/native/project`;
+  - `plugins/native/shell`.
+- Kept Core runtime/domain/native packages such as workspace, datasource,
+  discovery, goal, human, identity, image, loop, memory, sessionhistory, skills,
+  task, text, and usage.
+- Removed the remaining Core support-test dependency on product-owned project
+  and Go plugin event contributions.
+
+Validation completed:
+
+```sh
+cd ../coder && GOWORK=off go test ./...
+cd ../fluxplane-core && go test ./apps/launch ./plugins/support/eventcatalog ./plugins/native/... ./core/... ./runtime/... ./orchestration/pluginbridge ./orchestration/pluginhost
+cd ../fluxplane-core && go list ./plugins/bundles/coding ./plugins/languages/golang ./plugins/languages/markdown ./plugins/native/browser ./plugins/native/code ./plugins/native/filesystem ./plugins/native/project ./plugins/native/shell
+rg -n 'github.com/fluxplane/fluxplane-core/plugins/(bundles/coding|languages/(golang|markdown)|native/(browser|code|filesystem|project|shell))' ../fluxplane-core ../coder ../fluxplane-apps/slack-bot -g'*.go'
+```
+
+Result: focused Core/runtime/pluginhost tests and the full coder suite passed.
+The removed Core packages report no Go files. The import scan found only the
+coder architecture-test forbidden-prefix literals.
+
+Note: `cd ../fluxplane-core && go test ./...` was also attempted. It compiled
+past the removed package set but failed in unrelated packages that create local
+HTTP/Unix socket listeners, which this sandbox rejects with `operation not
+permitted`.
+
+### Progress Update: SDK Host Process Capability Added
+
+Completed in this batch:
+
+- Added a bounded host process-run capability to `fluxplane-plugin`:
+  - protocol command `host.capability.process.run`;
+  - SDK host `ProcessRunRequest` / `ProcessRunResponse`;
+  - `host.Client.ProcessRun`;
+  - `pluginbinding` aliases for plugin authors.
+- Added Core bridge support for the capability through
+  `fluxplane-system.ProcessManager.Run`.
+- Added SDK host-client coverage and Core pluginbridge host-caller coverage.
+
+Why this matters:
+
+- Reusable process-backed plugins such as Git can now move to
+  `fluxplane-plugins` without importing Core.
+- Product-owned process-backed plugins can also use the SDK host capability when
+  they need a stdio/runtime shape rather than a direct Core pluginhost
+  implementation.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./host ./pluginbinding ./protocol ./...
+cd ../fluxplane-core && go test ./orchestration/pluginbridge ./apps/launch ./plugins/support/eventcatalog
+cd ../coder && GOWORK=off go test ./...
+```
+
+Result: all focused SDK, Core bridge/launch/catalog, and coder tests passed.
+
+### Progress Update: Reusable Git Plugin Extracted From Core
+
+Completed in this batch:
+
+- Added `github.com/fluxplane/fluxplane-plugins/git` as a standalone SDK plugin
+  module with:
+  - operations `git_status`, `git_diff`, `git_add`, `git_commit`, `git_tag`,
+    and `git_push`;
+  - a stdio command entrypoint at `cmd/fluxplane-plugin-git`;
+  - marketplace and workspace registration.
+- Implemented Git execution through the `fluxplane-plugin` host process-run
+  capability instead of direct Core or `fluxplane-system` imports.
+- Preserved the old Core Git plugin's input validation and command construction
+  behavior, including:
+  - bounded diff output;
+  - commit hook suppression;
+  - explicit staging rules;
+  - safe tag/refspec validation;
+  - raw force-push rejection in favor of `force_with_lease`.
+- Deleted Core's old `plugins/integrations/git` package files.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugins/git && go test ./...
+rg "plugins/integrations/git|fluxplane-core/plugins/integrations/git" ../fluxplane-core ../coder ../fluxplane-apps ../fluxplane-plugins -g'*.go'
+```
+
+Result: the new Git plugin module and command package tests passed. The import
+scan found no Git package consumers; only unrelated GitLab references remain.
+
+### Progress Update: Legacy Core Integration Packages Removed
+
+Completed in this batch:
+
+- Removed Core integration packages that now have standalone
+  `fluxplane-plugins` replacements:
+  - Confluence and Jira (`fluxplane-plugins/atlassian`);
+  - Docker;
+  - GitLab;
+  - Kubernetes;
+  - Loki;
+  - MySQL (`fluxplane-plugins/sql`);
+  - OpenAI;
+  - web search/request behavior (`fluxplane-plugins/websearch`,
+    `duckduckgo`, and `tavily`).
+- Simplified the Core `examples/go/slack-bot-coded` example so it no longer
+  imports those legacy Core integration packages. It now keeps only Core-owned
+  Slack channel/plugin wiring, OpenAPI, and native runtime plugins.
+- Ran `go mod tidy` in Core and removed the now-unused direct GitLab SDK module
+  requirement.
+- Tightened Core's provider-SDK direct dependency allowlist by removing the
+  GitLab SDK exception.
+- Left Core-owned integration surfaces in place:
+  - Slack channel/runtime adapter;
+  - AWS environment observer/assertion deriver.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-core && go test . ./examples/go/slack-bot-coded ./apps/launch ./plugins/support/eventcatalog ./orchestration/pluginbridge ./orchestration/pluginhost ./plugins/integrations/aws ./plugins/integrations/openapi ./plugins/integrations/slack
+rg 'github.com/fluxplane/fluxplane-core/plugins/integrations/(confluence|docker|git|gitlab|jira|kubernetes|loki|mysql|openai|web)' ../fluxplane-core ../coder ../fluxplane-apps ../fluxplane-plugin ../fluxplane-plugins -g'*.go' -g'go.mod'
+find ../fluxplane-core/plugins/integrations -maxdepth 2 -type f
+```
+
+Result: focused Core tests passed, no product or Core Go imports remain for the
+removed legacy integration packages, and Core's integration tree then contained
+only AWS, OpenAPI, and Slack Go files. The later OpenAPI extraction below
+removes OpenAPI from that remaining set.
+
+### Progress Update: Boundary Validation After Integration Cleanup
+
+Validation completed:
+
+```sh
+cd ../fluxplane-dex && GOWORK=off go test ./...
+cd ../fluxplane-plugin && go test ./host ./pluginbinding ./protocol ./cli ./management/... ./pluginruntime
+cd ../fluxplane-plugins && go test .
+cd ../fluxplane-plugins/git && go test ./...
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../coder && GOWORK=off go test ./...
+rg 'github.com/fluxplane/fluxplane-dex' ../coder ../fluxplane-apps ../fluxplane-core ../fluxplane-plugin ../fluxplane-plugins -g'*.go' -g'go.mod'
+rg 'github.com/fluxplane/fluxplane-plugins' ../fluxplane-core -g'*.go' -g'go.mod'
+rg 'github.com/fluxplane/fluxplane-core' ../fluxplane-dex -g'*.go' -g'go.mod'
+```
+
+Result: Dex, plugin SDK, plugin registry/Git plugin, Slack Bot, and coder tests
+passed. Boundary scans confirmed:
+
+- Dex does not import Core.
+- No checked product/Core/plugin source imports Dex.
+- Core does not import `fluxplane-plugins`.
+
+### Progress Update: OpenAPI Extracted To Standalone SDK Plugin
+
+Completed in this batch:
+
+- Added `github.com/fluxplane/fluxplane-plugins/openapi` as a standalone SDK
+  plugin module:
+  - generates SDK operation declarations and datasource specs from configured
+    OpenAPI 3.x documents;
+  - exposes direct construction through `NewPlugin(ctx, cfg, opts)`;
+  - exposes a stdio command entrypoint at
+    `cmd/fluxplane-plugin-openapi`;
+  - loads local specs relative to the configured product/workspace root;
+  - keeps generated docs as plugin datasource search/list/get records.
+- Moved OpenAPI runtime calls onto SDK host capabilities:
+  - HTTP operations call `pluginbinding.HostClient.HTTP`;
+  - bearer/basic/header auth uses host-mediated HTTP auth requests;
+  - query/cookie API keys resolve through a new Core bridge
+    `host.secret.get` capability.
+- Extended Core's `orchestration/pluginbridge` host caller with SDK
+  `host.secret.get`, backed by Core's plugin-scoped
+  `fluxplane-secret.Resolver`.
+- Wired Slack Bot's configurable OpenAPI access through
+  `fluxplane-plugins/openapi`:
+  - Slack Bot still uses Core's Slack channel adapter for channel/runtime IO;
+  - OpenAPI operation/datasource behavior now comes from the standalone SDK
+    plugin through Core's bridge;
+  - Slack Bot's boundary gate no longer allows Core OpenAPI imports.
+- Removed Core's old `plugins/integrations/openapi` package.
+- Removed OpenAPI from Core launch defaults and simplified the Core coded Slack
+  example so it remains a Core Slack-channel/runtime example.
+- Ran module tidy in Core, Slack Bot, and the new OpenAPI plugin module.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugins/openapi && go test ./...
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../fluxplane-core && go test . ./apps/launch ./examples/go/slack-bot-coded ./orchestration/pluginbridge ./plugins/integrations/slack ./plugins/integrations/aws
+rg "plugins/integrations/openapi|openapi\\." ../fluxplane-core -g'*.go'
+rg "github.com/fluxplane/fluxplane-plugins" ../fluxplane-core -g'*.go'
+```
+
+Result: focused tests passed. The Core OpenAPI import scan returned no matches,
+Core still has no `fluxplane-plugins` imports, and Slack Bot continues to keep
+Slack channel transport in Core while importing standalone plugin modules for
+operation/datasource surfaces.
+
+### Progress Update: Core Integration Tail Audited And Dead Atlassian Helpers Removed
+
+Completed in this batch:
+
+- Audited the remaining Core integration tree after OpenAPI extraction:
+  - `plugins/integrations/slack` is the Core-owned Slack channel/runtime
+    adapter and remains in Core;
+  - `plugins/integrations/aws` is not an operation/datasource provider plugin
+    and does not import the AWS SDK. It contributes Core evidence observers and
+    assertion derivers over non-secret AWS environment configuration.
+- Decided not to move AWS into `fluxplane-plugins` in this slice because the
+  plugin SDK does not yet expose portable evidence observer/assertion-deriver
+  contribution contracts. Moving it now would either pull Core evidence
+  contracts into a plugin implementation or invent a partial evidence bridge
+  before the leaf contract exists.
+- Removed the stale `plugins/internal/atlassian` helper package from Core. Jira
+  and Confluence auth/client helpers now live with the standalone
+  `fluxplane-plugins/atlassian` module.
+- Ran Core `go mod tidy`, which removed additional stale dependencies left by
+  the deleted integration/product plugin packages, including old OpenAPI,
+  GitLab, browser, markdown-to-ADF, and codegate entries.
+- Fixed standalone Atlassian test host doubles to embed the SDK
+  `pluginbinding.HostClient` for unexercised host capabilities, so the tests
+  compile after the SDK process-run host capability addition.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-core && go test . ./plugins/integrations/aws ./plugins/integrations/slack ./apps/launch ./orchestration/pluginbridge ./plugins/native/datasource
+cd ../fluxplane-plugins/atlassian && go test ./...
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+rg "github.com/fluxplane/fluxplane-core/plugins/(internal/atlassian|integrations/(confluence|jira|openapi))|plugins/internal/atlassian|github.com/fluxplane/fluxplane-dex" ../fluxplane-core ../coder ../fluxplane-apps ../fluxplane-plugin ../fluxplane-plugins -g'*.go' -g'go.mod'
+```
+
+Result: focused Core, standalone Atlassian, and Slack Bot tests passed. The
+boundary scan returned no matches. The only Core integration packages with Go
+files are now AWS evidence observation and the Slack channel adapter.
+
+### Progress Update: Reusable Index Build/Status CLI Surface
+
+Completed in this batch:
+
+- Added backend-neutral plugin index contracts to `fluxplane-plugin/management`:
+  - `IndexBuildRequest`;
+  - `IndexBuildResult`;
+  - `IndexStatusRequest`;
+  - `IndexStatusResult`;
+  - `IndexStatus` / `IndexStatusEntry`;
+  - `IndexManager`.
+- Implemented local index persistence in `fluxplane-plugin/management/local`:
+  - invokes the plugin's conventional `<plugin>.index.build` operation through
+    the existing stdio protocol runtime;
+  - stores opaque index snapshots under the local plugin state root in an
+    `indexes/` directory;
+  - records index names, record counts, metadata, update timestamps, plugin
+    refs, and instances;
+  - reports status for one plugin instance or all locally installed plugins.
+- Added reusable CLI commands:
+
+  ```sh
+  fluxplane-plugin index build PLUGIN[@VERSION] --index NAME --entity ENTITY
+  fluxplane-plugin index status [PLUGIN[@VERSION]]
+  ```
+
+- Added CLI fake-backend coverage for index build/status request wiring.
+- Extended the local stdio runtime test plugin with a real index-build
+  operation and added local backend coverage proving build output is persisted
+  and status reflects the stored snapshot.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./management ./management/local ./cli ./pluginbinding ./protocol
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-dex && GOWORK=off go test ./...
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../coder && GOWORK=off go test ./internal/runtime
+cd ../fluxplane-plugin && tmp=$(mktemp -d); HOME=$tmp go run ./cmd/fluxplane-plugin index status
+```
+
+Result: tests passed. The standalone `fluxplane-plugin` CLI now owns the
+reusable `index build/status` surface that was previously Dex-only. Indexed
+datasource search/get/lookup over persisted snapshots remains a follow-up
+reuse target.
+
+### Progress Update: Reusable Indexed Datasource Search/Get/Lookup
+
+Completed in this batch:
+
+- Added host-index datasource routing to `fluxplane-plugin/management/local`.
+  The local backend now checks persisted index snapshots before invoking a
+  plugin runtime for:
+  - `datasources.search`;
+  - `datasources.lookup`;
+  - `datasources.get`.
+- Kept the routing narrow and conservative:
+  - only search/lookup/get are served from local snapshots;
+  - datasource-filtered calls only use a matching snapshot name;
+  - entity-filtered calls only use snapshots that contain that entity;
+  - all unhandled calls still fall through to the plugin runtime.
+- Added generic snapshot record normalization/enrichment in
+  `fluxplane-plugin`:
+  - stable `host_index` origin metadata;
+  - record id/entity/title/url/link extraction;
+  - ranked search results;
+  - lookup results using the shared `fluxplane-datasource` scoring helpers.
+- Extended local backend coverage to prove an installed stdio plugin can build
+  an index and then satisfy indexed search, lookup, and get from the persisted
+  snapshot.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./management/local
+cd ../fluxplane-plugin && go test ./...
+```
+
+Result: tests passed. The reusable plugin backend now owns Dex's core indexed
+datasource read path over local snapshots.
+
+### Progress Update: Reusable Auth Auto
+
+Completed in this batch:
+
+- Added backend-neutral auth auto contracts to `fluxplane-plugin/management`:
+  - `AuthAutoRequest`;
+  - `AuthAutoResult`;
+  - `AuthManager.AuthAuto`.
+- Implemented local auth auto in `fluxplane-plugin/management/local`:
+  - reads auth fields from plugin-declared environment variables;
+  - inherits method-level env declarations when a field does not define its own;
+  - deduplicates auth fields by name;
+  - records only manifest-declared field names in output, not secret values;
+  - stores imported values through the existing local auth state path.
+- Added reusable CLI support mirroring the Dex behavior:
+
+  ```sh
+  fluxplane-plugin auth connect auto [PLUGIN[@VERSION]]
+  ```
+
+  When no plugin is provided, the command attempts auth auto for all locally
+  known plugins.
+- Added CLI fake-backend coverage and local stdio runtime coverage proving env
+  import saves the declared auth field without requiring manual `--field`
+  input.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./cli ./management/local ./management
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-dex && GOWORK=off go test ./...
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
+cd ../coder && GOWORK=off go test ./internal/runtime
+```
+
+Result: tests passed. The reusable plugin CLI/backend now owns the `auth auto`
+surface that was previously Dex-only.
+
 ### Current Next Large Steps
 
-1. Complete Core bridge coverage:
-   - host capability adapter from Core runtime services to `fluxplane-plugin/protocol.HostCaller`;
-   - auth connect/test integration beyond inert auth method contribution.
-2. Move concrete product/plugin wiring to `fluxplane-plugins` modules:
-   - start with a small direct plugin module as a real product import;
-   - update `coder` / Slack Bot examples to use `BridgePlugin` with concrete modules;
+1. Expand concrete product/plugin wiring beyond system, sleep, clock, Slack,
+   websearch, Git, and OpenAPI:
+   - keep AWS environment observation in Core until a portable evidence
+     observer/assertion-deriver contract exists;
+   - keep Slack channel/runtime IO in Core because the Slack channel is a Core
+     runtime adapter, while keeping Slack
+     operations/datasources in `fluxplane-plugins/slack`;
    - keep products free of Dex imports.
-3. Drain remaining Dex-only feature surface:
+2. Drain remaining Dex-only feature surface:
    - compare Dex commands/features against `fluxplane-plugin` CLI;
-   - move any missing plugin management/auth/manifest/datasource/operation behavior out;
+   - move remaining reusable plugin management/auth/secret/manifest/datasource/
+     operation/index behavior out;
+   - decide whether secret grant inspection belongs in the reusable CLI or stays
+     host-internal only;
+   - decide whether Dex's interactive endpoint selection prompt is worth
+     preserving in the reusable CLI, or whether non-interactive import is the
+     final automation-friendly surface;
    - delete or shrink Dex once no unique end-user value remains.
-4. Continue core extraction:
-   - move coding/native/language plugins out of Core into `fluxplane-plugins`;
-   - keep Core's agent runtime central but reduce optional provider SDK dependencies.
-5. Add CI architecture gates:
-   - `fluxplane-plugin` must not import Core, Dex, or `fluxplane-plugins`;
-   - products must not import Dex;
-   - Dex must not import Core;
-   - Core must not regain provider SDK dependencies except through intentional plugin bridges.
+3. Continue core extraction:
+   - keep the Core integration tree limited to explicit runtime/evidence
+     surfaces: Slack channel adapter and AWS evidence observation;
+   - keep runtime/channel/session/domain plugins in Core until an intentional
+     leaf contract exists;
+   - keep coding/native/language product plugins owned by `coder` unless a
+     second non-coder product needs the same surface.
+4. Tighten CI architecture gates as extraction lands:
+   - keep existing `fluxplane-plugin`, Dex, product, and Core gates passing;
+   - shrink the Core provider-SDK transitional allowlist as plugins leave Core;
+   - convert the provider-SDK gate from "no new provider SDKs" to "no provider
+     SDKs" once extraction is complete.
+5. Split remaining product-facing Core contracts only when needed for extraction:
+   - keep `fluxplane-context` as the only portable context DTO/spec module;
+   - keep `fluxplane-workspace` as the portable workspace identity/selection
+     DTO module;
+   - migrate product code to import `fluxplane-context` directly whenever it
+     only needs provider refs/specs/blocks;
+   - rename or drain `fluxplane-core/core/context` once the Core-only provider
+     runtime and render/diff/event types can move without creating domain/runtime
+     import cycles;
+   - do not extract `fluxplane-language` unless a second non-coder consumer
+     appears; keep language DTOs local to the coder plugin migration for now;
+   - runtime-only Core plugins should stay in Core until their boundary is
+     intentionally redesigned.

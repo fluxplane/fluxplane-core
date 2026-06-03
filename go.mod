@@ -9,21 +9,20 @@ require (
 	github.com/codewandler/axon v0.20.1
 	github.com/codewandler/cmdrisk v0.1.1
 	github.com/codewandler/markdown v0.46.3
-	github.com/codewandler/md2adf v0.1.1
 	github.com/codewandler/modeldb v0.15.1
 	github.com/containerd/errdefs v1.0.0
 	github.com/containerd/platforms v0.2.1
-	github.com/fluxplane/codegate v1.1.0
 	github.com/fluxplane/fluxplane-auth v0.3.0
-	github.com/fluxplane/fluxplane-browser v0.1.0
+	github.com/fluxplane/fluxplane-context v0.0.0
 	github.com/fluxplane/fluxplane-datasource v0.1.0
 	github.com/fluxplane/fluxplane-endpoint v0.2.0
 	github.com/fluxplane/fluxplane-event v0.2.0
+	github.com/fluxplane/fluxplane-operation v0.1.0
 	github.com/fluxplane/fluxplane-plugin v0.0.0
 	github.com/fluxplane/fluxplane-policy v0.1.1
 	github.com/fluxplane/fluxplane-secret v0.2.0
 	github.com/fluxplane/fluxplane-system v0.1.6
-	github.com/getkin/kin-openapi v0.138.0
+	github.com/fluxplane/fluxplane-workspace v0.0.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/invopop/jsonschema v0.14.0
@@ -38,11 +37,8 @@ require (
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/mysql v0.42.0
 	github.com/yuin/goldmark v1.8.2
-	gitlab.com/gitlab-org/api/client-go/v2 v2.30.0
 	golang.org/x/mod v0.36.0
-	golang.org/x/oauth2 v0.36.0
 	golang.org/x/term v0.43.0
-	golang.org/x/tools v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.1
 	k8s.io/apimachinery v0.36.1
@@ -75,9 +71,6 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.7 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
-	github.com/chromedp/cdproto v0.0.0-20260427013145-5737772c319b // indirect
-	github.com/chromedp/chromedp v0.15.1 // indirect
-	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
@@ -91,10 +84,7 @@ require (
 	github.com/ebitengine/purego v0.10.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
-	github.com/fatih/color v1.19.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/fluxplane/fluxplane-context v0.0.0 // indirect
-	github.com/fluxplane/fluxplane-operation v0.1.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -124,23 +114,15 @@ require (
 	github.com/gomlx/gomlx v0.27.3 // indirect
 	github.com/gomlx/onnx-gomlx v0.4.2 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
-	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/pprof v0.0.0-20260507013755-92041b743c96 // indirect
-	github.com/graph-gophers/graphql-go v1.10.2 // indirect
-	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
-	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/knights-analytics/hugot v0.7.0 // indirect
 	github.com/knights-analytics/ortgenai v0.3.1 // indirect
-	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260330125221-c963978e514e // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
-	github.com/mailru/easyjson v0.9.2 // indirect
 	github.com/matoous/go-nanoid/v2 v2.1.0 // indirect
-	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
@@ -152,19 +134,14 @@ require (
 	github.com/moby/term v0.5.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
-	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nats-io/nkeys v0.4.15 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
-	github.com/oasdiff/yaml v0.0.9 // indirect
-	github.com/oasdiff/yaml3 v0.0.13 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
-	github.com/orisano/pixelmatch v0.0.0-20230914042517-fa304d1dc785 // indirect
-	github.com/perimeterx/marshmallow v1.1.5 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
@@ -174,9 +151,7 @@ require (
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
-	github.com/ugorji/go/codec v1.3.1 // indirect
 	github.com/viant/afs v1.30.0 // indirect
-	github.com/woodsbury/decimal128 v1.4.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/xyproto/randomstring v1.2.0 // indirect
@@ -192,7 +167,7 @@ require (
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/exp v0.0.0-20260508232706-74f9aab9d74a // indirect
 	golang.org/x/image v0.41.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	gonum.org/v1/plot v0.17.0 // indirect
@@ -232,10 +207,6 @@ require (
 	github.com/buger/jsonparser v1.2.0 // indirect
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/go-json-experiment/json v0.0.0-20260520185125-572e7c383686 // indirect
-	github.com/gobwas/httphead v0.1.0 // indirect
-	github.com/gobwas/pool v0.2.1 // indirect
-	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
@@ -261,3 +232,5 @@ replace github.com/fluxplane/fluxplane-plugin => ../fluxplane-plugin
 replace github.com/fluxplane/fluxplane-operation v0.1.0 => ../fluxplane-operation
 
 replace github.com/fluxplane/fluxplane-context v0.0.0 => ../fluxplane-context
+
+replace github.com/fluxplane/fluxplane-workspace v0.0.0 => ../fluxplane-workspace

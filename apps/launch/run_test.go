@@ -21,8 +21,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/plugins/bundles/coding"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/web"
 	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
 	"github.com/fluxplane/fluxplane-core/plugins/native/sessionhistory"
@@ -209,13 +207,31 @@ func TestSelectDeclaredPluginsAllowsMultipleInstances(t *testing.T) {
 	}
 }
 
-func TestLaunchProvidesCodingOnlyWhenDeclared(t *testing.T) {
+func TestLaunchUsesInjectedProductPluginWhenDeclared(t *testing.T) {
 	withStateDir(t)
+	const (
+		pluginName = "product_coding"
+		opName     = "product_coding_operation"
+	)
 	runtime, err := Launch(context.Background(), RuntimeOptions{
 		Root: t.TempDir(),
 		Bundles: []resource.ContributionBundle{{
-			Plugins: []resource.PluginRef{{Name: coding.Name}},
+			Plugins: []resource.PluginRef{{Name: pluginName}},
 		}},
+		PluginFactory: func(PluginFactoryContext) []pluginhost.Plugin {
+			return []pluginhost.Plugin{
+				workspace.New(nil),
+				staticContributionPlugin{
+					name: pluginName,
+					bundle: resource.ContributionBundle{
+						Operations: []operation.Spec{{
+							Ref:         operation.Ref{Name: opName},
+							Description: "Injected product operation.",
+						}},
+					},
+				},
+			}
+		},
 		AllowPrivateNetwork: true,
 	})
 	if err != nil {
@@ -223,11 +239,8 @@ func TestLaunchProvidesCodingOnlyWhenDeclared(t *testing.T) {
 	}
 	defer runtime.Close()
 
-	if !hasOperationSpec(runtime, "shell_exec") {
-		t.Fatal("expected coding plugin shell operation")
-	}
-	if !hasOperationSpec(runtime, "file_read") {
-		t.Fatal("expected coding plugin filesystem operation")
+	if !hasOperationSpec(runtime, opName) {
+		t.Fatalf("expected injected product operation %q", opName)
 	}
 }
 
@@ -341,39 +354,46 @@ func TestLaunchDevWiresSessionHistoryDatasource(t *testing.T) {
 	}
 }
 
-func TestLaunchOpensWebSearchDatasourceThroughCodingPlugin(t *testing.T) {
+func TestLaunchOpensDatasourceThroughInjectedProductPlugin(t *testing.T) {
 	withStateDir(t)
 	ctx := context.Background()
 	root := t.TempDir()
+	const (
+		pluginName = "product_search"
+		sourceName = "product_search"
+		entityType = coredatasource.EntityType("product.search_result")
+	)
 	bundles := []resource.ContributionBundle{{
-		Plugins: []resource.PluginRef{{Name: coding.Name}},
+		Plugins: []resource.PluginRef{{Name: pluginName}},
 		Datasources: []coredatasource.Spec{{
-			Name:        "web_search",
-			Description: "Default public web search datasource.",
-			Kind:        "web_search",
-			Entities:    []coredatasource.EntityType{web.SearchResultEntity},
+			Name:        sourceName,
+			Description: "Injected product search datasource.",
+			Kind:        sourceName,
+			Entities:    []coredatasource.EntityType{entityType},
 		}},
 	}}
-	sys, err := newHost(hostConfig{Root: root, AllowPrivateNetwork: true})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
-	plugins := []pluginhost.Plugin{coding.New(coding.Config{Workspace: sys.Workspace(), Process: sys.Process(), Environment: sys.Environment(), Network: sys.Network()})}
+	plugins := []pluginhost.Plugin{staticDatasourcePlugin{
+		name: pluginName,
+		provider: staticDatasourceProvider{entity: coredatasource.EntitySpec{
+			Type:         entityType,
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch},
+		}},
+	}}
 
 	registry, err := datasourceRegistry(ctx, bundles, plugins, root)
 	if err != nil {
 		t.Fatalf("datasourceRegistry: %v", err)
 	}
-	accessor, ok := registry.Get(coredatasource.Name("web_search"))
+	accessor, ok := registry.Get(coredatasource.Name(sourceName))
 	if !ok {
-		t.Fatal("expected web_search datasource accessor")
+		t.Fatal("expected product_search datasource accessor")
 	}
-	if got := accessor.Spec().Kind; got != "web_search" {
-		t.Fatalf("kind = %q, want web_search", got)
+	if got := accessor.Spec().Kind; got != sourceName {
+		t.Fatalf("kind = %q, want %q", got, sourceName)
 	}
 	entities := accessor.Entities()
-	if len(entities) != 1 || entities[0].Type != web.SearchResultEntity {
-		t.Fatalf("entities = %#v, want %s", entities, web.SearchResultEntity)
+	if len(entities) != 1 || entities[0].Type != entityType {
+		t.Fatalf("entities = %#v, want %s", entities, entityType)
 	}
 	if _, ok := accessor.(coredatasource.Searcher); !ok {
 		t.Fatalf("accessor = %T, want datasource searcher", accessor)
@@ -689,6 +709,63 @@ type fakeRuntime struct{}
 
 func (fakeRuntime) OpenSession(context.Context, distribution.OpenRequest) (clientapi.SessionHandle, error) {
 	return nil, nil
+}
+
+type staticContributionPlugin struct {
+	name   string
+	bundle resource.ContributionBundle
+}
+
+func (p staticContributionPlugin) Manifest() pluginhost.Manifest {
+	return pluginhost.Manifest{Name: p.name}
+}
+
+func (p staticContributionPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+	return p.bundle, nil
+}
+
+type staticDatasourcePlugin struct {
+	name     string
+	provider coredatasource.Provider
+}
+
+func (p staticDatasourcePlugin) Manifest() pluginhost.Manifest {
+	return pluginhost.Manifest{Name: p.name}
+}
+
+func (p staticDatasourcePlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{}, nil
+}
+
+func (p staticDatasourcePlugin) DatasourceProviders(context.Context, pluginhost.Context) ([]coredatasource.Provider, error) {
+	return []coredatasource.Provider{p.provider}, nil
+}
+
+type staticDatasourceProvider struct {
+	entity coredatasource.EntitySpec
+}
+
+func (p staticDatasourceProvider) Entities() []coredatasource.EntitySpec {
+	return []coredatasource.EntitySpec{p.entity}
+}
+
+func (p staticDatasourceProvider) Open(_ context.Context, spec coredatasource.Spec) (coredatasource.Accessor, error) {
+	return staticDatasourceAccessor{spec: spec, entity: p.entity}, nil
+}
+
+type staticDatasourceAccessor struct {
+	spec   coredatasource.Spec
+	entity coredatasource.EntitySpec
+}
+
+func (a staticDatasourceAccessor) Spec() coredatasource.Spec { return a.spec }
+
+func (a staticDatasourceAccessor) Entities() []coredatasource.EntitySpec {
+	return []coredatasource.EntitySpec{a.entity}
+}
+
+func (a staticDatasourceAccessor) Search(context.Context, coredatasource.SearchRequest) (coredatasource.SearchResult, error) {
+	return coredatasource.SearchResult{Datasource: a.spec.Name, Entity: a.entity.Type}, nil
 }
 
 type warmupCorpusAccessor struct {

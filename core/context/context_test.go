@@ -3,6 +3,7 @@ package context
 import (
 	"testing"
 
+	fpcontext "github.com/fluxplane/fluxplane-context"
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-policy"
 )
@@ -37,6 +38,75 @@ func TestNormalizePlacementDefaultsToUser(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("NormalizePlacement(%q) = %q, want %q", tt.input, got, tt.expected)
 		}
+	}
+}
+
+func TestRequestPortableCopiesRuntimeNeutralFields(t *testing.T) {
+	req := Request{
+		ThreadID:      "thread-1",
+		BranchID:      "branch-1",
+		TurnID:        "turn-1",
+		Reason:        RenderTurn,
+		InputText:     "hello",
+		RecentContext: "recent",
+		Scope:         map[string]string{"env": "dev"},
+		BudgetTokens:  128,
+		Observations:  nil,
+		Previous:      &ProviderRenderRecord{Provider: "docs"},
+	}
+
+	portable := req.Portable()
+	if portable.ThreadID != req.ThreadID || portable.Reason != fpcontext.RenderTurn || portable.Scope["env"] != "dev" || portable.BudgetTokens != 128 {
+		t.Fatalf("portable request = %#v", portable)
+	}
+	portable.Scope["env"] = "prod"
+	if req.Scope["env"] != "dev" {
+		t.Fatalf("portable scope mutation changed core request scope: %#v", req.Scope)
+	}
+}
+
+func TestRequestFromPortableCopiesRuntimeNeutralFields(t *testing.T) {
+	portable := fpcontext.Request{
+		ThreadID:      "thread-1",
+		BranchID:      "branch-1",
+		TurnID:        "turn-1",
+		Reason:        fpcontext.RenderResume,
+		InputText:     "resume",
+		RecentContext: "recent",
+		Scope:         map[string]string{"env": "dev"},
+		BudgetTokens:  256,
+	}
+
+	req := RequestFromPortable(portable)
+	if req.ThreadID != portable.ThreadID || req.Reason != RenderResume || req.Scope["env"] != "dev" || req.BudgetTokens != 256 {
+		t.Fatalf("core request = %#v", req)
+	}
+	req.Scope["env"] = "prod"
+	if portable.Scope["env"] != "dev" {
+		t.Fatalf("core request scope mutation changed portable request scope: %#v", portable.Scope)
+	}
+}
+
+func TestBuildRequestPortableCopiesRuntimeNeutralFields(t *testing.T) {
+	req := BuildRequest{
+		ThreadID:      "thread-1",
+		BranchID:      "branch-1",
+		TurnID:        "turn-1",
+		Reason:        RenderToolFollowup,
+		InputText:     "tool",
+		RecentContext: "recent",
+		Scope:         map[string]string{"env": "dev"},
+		BudgetTokens:  64,
+		Previous:      map[ProviderName]ProviderRenderRecord{"docs": {Provider: "docs"}},
+	}
+
+	portable := req.Portable()
+	if portable.ThreadID != req.ThreadID || portable.Reason != fpcontext.RenderToolFollowup || portable.Scope["env"] != "dev" || portable.BudgetTokens != 64 {
+		t.Fatalf("portable build request = %#v", portable)
+	}
+	portable.Scope["env"] = "prod"
+	if req.Scope["env"] != "dev" {
+		t.Fatalf("portable scope mutation changed build request scope: %#v", req.Scope)
 	}
 }
 
