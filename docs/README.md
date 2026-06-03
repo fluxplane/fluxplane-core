@@ -21,9 +21,6 @@ configure a daemon deployment.
   shapes (scoped token, basic API token, OAuth2).
 - [Plugin: GitLab](plugins/gitlab.md) — GitLab datasource entities and write
   operations.
-- [Legacy integrations](plugins/legacy-integrations.md) — status of the old
-  `plugins/integrations/*` tree and why active integration work now belongs in
-  `fluxplane-plugins`.
 - [Datasource embeddings](embeddings.md) — semantic search providers, chunking,
   store layout, and indexing CLI.
 

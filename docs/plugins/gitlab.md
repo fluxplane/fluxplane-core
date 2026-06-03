@@ -1,11 +1,10 @@
 # GitLab Plugin
 
-> **Legacy core note:** the core `plugins/integrations/gitlab` implementation is
-> retained as a legacy compatibility package. Active GitLab integration surfaces
-> should be provided by product-owned Core Contribution registration using
-> `github.com/fluxplane/fluxplane-plugin` and the
-> `github.com/fluxplane/fluxplane-plugins/gitlab` plugin module, not Dex. See
-> [Legacy integrations](legacy-integrations.md).
+GitLab integration surfaces are provided by
+`github.com/fluxplane/fluxplane-plugins/gitlab` through the
+`github.com/fluxplane/fluxplane-plugin` runtime/SDK path. Product runtimes load
+installed plugins through Core's plugin bridge; they should not import Dex or
+old Core plugin packages.
 
 GitLab is exposed as native datasource entities and typed operations. Use
 datasource list/search for compact discovery, get/relation for targeted details,

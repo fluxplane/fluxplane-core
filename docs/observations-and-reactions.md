@@ -465,7 +465,12 @@ selected kubernetes plugin contributes:
   SignalDeriver: kubernetes.context -> integration.configured/available
 ```
 
-The AWS plugin follows the same pattern for local AWS configuration:
+AWS local environment configuration now lives in the standalone
+`fluxplane-plugins/aws` SDK plugin. It exposes non-secret profile, region, and
+credential-presence data as a context provider and an inspect operation. If Core
+needs to turn that plugin output into ambient observations and derived
+integration signals, the Core plugin bridge should materialize that explicitly
+from installed plugin state.
 
 ```text
 plugins:
@@ -473,11 +478,10 @@ plugins:
     kind: aws
 
 selected aws plugin contributes:
-  ObserverSpec: aws.environment
-  Observer: reads configured profile/region and credential presence without
+  ContextSpec: aws.environment
+  OperationSpec: aws.environment.inspect
+  Runtime behavior: reads configured profile/region and credential presence without
     exposing access key, secret key, or session token values
-  SignalDeriverSpec: aws.signals
-  SignalDeriver: aws.environment -> integration.configured/available
 ```
 
 Future Docker, GitHub, or cloud plugins should use the same structure: selected
@@ -1077,10 +1081,10 @@ Already present:
   observer and `kubernetes.signals` deriver when the plugin is selected,
   producing non-secret integration configured/available signals from plugin
   configuration and usable client configuration.
-- the AWS plugin contributes a real turn-phase `aws.environment` observer and
-  `aws.signals` deriver when the plugin is selected, producing non-secret
-  integration configured/available signals from profile, region, and credential
-  presence without exposing access key, secret key, or session token values.
+- the standalone `fluxplane-plugins/aws` plugin contributes
+  `aws.environment.inspect` and an `aws.environment` context provider, producing
+  non-secret profile, region, and credential-presence data without exposing
+  access key, secret key, or session token values.
 - the project plugin contributes a real `session_open` `project.inventory`
   observer and `project.signals` deriver when selected, producing
   `language.detected`, `project.toolchain.hinted`, and

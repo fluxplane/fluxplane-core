@@ -3486,6 +3486,11 @@ operation/datasource surfaces.
 
 ### Progress Update: Core Integration Tail Audited And Dead Atlassian Helpers Removed
 
+Superseded note: the AWS decision in this historical checkpoint was reversed by
+the later "AWS Extracted To Standalone SDK Plugin" checkpoint. AWS
+implementation code now belongs in `fluxplane-plugins/aws`; portable evidence
+bridging is separate Core bridge work.
+
 Completed in this batch:
 
 - Audited the remaining Core integration tree after OpenAPI extraction:
@@ -3759,8 +3764,9 @@ Status for the five tracked next steps:
    - Slack Bot wires standalone operation/datasource plugins through Core's
      plugin bridge;
    - Slack channel/runtime IO remains Core-owned;
-   - AWS environment observation remains Core-owned until portable evidence
-     observer/assertion-deriver contracts exist;
+   - AWS environment inspection is now handled by `fluxplane-plugins/aws`;
+   - portable evidence observer/assertion-deriver bridging remains future Core
+     bridge work, not a reason for AWS implementation code to live in Core;
    - products remain free of Dex imports.
 2. Dex feature drain is complete for reusable end-user plugin behavior:
    - plugin management/auth/manifest/operation/datasource/context/endpoint/
@@ -3769,8 +3775,7 @@ Status for the five tracked next steps:
    - final deletion or upstream repository archival is repository
      administration, not an architecture dependency.
 3. Core extraction is complete for current boundaries:
-   - Core integration packages are limited to Slack channel/runtime IO and AWS
-     environment evidence observation;
+   - Core integration packages are limited to Slack channel/runtime IO;
    - runtime/channel/session/domain plugins stay in Core because no leaf
      runtime contract has been intentionally introduced for them;
    - coding/native/language product plugins are owned by `coder`.
@@ -3924,8 +3929,10 @@ Recommended next work:
    - keep the no-Dex-import gates in product/Core/plugin repos.
 5. Continue Core dependency reduction only where the boundary is clear:
    - Slack channel/runtime IO remains Core-owned;
-   - AWS environment evidence observation remains Core-owned unless portable
-     evidence observer/assertion contracts are intentionally introduced;
+   - AWS environment inspection belongs in `fluxplane-plugins/aws`;
+   - portable evidence observer/assertion contracts should be introduced through
+     Core/plugin bridge work if agent-runtime reactions need plugin-produced
+     observations;
    - do not move Coder-specific language/coding plugins out of Coder unless a
      second product needs them.
 
@@ -4092,3 +4099,30 @@ Validation completed:
 cd ../fluxplane-core && go test ./...
 rg "plugins/examples|plugins/support|pluginhost|orchestration/contributions/pluginhost" ../fluxplane-core -g'*.go' -g'*.md'
 ```
+
+### Progress Update: AWS Extracted To Standalone SDK Plugin
+
+Completed in this batch:
+
+- Added `github.com/fluxplane/fluxplane-plugins/aws` as a standalone
+  `fluxplane-plugin` SDK plugin module:
+  - operation `aws.environment.inspect`;
+  - context provider `aws.environment`;
+  - stdio command entrypoint at `cmd/fluxplane-plugin-aws`;
+  - marketplace and workspace registration.
+- Preserved the old Core AWS behavior that matters outside Core evidence:
+  profile/region discovery, credential-presence booleans, region-only
+  configured-but-unavailable handling, and no secret value exposure.
+- Removed Core's old `plugins/integrations/aws` package and deleted the now-empty
+  `plugins/integrations` tree.
+- Removed the stale Core legacy integrations doc and updated current GitLab,
+  Atlassian, and observations/reactions docs so they no longer point users at
+  deleted Core integration packages.
+- Extended Core architecture guards so any `plugins/integrations` directory or
+  import path fails tests.
+
+Architectural result: Core no longer contains reusable provider implementation
+packages. AWS is now a normal external plugin implementation. Core can still
+bridge installed plugin operations/context providers through `fluxplane-plugin`;
+portable evidence observer/assertion bridging remains a separate Core bridge
+capability decision, not a reason to keep AWS implementation code inside Core.
