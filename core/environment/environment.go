@@ -1,7 +1,7 @@
 package environment
 
 import (
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )

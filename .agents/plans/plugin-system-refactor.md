@@ -4126,3 +4126,31 @@ packages. AWS is now a normal external plugin implementation. Core can still
 bridge installed plugin operations/context providers through `fluxplane-plugin`;
 portable evidence observer/assertion bridging remains a separate Core bridge
 capability decision, not a reason to keep AWS implementation code inside Core.
+
+### Progress Update: Portable Evidence Contracts Extracted
+
+Completed in this batch:
+
+- Added `github.com/fluxplane/fluxplane-evidence` as a standalone leaf module for
+  inert evidence contracts:
+  - observation records and observer specs;
+  - assertion records, assertion templates, and assertion-deriver specs;
+  - evidence environment refs, phases, subject vocabulary, activation keys, and
+    stable assertion fingerprints.
+- Updated Core to import `fluxplane-evidence` directly and removed the old
+  `core/evidence` package instead of leaving aliases behind.
+- Kept runtime execution in Core:
+  - `runtime/evidence` still owns observer and assertion-deriver execution
+    interfaces;
+  - orchestration/session code still schedules observers, derives assertions,
+    and applies reaction planning.
+- Updated Coder and Slack Bot to the current Core contribution package names
+  while adding local `fluxplane-evidence` module wiring, so product
+  `GOWORK=off` tests compile against the extracted Core contracts.
+- Extended Core architecture guards so `core/evidence` cannot return as a
+  compatibility package.
+
+Architectural result: plugin and product code can now reference portable
+observation/assertion DTOs without importing Core. The remaining bridge work is
+to expose plugin-produced observations through `fluxplane-plugin` protocol and
+materialize them into Core `runtime/evidence`.

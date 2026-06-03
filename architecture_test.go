@@ -73,11 +73,13 @@ func TestCoreGoModDoesNotDependOnDexOrPluginImplementations(t *testing.T) {
 func TestDeprecatedCoreLeafAliasPackagesDoNotReturn(t *testing.T) {
 	forbiddenImports := []string{
 		"github.com/fluxplane/fluxplane-core/core/" + "context",
+		"github.com/fluxplane/fluxplane-core/core/" + "evidence",
 		"github.com/fluxplane/fluxplane-core/core/" + "operation",
 		"github.com/fluxplane/fluxplane-core/core/" + "policy",
 	}
 	forbiddenDirs := []string{
 		filepath.Join("core", "context"),
+		filepath.Join("core", "evidence"),
 		filepath.Join("core", "operation"),
 		filepath.Join("core", "policy"),
 	}

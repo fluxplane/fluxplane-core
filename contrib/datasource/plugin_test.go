@@ -9,12 +9,12 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/activation"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 )
 

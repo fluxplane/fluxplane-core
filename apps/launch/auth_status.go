@@ -6,8 +6,8 @@ import (
 	"time"
 
 	sharedauthstatus "github.com/fluxplane/fluxplane-auth/authstatus"
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 

@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"sort"
 	"strings"
 )

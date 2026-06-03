@@ -9,7 +9,7 @@ import (
 	"time"
 
 	coreenvironment "github.com/fluxplane/fluxplane-core/core/environment"
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 )
 
 const (

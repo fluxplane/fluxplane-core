@@ -8,11 +8,11 @@ import (
 	"sort"
 	"strings"
 
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 	invjsonschema "github.com/invopop/jsonschema"

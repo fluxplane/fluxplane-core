@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 )
 
 func TestMaterializerEmitsOnlyChangedBlocks(t *testing.T) {

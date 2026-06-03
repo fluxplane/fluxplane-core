@@ -9,7 +9,6 @@ import (
 	"sync"
 	"testing"
 
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
@@ -21,6 +20,7 @@ import (
 	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
 	"github.com/fluxplane/fluxplane-event"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 )
 

@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 )
 
 const (

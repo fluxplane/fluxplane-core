@@ -7,7 +7,6 @@ import (
 	"github.com/fluxplane/fluxplane-policy/policyauth"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	contextruntime "github.com/fluxplane/fluxplane-core/runtime/context"
@@ -16,6 +15,7 @@ import (
 	runtimeskill "github.com/fluxplane/fluxplane-core/runtime/skill"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-event"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )

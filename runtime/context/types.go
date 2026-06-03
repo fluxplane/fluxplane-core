@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	fpcontext "github.com/fluxplane/fluxplane-context"
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-event"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 )
 
 type ProviderName = fpcontext.ProviderName

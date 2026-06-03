@@ -207,6 +207,7 @@ require (
 	github.com/buger/jsonparser v1.2.0 // indirect
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/fluxplane/fluxplane-evidence v0.1.0
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
@@ -232,5 +233,10 @@ replace github.com/fluxplane/fluxplane-plugin => ../fluxplane-plugin
 replace github.com/fluxplane/fluxplane-operation v0.1.0 => ../fluxplane-operation
 
 replace github.com/fluxplane/fluxplane-context v0.0.0 => ../fluxplane-context
+
+replace (
+	github.com/fluxplane/fluxplane-evidence v0.0.0 => ../fluxplane-evidence
+	github.com/fluxplane/fluxplane-evidence v0.1.0 => ../fluxplane-evidence
+)
 
 replace github.com/fluxplane/fluxplane-workspace v0.0.0 => ../fluxplane-workspace

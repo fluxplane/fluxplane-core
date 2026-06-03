@@ -7,10 +7,10 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	corellmagent "github.com/fluxplane/fluxplane-core/core/agent/llmagent"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 )
 
 // Model is the provider-neutral inference port used by the LLM agent runtime.

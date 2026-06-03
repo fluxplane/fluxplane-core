@@ -22,7 +22,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/command"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 	"github.com/fluxplane/fluxplane-core/core/environment"
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
@@ -45,6 +44,7 @@ import (
 	runtimegoal "github.com/fluxplane/fluxplane-core/runtime/goal"
 	runtimereaction "github.com/fluxplane/fluxplane-core/runtime/reaction"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )

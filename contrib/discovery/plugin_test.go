@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
+	coreevidence "github.com/fluxplane/fluxplane-evidence"
 )
 
 func TestDiscoveryPluginListsProvidersAndEndpoints(t *testing.T) {
