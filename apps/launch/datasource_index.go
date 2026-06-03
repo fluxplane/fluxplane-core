@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fluxplane/fluxplane-core/adapters/channels/slack"
 	embedaxon "github.com/fluxplane/fluxplane-core/adapters/embeddings/axon"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
@@ -20,7 +21,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/slack"
 	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/fluxplane/fluxplane-core/plugins/native/sessionhistory"
 	"github.com/fluxplane/fluxplane-core/plugins/native/skills"

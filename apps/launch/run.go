@@ -14,6 +14,7 @@ import (
 
 	sharedauthstatus "github.com/fluxplane/fluxplane-auth/authstatus"
 	"github.com/fluxplane/fluxplane-core"
+	"github.com/fluxplane/fluxplane-core/adapters/channels/slack"
 	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
 	"github.com/fluxplane/fluxplane-core/adapters/distribution/localruntime"
 	distrun "github.com/fluxplane/fluxplane-core/adapters/distribution/run"
@@ -36,7 +37,6 @@ import (
 	security "github.com/fluxplane/fluxplane-core/orchestration/security"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/taskexecutor"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/slack"
 	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/fluxplane/fluxplane-core/plugins/native/discovery"
 	goalplugin "github.com/fluxplane/fluxplane-core/plugins/native/goal"

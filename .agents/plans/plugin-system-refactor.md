@@ -512,7 +512,7 @@ Remove or deprecate these core packages:
 
 ```text
 fluxplane-core/plugins/integrations/gitlab
-fluxplane-core/plugins/integrations/slack
+fluxplane-core/adapters/channels/slack
 fluxplane-core/plugins/integrations/jira
 fluxplane-core/plugins/integrations/confluence
 fluxplane-core/plugins/integrations/kubernetes
@@ -2077,7 +2077,7 @@ coder/internal/plugins/languages/markdown
 ../fluxplane-plugins/openapi                       # generated operations/datasources from OpenAPI specs
 ../fluxplane-plugins/integrations/websearch
 
-fluxplane-core/plugins/integrations/slack      # channel adapter stays in Core
+fluxplane-core/adapters/channels/slack      # channel adapter stays in Core
 fluxplane-core/plugins/native/identity         # runtime/domain plugin stays
 fluxplane-core/plugins/native/goal             # runtime/domain plugin stays
 fluxplane-core/plugins/native/loop             # runtime/domain plugin stays
@@ -3392,7 +3392,7 @@ Completed in this batch:
     `duckduckgo`, and `tavily`).
 - Simplified the Core `examples/go/slack-bot-coded` example so it no longer
   imports those legacy Core integration packages. It now keeps only Core-owned
-  Slack channel/plugin wiring, OpenAPI, and native runtime plugins.
+  Slack channel/plugin wiring and native runtime plugins.
 - Ran `go mod tidy` in Core and removed the now-unused direct GitLab SDK module
   requirement.
 - Tightened Core's provider-SDK direct dependency allowlist by removing the
@@ -3404,7 +3404,7 @@ Completed in this batch:
 Validation completed:
 
 ```sh
-cd ../fluxplane-core && go test . ./examples/go/slack-bot-coded ./apps/launch ./plugins/support/eventcatalog ./orchestration/pluginbridge ./orchestration/pluginhost ./plugins/integrations/aws ./plugins/integrations/openapi ./plugins/integrations/slack
+cd ../fluxplane-core && go test . ./examples/go/slack-bot-coded ./apps/launch ./plugins/support/eventcatalog ./orchestration/pluginbridge ./orchestration/pluginhost ./plugins/integrations/aws ./adapters/channels/slack
 rg 'github.com/fluxplane/fluxplane-core/plugins/integrations/(confluence|docker|git|gitlab|jira|kubernetes|loki|mysql|openai|web)' ../fluxplane-core ../coder ../fluxplane-apps ../fluxplane-plugin ../fluxplane-plugins -g'*.go' -g'go.mod'
 find ../fluxplane-core/plugins/integrations -maxdepth 2 -type f
 ```
@@ -3474,7 +3474,7 @@ Validation completed:
 ```sh
 cd ../fluxplane-plugins/openapi && go test ./...
 cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
-cd ../fluxplane-core && go test . ./apps/launch ./examples/go/slack-bot-coded ./orchestration/pluginbridge ./plugins/integrations/slack ./plugins/integrations/aws
+cd ../fluxplane-core && go test . ./apps/launch ./examples/go/slack-bot-coded ./orchestration/pluginbridge ./adapters/channels/slack ./plugins/integrations/aws
 rg "plugins/integrations/openapi|openapi\\." ../fluxplane-core -g'*.go'
 rg "github.com/fluxplane/fluxplane-plugins" ../fluxplane-core -g'*.go'
 ```
@@ -3489,7 +3489,7 @@ operation/datasource surfaces.
 Completed in this batch:
 
 - Audited the remaining Core integration tree after OpenAPI extraction:
-  - `plugins/integrations/slack` is the Core-owned Slack channel/runtime
+  - `adapters/channels/slack` is the Core-owned Slack channel/runtime
     adapter and remains in Core;
   - `plugins/integrations/aws` is not an operation/datasource provider plugin
     and does not import the AWS SDK. It contributes Core evidence observers and
@@ -3512,7 +3512,7 @@ Completed in this batch:
 Validation completed:
 
 ```sh
-cd ../fluxplane-core && go test . ./plugins/integrations/aws ./plugins/integrations/slack ./apps/launch ./orchestration/pluginbridge ./plugins/native/datasource
+cd ../fluxplane-core && go test . ./plugins/integrations/aws ./adapters/channels/slack ./apps/launch ./orchestration/pluginbridge ./plugins/native/datasource
 cd ../fluxplane-plugins/atlassian && go test ./...
 cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
 rg "github.com/fluxplane/fluxplane-core/plugins/(internal/atlassian|integrations/(confluence|jira|openapi))|plugins/internal/atlassian|github.com/fluxplane/fluxplane-dex" ../fluxplane-core ../coder ../fluxplane-apps ../fluxplane-plugin ../fluxplane-plugins -g'*.go' -g'go.mod'
@@ -4015,4 +4015,31 @@ cd ../fluxplane-context && go test ./...
 cd ../coder && GOWORK=off go test ./...
 cd ../fluxplane-apps/slack-bot && GOWORK=off go test ./...
 rg "github.com/fluxplane/fluxplane-core/core/(context|operation|policy)" ../fluxplane-core ../coder ../fluxplane-apps -g'*.go' -g'go.mod'
+```
+
+### Progress Update: Slack Channel Adapter Moved Out Of Plugins
+
+Completed in this batch:
+
+- Removed empty Core plugin shell directories for drained coding, language,
+  OpenAPI, and product-native plugin packages.
+- Moved the Core-owned Slack channel/runtime adapter from
+  `plugins/integrations/slack` to `adapters/channels/slack`.
+- Updated Core launch, serve, datasource indexing, examples, and tests to
+  import `github.com/fluxplane/fluxplane-core/adapters/channels/slack`.
+- Clarified that the Slack adapter is channel transport plus active-thread
+  operations; richer Slack operation/datasource surfaces belong in
+  `fluxplane-plugins/slack`.
+- Added a Core architecture boundary test that fails if drained plugin
+  directories or import paths return.
+- Updated the provider-SDK import allowlist so `slack-go/slack` is only
+  accepted under the Core Slack channel adapter path.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-core && go test ./...
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test ./...
+rg "github.com/fluxplane/fluxplane-core/plugins/integrations/slack|plugins/integrations/slack" ../fluxplane-core ../coder ../fluxplane-apps ../fluxplane-plugin ../fluxplane-plugins -g'*.go' -g'go.mod'
+find ../fluxplane-core/plugins -maxdepth 3 -type d | sort
 ```

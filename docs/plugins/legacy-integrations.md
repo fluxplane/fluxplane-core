@@ -1,9 +1,9 @@
 # Legacy integrations
 
-The packages under `plugins/integrations/*` are legacy first-party integration
-implementations. Active product integration surfaces should be registered by
-product-owned Core integration code using `github.com/fluxplane/fluxplane-plugin`
-and installable plugin modules under
+The remaining packages under `plugins/integrations/*` are legacy first-party
+integration implementations. Active product integration surfaces should be
+registered by product-owned Core integration code using
+`github.com/fluxplane/fluxplane-plugin` and installable plugin modules under
 `github.com/fluxplane/fluxplane-plugins/...`. They should not depend on Dex.
 
 ## Migration policy
@@ -20,14 +20,9 @@ and installable plugin modules under
 
 ## Remaining core compatibility points
 
-A small number of core paths still import packages from `plugins/integrations`:
-
-- `apps/launch` uses Slack for the channel-path adapter/auth declarations and
-  OpenAPI as a compatibility plugin.
-- `apps/launch` datasource indexing uses the Slack channel-path/auth helper.
-- `plugins/bundles/coding` still uses legacy `git` and `web` helpers for the
-  standard coding bundle until those capabilities are fully supplied by
-  `fluxplane-plugins` or native replacements.
+Only AWS environment observation remains in `plugins/integrations` at this
+checkpoint. The Slack channel transport moved to `adapters/channels/slack`;
+Slack operation/datasource surfaces belong in `fluxplane-plugins/slack`.
 
 These compatibility points should be retired or isolated independently. They are
 not evidence that the whole legacy integration tree must be migrated to new

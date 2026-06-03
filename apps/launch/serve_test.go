@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fluxplane/fluxplane-core/adapters/channels/slack"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
 	"github.com/fluxplane/fluxplane-core/core/resource"
@@ -16,7 +17,6 @@ import (
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	orchestrationsession "github.com/fluxplane/fluxplane-core/orchestration/session"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/slack"
 )
 
 func TestServeChannelsUsesNativeSlackInstance(t *testing.T) {

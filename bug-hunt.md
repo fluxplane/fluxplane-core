@@ -253,7 +253,7 @@ session. One bug per iteration: find → reproduce → fix → commit.
 
 ## Iteration 13 — same UTF-8 truncation pattern in Slack `compactText`
 
-- **Where:** `plugins/integrations/slack/run_observer.go` `compactText`.
+- **Where:** `adapters/channels/slack/run_observer.go` `compactText`.
 - **Bug:** `text[:max] + "..."` — slices at byte `max` regardless of
   UTF-8 rune boundaries. With a multi-byte rune straddling the cut, the
   result was an invalid-UTF-8 string with a dangling continuation byte

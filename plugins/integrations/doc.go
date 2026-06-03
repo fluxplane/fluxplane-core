@@ -1,2 +1,2 @@
-// Package integrations contains first-party integration plugin implementations.
+// Package integrations contains legacy Core integration compatibility packages.
 package integrations

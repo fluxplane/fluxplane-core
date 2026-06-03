@@ -34,7 +34,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	triggerhost "github.com/fluxplane/fluxplane-core/orchestration/trigger"
 
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/slack"
+	"github.com/fluxplane/fluxplane-core/adapters/channels/slack"
 )
 
 type Options struct {

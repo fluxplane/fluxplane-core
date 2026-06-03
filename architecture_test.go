@@ -126,6 +126,80 @@ func TestDeprecatedCoreLeafAliasPackagesDoNotReturn(t *testing.T) {
 	}
 }
 
+func TestRemovedCorePluginImplementationDirsDoNotReturn(t *testing.T) {
+	forbiddenDirs := []string{
+		filepath.Join("plugins", "bundles"),
+		filepath.Join("plugins", "internal"),
+		filepath.Join("plugins", "languages"),
+		filepath.Join("plugins", "integrations", "openapi"),
+		filepath.Join("plugins", "integrations", "slack"),
+		filepath.Join("plugins", "native", "browser"),
+		filepath.Join("plugins", "native", "clock"),
+		filepath.Join("plugins", "native", "code"),
+		filepath.Join("plugins", "native", "filesystem"),
+		filepath.Join("plugins", "native", "project"),
+		filepath.Join("plugins", "native", "shell"),
+		filepath.Join("plugins", "native", "sleep"),
+	}
+	forbiddenImports := []string{
+		"github.com/fluxplane/fluxplane-core/plugins/" + "bundles/",
+		"github.com/fluxplane/fluxplane-core/plugins/" + "internal/",
+		"github.com/fluxplane/fluxplane-core/plugins/" + "languages/",
+		"github.com/fluxplane/fluxplane-core/plugins/integrations/" + "openapi",
+		"github.com/fluxplane/fluxplane-core/plugins/integrations/" + "slack",
+		"github.com/fluxplane/fluxplane-core/plugins/native/" + "browser",
+		"github.com/fluxplane/fluxplane-core/plugins/native/" + "clock",
+		"github.com/fluxplane/fluxplane-core/plugins/native/" + "code",
+		"github.com/fluxplane/fluxplane-core/plugins/native/" + "filesystem",
+		"github.com/fluxplane/fluxplane-core/plugins/native/" + "project",
+		"github.com/fluxplane/fluxplane-core/plugins/native/" + "shell",
+		"github.com/fluxplane/fluxplane-core/plugins/native/" + "sleep",
+	}
+	var bad []string
+	for _, dir := range forbiddenDirs {
+		if _, err := os.Stat(dir); err == nil {
+			bad = append(bad, dir+" drained plugin implementation directory exists")
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("stat %s: %v", dir, err)
+		}
+	}
+	err := filepath.WalkDir(".", func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "bin", "vendor":
+				return filepath.SkipDir
+			default:
+				return nil
+			}
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, imported := range file.Imports {
+			pathValue := strings.Trim(imported.Path.Value, "\"")
+			for _, forbidden := range forbiddenImports {
+				if pathValue == forbidden || strings.HasPrefix(pathValue, forbidden+"/") {
+					bad = append(bad, path+" imports drained plugin implementation "+pathValue)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk core module: %v", err)
+	}
+	if len(bad) > 0 {
+		t.Fatalf("drained core plugin implementation boundary violations:\n%s", strings.Join(bad, "\n"))
+	}
+}
+
 func TestCoreProviderSDKDirectDependenciesArePinnedForExtraction(t *testing.T) {
 	raw, err := os.ReadFile("go.mod")
 	if err != nil {
@@ -184,7 +258,7 @@ func TestCoreProviderSDKImportsStayInApprovedRuntimeInfrastructure(t *testing.T)
 		"k8s.io/client-go",
 	}
 	transitionalPathPrefixes := []string{
-		"plugins/integrations/slack/",
+		"adapters/channels/slack/",
 		"adapters/distribution/deploy/",
 		"adapters/llm/codex/",
 		"adapters/llm/openai/",

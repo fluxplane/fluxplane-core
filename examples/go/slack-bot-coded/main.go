@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/fluxplane/fluxplane-core/adapters/channels/slack"
 	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
 	"github.com/fluxplane/fluxplane-core/apps/launch"
 	"github.com/fluxplane/fluxplane-core/core/agent"
@@ -15,7 +16,6 @@ import (
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/plugins/integrations/slack"
 	datasourceplugin "github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/fluxplane/fluxplane-core/plugins/native/identity"
 	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
