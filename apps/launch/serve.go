@@ -58,26 +58,28 @@ type Options struct {
 }
 
 type ServeDistributionOptions struct {
-	Root               string
-	Spec               coredistribution.Spec
-	Bundles            []resource.ContributionBundle
-	Launch             orchestrationdistribution.LaunchConfig
-	AuthPath           string
-	AllowPluginAuthEnv bool
-	Provider           string
-	Model              string
-	Thinking           string
-	ThinkingSet        bool
-	Effort             string
-	EffortSet          bool
-	HealthAddr         string
-	Debug              bool
-	Verbose            bool
-	Yolo               bool
-	Dev                bool
-	Plugins            func(PluginFactoryContext) []pluginhost.Plugin
-	PluginFactory      func(PluginFactoryContext) []pluginhost.Plugin
-	ToolProjection     fluxplane.ToolProjectionConfig
+	Root                   string
+	Spec                   coredistribution.Spec
+	Bundles                []resource.ContributionBundle
+	Launch                 orchestrationdistribution.LaunchConfig
+	AuthPath               string
+	AllowPluginAuthEnv     bool
+	Provider               string
+	Model                  string
+	Thinking               string
+	ThinkingSet            bool
+	Effort                 string
+	EffortSet              bool
+	HealthAddr             string
+	Debug                  bool
+	Verbose                bool
+	Yolo                   bool
+	Dev                    bool
+	EnableInstalledPlugins bool
+	InstalledPluginNames   []string
+	Plugins                func(PluginFactoryContext) []pluginhost.Plugin
+	PluginFactory          func(PluginFactoryContext) []pluginhost.Plugin
+	ToolProjection         fluxplane.ToolProjectionConfig
 	// SessionToolProjection forwards to fluxplane.Config.SessionToolProjection.
 	// Set to session.ToolProjectionContextBlocksOnly so activated operation
 	// schemas reach the LLM via developer-context blocks (dispatched through
@@ -128,27 +130,29 @@ func Serve(ctx context.Context, opts Options) error {
 func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error {
 	configureServeLogging(opts.Debug)
 	runtime, err := Launch(ctx, RuntimeOptions{
-		Root:                  opts.Root,
-		Spec:                  opts.Spec,
-		Bundles:               opts.Bundles,
-		Launch:                opts.Launch,
-		AuthPath:              opts.AuthPath,
-		AllowPluginAuthEnv:    opts.AllowPluginAuthEnv,
-		Provider:              opts.Provider,
-		Model:                 opts.Model,
-		Thinking:              opts.Thinking,
-		ThinkingSet:           opts.ThinkingSet,
-		Effort:                opts.Effort,
-		EffortSet:             opts.EffortSet,
-		Debug:                 opts.Debug,
-		Yolo:                  opts.Yolo,
-		Dev:                   opts.Dev,
-		Plugins:               opts.Plugins,
-		PluginFactory:         opts.PluginFactory,
-		ToolProjection:        opts.ToolProjection,
-		SessionToolProjection: opts.SessionToolProjection,
-		ModelResolver:         opts.ModelResolver,
-		AllowPrivateNetwork:   opts.AllowPrivateNetwork,
+		Root:                   opts.Root,
+		Spec:                   opts.Spec,
+		Bundles:                opts.Bundles,
+		Launch:                 opts.Launch,
+		AuthPath:               opts.AuthPath,
+		AllowPluginAuthEnv:     opts.AllowPluginAuthEnv,
+		Provider:               opts.Provider,
+		Model:                  opts.Model,
+		Thinking:               opts.Thinking,
+		ThinkingSet:            opts.ThinkingSet,
+		Effort:                 opts.Effort,
+		EffortSet:              opts.EffortSet,
+		Debug:                  opts.Debug,
+		Yolo:                   opts.Yolo,
+		Dev:                    opts.Dev,
+		EnableInstalledPlugins: opts.EnableInstalledPlugins,
+		InstalledPluginNames:   append([]string(nil), opts.InstalledPluginNames...),
+		Plugins:                opts.Plugins,
+		PluginFactory:          opts.PluginFactory,
+		ToolProjection:         opts.ToolProjection,
+		SessionToolProjection:  opts.SessionToolProjection,
+		ModelResolver:          opts.ModelResolver,
+		AllowPrivateNetwork:    opts.AllowPrivateNetwork,
 	})
 	if err != nil {
 		return err

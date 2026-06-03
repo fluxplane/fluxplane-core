@@ -3801,3 +3801,41 @@ find plugins -maxdepth 3 -type f -name '*.go'
 Result: all five current next steps are implemented for this architecture
 checkpoint. Future work should be tracked as new next steps, not as carry-over
 from this migration batch.
+
+### Progress Update: Core Installed Plugin Loader
+
+Completed in this batch:
+
+- Added Core-side installed plugin loading in
+  `orchestration/pluginbridge`:
+  - reads enabled installed plugins from a `fluxplane-plugin/management.Store`;
+  - defaults to the local `~/.fluxplane/plugins/state.json` backend;
+  - supports product-supplied state stores and runtime factories;
+  - adapts installed stdio runtimes through the existing Core plugin bridge;
+  - emits explicit `default` plugin refs so Core instance identity matches
+    `fluxplane-plugin` state.
+- Added launch integration:
+  - `RuntimeOptions`, `LocalRuntimeConfig`, and `ServeDistributionOptions`
+    now support `EnableInstalledPlugins` and `InstalledPluginNames`;
+  - Core launch merges installed plugins into the available plugin set and
+    appends an installed-plugin declaration bundle;
+  - name collisions keep the existing Core/product plugin and do not silently
+    activate the installed duplicate.
+- Wired products to the Core loader without importing Dex or reimplementing
+  plugin management:
+  - Slack Bot maps its existing `[runtime].plugins` allow-list to Core's
+    installed plugin loader;
+  - Coder startup can opt into installed plugins via
+    `WithInstalledPlugins(...)`, and its main distribution/channel launch
+    paths pass that state to Core launch.
+- Added tests proving:
+  - enabled installed plugins resolve through Core pluginhost contributions;
+  - bridged installed operations invoke through `fluxplane-plugin` runtime
+    paths;
+  - disabled plugins and disabled instances are skipped;
+  - launch only declares installed plugin refs whose implementations were
+    actually added, preserving built-in collisions.
+
+Architectural result: Core is now the agent runtime bridge for installed
+`fluxplane-plugin` plugins. Products can opt into installed plugin state through
+Core launch options while Dex remains outside every product dependency path.

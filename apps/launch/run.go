@@ -32,6 +32,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	orchestrationidentity "github.com/fluxplane/fluxplane-core/orchestration/identity"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginbridge"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	security "github.com/fluxplane/fluxplane-core/orchestration/security"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
@@ -62,48 +63,54 @@ import (
 )
 
 type LocalRuntimeConfig struct {
-	Root                  string
-	Spec                  coredistribution.Spec
-	Bundles               []resource.ContributionBundle
-	Plugins               func(PluginFactoryContext) []pluginhost.Plugin
-	PluginFactory         func(PluginFactoryContext) []pluginhost.Plugin
-	ToolProjection        fluxplane.ToolProjectionConfig
-	SessionToolProjection session.ToolProjectionMode
-	ModelResolver         agentfactory.ModelResolver
-	AllowPrivateNetwork   bool
-	Launch                distribution.LaunchConfig
-	AuthPath              string
-	AllowPluginAuthEnv    bool
-	Dev                   bool
+	Root                   string
+	Spec                   coredistribution.Spec
+	Bundles                []resource.ContributionBundle
+	Plugins                func(PluginFactoryContext) []pluginhost.Plugin
+	PluginFactory          func(PluginFactoryContext) []pluginhost.Plugin
+	ToolProjection         fluxplane.ToolProjectionConfig
+	SessionToolProjection  session.ToolProjectionMode
+	ModelResolver          agentfactory.ModelResolver
+	AllowPrivateNetwork    bool
+	Launch                 distribution.LaunchConfig
+	AuthPath               string
+	AllowPluginAuthEnv     bool
+	Dev                    bool
+	EnableInstalledPlugins bool
+	InstalledPluginNames   []string
 }
 
 type AttachOptions struct {
-	AuthPath           string
-	AllowPluginAuthEnv bool
-	Dev                bool
+	AuthPath               string
+	AllowPluginAuthEnv     bool
+	Dev                    bool
+	EnableInstalledPlugins bool
+	InstalledPluginNames   []string
 }
 
 // RuntimeOptions describes the surface-neutral local launch inputs shared by
 // run, serve, and first-party distribution executables.
 type RuntimeOptions struct {
-	Root               string
-	Spec               coredistribution.Spec
-	Bundles            []resource.ContributionBundle
-	Launch             distribution.LaunchConfig
-	AuthPath           string
-	AllowPluginAuthEnv bool
-	Provider           string
-	Model              string
-	Thinking           string
-	ThinkingSet        bool
-	Effort             string
-	EffortSet          bool
-	Debug              bool
-	Yolo               bool
-	Dev                bool
-	Plugins            func(PluginFactoryContext) []pluginhost.Plugin
-	PluginFactory      func(PluginFactoryContext) []pluginhost.Plugin
-	ToolProjection     fluxplane.ToolProjectionConfig
+	Root                   string
+	Spec                   coredistribution.Spec
+	Bundles                []resource.ContributionBundle
+	Launch                 distribution.LaunchConfig
+	AuthPath               string
+	AllowPluginAuthEnv     bool
+	Provider               string
+	Model                  string
+	Thinking               string
+	ThinkingSet            bool
+	Effort                 string
+	EffortSet              bool
+	Debug                  bool
+	Yolo                   bool
+	Dev                    bool
+	EnableInstalledPlugins bool
+	InstalledPluginNames   []string
+	Plugins                func(PluginFactoryContext) []pluginhost.Plugin
+	PluginFactory          func(PluginFactoryContext) []pluginhost.Plugin
+	ToolProjection         fluxplane.ToolProjectionConfig
 	// SessionToolProjection forwards to fluxplane.Config.SessionToolProjection
 	// so consumers can opt sessions into the cache-stable mode where
 	// activated ops are projected only via the surface schema context
@@ -146,14 +153,16 @@ func AttachLocalRuntimeWithOptions(loaded distribution.Loaded, opts AttachOption
 		return loaded
 	}
 	loaded.Distribution.Runtime = NewLocalRuntime(LocalRuntimeConfig{
-		Root:                loaded.Root,
-		Spec:                loaded.Distribution.Spec,
-		Bundles:             loaded.Distribution.Bundles,
-		AllowPrivateNetwork: true,
-		Launch:              loaded.Launch,
-		AuthPath:            opts.AuthPath,
-		AllowPluginAuthEnv:  opts.AllowPluginAuthEnv,
-		Dev:                 opts.Dev,
+		Root:                   loaded.Root,
+		Spec:                   loaded.Distribution.Spec,
+		Bundles:                loaded.Distribution.Bundles,
+		AllowPrivateNetwork:    true,
+		Launch:                 loaded.Launch,
+		AuthPath:               opts.AuthPath,
+		AllowPluginAuthEnv:     opts.AllowPluginAuthEnv,
+		Dev:                    opts.Dev,
+		EnableInstalledPlugins: opts.EnableInstalledPlugins,
+		InstalledPluginNames:   append([]string(nil), opts.InstalledPluginNames...),
 	})
 	return loaded
 }
@@ -180,27 +189,29 @@ func needsLocalRuntimeOpener(runtime distribution.Runtime) bool {
 
 func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribution.OpenRequest) (clientapi.SessionHandle, error) {
 	runtime, err := Launch(ctx, RuntimeOptions{
-		Root:                  cfg.Root,
-		Spec:                  cfg.Spec,
-		Bundles:               cfg.Bundles,
-		Launch:                mergeLaunchConfig(cfg.Launch, req.Launch),
-		AuthPath:              cfg.AuthPath,
-		AllowPluginAuthEnv:    cfg.AllowPluginAuthEnv || req.AllowPluginAuthEnv,
-		Provider:              req.Provider,
-		Model:                 req.Model,
-		Thinking:              req.Thinking,
-		ThinkingSet:           req.ThinkingSet,
-		Effort:                req.Effort,
-		EffortSet:             req.EffortSet,
-		ToolProjection:        mergeToolProjectionMaxRisk(cfg.ToolProjection, req.MaxToolRisk),
-		Debug:                 req.Debug,
-		Yolo:                  req.Yolo,
-		Dev:                   cfg.Dev || req.Dev,
-		Plugins:               cfg.Plugins,
-		PluginFactory:         cfg.PluginFactory,
-		ModelResolver:         cfg.ModelResolver,
-		AllowPrivateNetwork:   cfg.AllowPrivateNetwork || req.AllowPrivateNetwork,
-		SessionToolProjection: cfg.SessionToolProjection,
+		Root:                   cfg.Root,
+		Spec:                   cfg.Spec,
+		Bundles:                cfg.Bundles,
+		Launch:                 mergeLaunchConfig(cfg.Launch, req.Launch),
+		AuthPath:               cfg.AuthPath,
+		AllowPluginAuthEnv:     cfg.AllowPluginAuthEnv || req.AllowPluginAuthEnv,
+		Provider:               req.Provider,
+		Model:                  req.Model,
+		Thinking:               req.Thinking,
+		ThinkingSet:            req.ThinkingSet,
+		Effort:                 req.Effort,
+		EffortSet:              req.EffortSet,
+		ToolProjection:         mergeToolProjectionMaxRisk(cfg.ToolProjection, req.MaxToolRisk),
+		Debug:                  req.Debug,
+		Yolo:                   req.Yolo,
+		Dev:                    cfg.Dev || req.Dev,
+		EnableInstalledPlugins: cfg.EnableInstalledPlugins,
+		InstalledPluginNames:   append([]string(nil), cfg.InstalledPluginNames...),
+		Plugins:                cfg.Plugins,
+		PluginFactory:          cfg.PluginFactory,
+		ModelResolver:          cfg.ModelResolver,
+		AllowPrivateNetwork:    cfg.AllowPrivateNetwork || req.AllowPrivateNetwork,
+		SessionToolProjection:  cfg.SessionToolProjection,
 	})
 	if err != nil {
 		return nil, err
@@ -358,6 +369,18 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	}
 	if taskScheduler != nil {
 		available = replacePlugin(available, task.NewWithConfig(task.Config{Runner: taskScheduler, Workspace: runtimeWorkspace}))
+	}
+	if opts.EnableInstalledPlugins || len(opts.InstalledPluginNames) > 0 {
+		installed, err := pluginbridge.LoadInstalled(
+			ctx,
+			pluginbridge.WithInstalledPluginNames(opts.InstalledPluginNames...),
+			pluginbridge.WithInstalledBridgeOptions(pluginbridge.WithHostCallerFactory(pluginbridge.NewSystemHostCallerFactory(runtimeSystem))),
+		)
+		if err != nil {
+			closeRuntime()
+			return Runtime{}, err
+		}
+		available, bundles = mergeInstalledPlugins(available, bundles, installed)
 	}
 	if opts.Dev {
 		available = appendPluginIfMissing(available, sessionhistory.New(threadStore))
@@ -679,6 +702,51 @@ func appendPluginIfMissing(plugins []pluginhost.Plugin, plugin pluginhost.Plugin
 		}
 	}
 	return append(plugins, plugin)
+}
+
+func mergeInstalledPlugins(available []pluginhost.Plugin, bundles []resource.ContributionBundle, installed pluginbridge.InstalledLoadResult) ([]pluginhost.Plugin, []resource.ContributionBundle) {
+	if len(installed.Plugins) == 0 || len(installed.Refs) == 0 {
+		return available, bundles
+	}
+	existing := map[string]bool{}
+	for _, plugin := range available {
+		if plugin == nil {
+			continue
+		}
+		if name := strings.TrimSpace(plugin.Manifest().Name); name != "" {
+			existing[name] = true
+		}
+	}
+	added := map[string]bool{}
+	for _, plugin := range installed.Plugins {
+		if plugin == nil {
+			continue
+		}
+		name := strings.TrimSpace(plugin.Manifest().Name)
+		if name == "" || existing[name] {
+			continue
+		}
+		available = append(available, plugin)
+		existing[name] = true
+		added[name] = true
+	}
+	if len(added) == 0 {
+		return available, bundles
+	}
+	var refs []resource.PluginRef
+	seenRefs := map[string]bool{}
+	for _, ref := range installed.Refs {
+		if !added[ref.Name] || ref.Name == "" || seenRefs[ref.Key()] {
+			continue
+		}
+		seenRefs[ref.Key()] = true
+		refs = append(refs, ref)
+	}
+	if len(refs) == 0 {
+		return available, bundles
+	}
+	bundles = append(resource.CloneContributionBundles(bundles), pluginbridge.InstalledPluginBundle(refs...))
+	return available, bundles
 }
 
 func replacePlugin(plugins []pluginhost.Plugin, plugin pluginhost.Plugin) []pluginhost.Plugin {

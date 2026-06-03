@@ -20,6 +20,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/datasourceindex"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginbridge"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
@@ -114,6 +115,36 @@ func TestAttachLocalRuntimePreservesConcreteRuntime(t *testing.T) {
 
 	if got.Distribution.Runtime != existing {
 		t.Fatalf("runtime = %T, want existing fakeRuntime", got.Distribution.Runtime)
+	}
+}
+
+func TestMergeInstalledPluginsAddsNonCollidingPluginRefs(t *testing.T) {
+	existing := []pluginhost.Plugin{staticContributionPlugin{name: "builtin"}}
+	bundles := []resource.ContributionBundle{{Plugins: []resource.PluginRef{{Name: "builtin"}}}}
+	installed := pluginbridge.InstalledLoadResult{
+		Plugins: []pluginhost.Plugin{
+			staticContributionPlugin{name: "installed"},
+			staticContributionPlugin{name: "builtin"},
+		},
+		Refs: []resource.PluginRef{
+			{Name: "installed", Instance: "default"},
+			{Name: "builtin", Instance: "default"},
+		},
+	}
+
+	available, mergedBundles := mergeInstalledPlugins(existing, bundles, installed)
+
+	if len(available) != 2 {
+		t.Fatalf("available len = %d, want 2", len(available))
+	}
+	if available[1].Manifest().Name != "installed" {
+		t.Fatalf("installed plugin = %#v", available[1].Manifest())
+	}
+	if len(mergedBundles) != 2 {
+		t.Fatalf("bundles len = %d, want 2", len(mergedBundles))
+	}
+	if refs := mergedBundles[1].Plugins; len(refs) != 1 || refs[0].Key() != "installed/default" {
+		t.Fatalf("installed refs = %#v", refs)
 	}
 }
 
