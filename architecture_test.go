@@ -116,7 +116,7 @@ func TestCoreProviderSDKDirectDependenciesArePinnedForExtraction(t *testing.T) {
 	}
 }
 
-func TestCoreProviderSDKImportsStayInTransitionalPluginTree(t *testing.T) {
+func TestCoreProviderSDKImportsStayInApprovedRuntimeInfrastructure(t *testing.T) {
 	providerPrefixes := []string{
 		"github.com/aws/aws-sdk-go-v2",
 		"github.com/docker/",
@@ -128,7 +128,7 @@ func TestCoreProviderSDKImportsStayInTransitionalPluginTree(t *testing.T) {
 		"k8s.io/client-go",
 	}
 	transitionalPathPrefixes := []string{
-		"plugins/",
+		"plugins/integrations/slack/",
 		"adapters/distribution/deploy/",
 		"adapters/llm/codex/",
 		"adapters/llm/openai/",
@@ -173,7 +173,7 @@ func TestCoreProviderSDKImportsStayInTransitionalPluginTree(t *testing.T) {
 		t.Fatalf("walk core module: %v", err)
 	}
 	if len(bad) > 0 {
-		t.Fatalf("provider SDK imports outside transitional Core plugin tree:\n%s\nmove provider code to fluxplane-plugins or add a narrower host/SDK contract", strings.Join(bad, "\n"))
+		t.Fatalf("provider SDK imports outside approved Core runtime infrastructure:\n%s\nmove provider plugin code to fluxplane-plugins or add a narrower host/SDK contract", strings.Join(bad, "\n"))
 	}
 }
 

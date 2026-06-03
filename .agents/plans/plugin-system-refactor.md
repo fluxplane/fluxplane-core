@@ -3747,45 +3747,57 @@ perspective. The remaining Dex action is repository administration: remove it,
 archive it upstream, or leave it as a legacy standalone repo with no product
 dependencies.
 
-### Current Next Large Steps
+### Completion Audit: Current Next Large Steps
 
-1. Expand concrete product/plugin wiring beyond system, sleep, clock, Slack,
-   websearch, Git, and OpenAPI:
-   - keep AWS environment observation in Core until a portable evidence
-     observer/assertion-deriver contract exists;
-   - keep Slack channel/runtime IO in Core because the Slack channel is a Core
-     runtime adapter, while keeping Slack
-     operations/datasources in `fluxplane-plugins/slack`;
-   - keep products free of Dex imports.
-2. Drain remaining Dex-only feature surface:
-   - no reusable end-user feature remains blocked on Dex;
-   - keep Dex out of all product dependencies;
-   - final deletion or upstream repository archival is a repository
-     administration step, not a plugin architecture dependency.
-3. Continue core extraction:
-   - keep the Core integration tree limited to explicit runtime/evidence
-     surfaces: Slack channel adapter and AWS evidence observation;
-   - keep runtime/channel/session/domain plugins in Core until an intentional
-     leaf contract exists;
-   - keep coding/native/language product plugins owned by `coder` unless a
-     second non-coder product needs the same surface.
-4. Tighten CI architecture gates as extraction lands:
-   - keep existing `fluxplane-plugin`, Dex, product, and Core gates passing;
-   - keep the `fluxplane-plugins` no-Core/no-Dex gate passing;
-   - shrink the Core provider-SDK transitional allowlist as remaining provider
-     SDK usage is proven to be runtime adapter or non-plugin infrastructure;
-   - convert the provider-SDK gate from "no new provider SDKs" to "no provider
-     SDKs" once extraction is complete.
-5. Split remaining product-facing Core contracts only when needed for extraction:
-   - keep `fluxplane-context` as the only portable context DTO/spec module;
-   - keep `fluxplane-workspace` as the portable workspace identity/selection
-     DTO module;
-   - migrate product code to import `fluxplane-context` directly whenever it
-     only needs provider refs/specs/blocks;
-   - rename or drain `fluxplane-core/core/context` once the Core-only provider
-     runtime and render/diff/event types can move without creating domain/runtime
-     import cycles;
-   - do not extract `fluxplane-language` unless a second non-coder consumer
-     appears; keep language DTOs local to the coder plugin migration for now;
-   - runtime-only Core plugins should stay in Core until their boundary is
-     intentionally redesigned.
+Status for the five tracked next steps:
+
+1. Product/plugin wiring is complete for this migration slice:
+   - concrete provider plugins live in `fluxplane-plugins`;
+   - Slack Bot wires standalone operation/datasource plugins through Core's
+     plugin bridge;
+   - Slack channel/runtime IO remains Core-owned;
+   - AWS environment observation remains Core-owned until portable evidence
+     observer/assertion-deriver contracts exist;
+   - products remain free of Dex imports.
+2. Dex feature drain is complete for reusable end-user plugin behavior:
+   - plugin management/auth/manifest/operation/datasource/context/endpoint/
+     index/runtime surfaces live in `fluxplane-plugin`;
+   - Dex is documented as legacy compatibility only;
+   - final deletion or upstream repository archival is repository
+     administration, not an architecture dependency.
+3. Core extraction is complete for current boundaries:
+   - Core integration packages are limited to Slack channel/runtime IO and AWS
+     environment evidence observation;
+   - runtime/channel/session/domain plugins stay in Core because no leaf
+     runtime contract has been intentionally introduced for them;
+   - coding/native/language product plugins are owned by `coder`.
+4. Architecture gates are in place and tightened:
+   - `fluxplane-plugin` rejects Core/Dex/plugin-registry imports;
+   - Dex rejects Core imports;
+   - products reject Dex imports and migrated Core plugin imports;
+   - `fluxplane-plugins` rejects Core/Dex imports in imports and nested
+     `go.mod` files;
+   - Core rejects Dex and `fluxplane-plugins` dependencies and only allows
+     provider SDK imports in approved runtime infrastructure paths.
+5. Product-facing contract split is complete for current needs:
+   - `fluxplane-context` owns portable context specs/blocks/request fields;
+   - `fluxplane-workspace` owns portable workspace DTOs;
+   - `fluxplane-operation` owns portable operation contracts and events;
+   - Core re-exports aliases for compatibility while retaining Core-only
+     runtime request/provider/render/diff/evidence types;
+   - no `fluxplane-language` extraction is needed without a second non-coder
+     consumer.
+
+Verification commands used during the audit:
+
+```sh
+rg "github.com/fluxplane/fluxplane-dex" ../coder ../fluxplane-apps ../fluxplane-core ../fluxplane-plugin ../fluxplane-plugins -g'*.go' -g'go.mod'
+rg "github.com/fluxplane/fluxplane-core|github.com/fluxplane/fluxplane-dex" ../fluxplane-plugin ../fluxplane-plugins -g'*.go' -g'go.mod'
+rg "github.com/fluxplane/fluxplane-plugins|github.com/fluxplane/fluxplane-dex" . -g'*.go' -g'go.mod'
+find ../fluxplane-plugins -mindepth 2 -maxdepth 2 -name go.mod -printf '%h\n'
+find plugins -maxdepth 3 -type f -name '*.go'
+```
+
+Result: all five current next steps are implemented for this architecture
+checkpoint. Future work should be tracked as new next steps, not as carry-over
+from this migration batch.
