@@ -3728,6 +3728,25 @@ cd ../fluxplane-plugin && go run ./cmd/fluxplane-plugin context --help
 Result: the reusable plugin CLI now has a scriptable equivalent for the
 remaining useful Dex search/lookup/context fanout behavior.
 
+### Progress Update: Dex Marked As Legacy Compatibility CLI
+
+Completed in this batch:
+
+- Updated `fluxplane-dex/README.md` to lead with the end-state boundary:
+  - Dex is legacy compatibility only;
+  - new plugin management/auth/manifest/operation/datasource/context/endpoint/
+    index/runtime work belongs in `fluxplane-plugin`;
+  - concrete plugin implementations belong in `fluxplane-plugins`;
+  - product applications must not import Dex.
+- The README now points new users at `fluxplane-plugin` commands and keeps the
+  old Dex command reference only as legacy documentation during the archive
+  window.
+
+Result: Dex is now archived in-place from the user-facing documentation
+perspective. The remaining Dex action is repository administration: remove it,
+archive it upstream, or leave it as a legacy standalone repo with no product
+dependencies.
+
 ### Current Next Large Steps
 
 1. Expand concrete product/plugin wiring beyond system, sleep, clock, Slack,
@@ -3739,9 +3758,10 @@ remaining useful Dex search/lookup/context fanout behavior.
      operations/datasources in `fluxplane-plugins/slack`;
    - keep products free of Dex imports.
 2. Drain remaining Dex-only feature surface:
-   - delete, archive, or shrink Dex now that reusable end-user plugin behavior
-     lives in `fluxplane-plugin`; keep it out of all product dependencies until
-     that repository-level decision is made.
+   - no reusable end-user feature remains blocked on Dex;
+   - keep Dex out of all product dependencies;
+   - final deletion or upstream repository archival is a repository
+     administration step, not a plugin architecture dependency.
 3. Continue core extraction:
    - keep the Core integration tree limited to explicit runtime/evidence
      surfaces: Slack channel adapter and AWS evidence observation;
