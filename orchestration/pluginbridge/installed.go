@@ -10,6 +10,7 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-plugin/management"
 	pluginlocal "github.com/fluxplane/fluxplane-plugin/management/local"
 	"github.com/fluxplane/fluxplane-plugin/pluginruntime"
@@ -36,6 +37,7 @@ type installedLoadConfig struct {
 	runtime       InstalledRuntimeFactory
 	bridgeOptions []Option
 	names         map[string]bool
+	endpoints     *fpendpoint.Registry
 }
 
 // WithInstalledStore uses store instead of the default local plugin state
@@ -62,6 +64,13 @@ func WithInstalledRuntimeFactory(factory InstalledRuntimeFactory) InstalledLoadO
 func WithInstalledBridgeOptions(opts ...Option) InstalledLoadOption {
 	return func(cfg *installedLoadConfig) {
 		cfg.bridgeOptions = append(cfg.bridgeOptions, opts...)
+	}
+}
+
+// WithInstalledEndpointRegistry imports saved plugin endpoints into registry.
+func WithInstalledEndpointRegistry(registry *fpendpoint.Registry) InstalledLoadOption {
+	return func(cfg *installedLoadConfig) {
+		cfg.endpoints = registry
 	}
 }
 
@@ -110,6 +119,9 @@ func LoadInstalled(ctx context.Context, opts ...InstalledLoadOption) (InstalledL
 	if err != nil {
 		return InstalledLoadResult{}, fmt.Errorf("pluginbridge: load installed plugin status: %w", err)
 	}
+	if err := cfg.importEndpoints(ctx); err != nil {
+		return InstalledLoadResult{}, err
+	}
 	instances := installedInstancesByPlugin(status.Instances)
 	var result InstalledLoadResult
 	seenPlugins := map[string]bool{}
@@ -154,6 +166,67 @@ func LoadInstalled(ctx context.Context, opts ...InstalledLoadOption) (InstalledL
 	result.Bundle = InstalledPluginBundle(result.Refs...)
 	result.Bundle.Diagnostics = append(result.Bundle.Diagnostics, result.Diagnostics...)
 	return result, nil
+}
+
+func (cfg installedLoadConfig) importEndpoints(ctx context.Context) error {
+	if cfg.endpoints == nil {
+		return nil
+	}
+	endpointStore, ok := cfg.store.(management.EndpointStore)
+	if !ok {
+		return nil
+	}
+	listed, err := endpointStore.ListEndpoints(ctx, management.EndpointListRequest{})
+	if err != nil {
+		return fmt.Errorf("pluginbridge: list installed plugin endpoints: %w", err)
+	}
+	records := make([]fpendpoint.RuntimeRecord, 0, len(listed.Records)+len(listed.Endpoints))
+	if len(listed.Records) > 0 {
+		for _, record := range listed.Records {
+			if runtimeRecord, ok := runtimeRecordFromStoredEndpoint(record); ok {
+				records = append(records, runtimeRecord)
+			}
+		}
+	} else {
+		for _, endpoint := range listed.Endpoints {
+			if runtimeRecord, ok := runtimeRecordFromStoredEndpoint(fpendpoint.Record{EndpointRef: endpoint}); ok {
+				records = append(records, runtimeRecord)
+			}
+		}
+	}
+	for _, record := range records {
+		if _, err := cfg.endpoints.Put(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runtimeRecordFromStoredEndpoint(record fpendpoint.Record) (fpendpoint.RuntimeRecord, bool) {
+	endpoint := record.EndpointRef.Normalize()
+	if endpoint.ID == "" || endpoint.URL == "" {
+		return fpendpoint.RuntimeRecord{}, false
+	}
+	metadata := map[string]string{"product": endpoint.Product, "source": endpoint.Source}
+	return fpendpoint.RuntimeRecord{
+		Spec: fpendpoint.Spec{
+			Name:     endpoint.ID,
+			URL:      endpoint.URL,
+			Product:  endpoint.Product,
+			Protocol: endpoint.Protocol,
+			AuthRef:  endpoint.CredentialRef,
+			Labels:   endpoint.Labels,
+		},
+		Resolved: fpendpoint.Resolved{
+			Ref:      endpoint.CanonicalRef(),
+			URL:      endpoint.URL,
+			AuthRef:  endpoint.CredentialRef,
+			Metadata: metadata,
+		},
+		Metadata:   metadata,
+		Owner:      "fluxplane-plugin",
+		Discovered: record.UpdatedAt,
+	}, true
 }
 
 func installedPluginDiagnostic(plugin management.Plugin, phase string, err error) resource.Diagnostic {

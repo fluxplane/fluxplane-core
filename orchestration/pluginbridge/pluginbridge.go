@@ -184,7 +184,7 @@ func (p Plugin) TestConnection(ctx context.Context, pluginCtx contributions.Cont
 		sendAuthTestReport(reports, p.manifest.Name, ref.InstanceName(), method, "auth.test", "failed", err.Error(), nil)
 		return nil
 	}
-	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(ref.InstanceName())}
+	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(ref.InstanceName()), pluginruntime.WithConfig(pluginConfigMap(pluginCtx.Ref.Config))}
 	if p.hostCaller != nil {
 		options = append(options, pluginruntime.WithHostCaller(p.hostCaller(pluginCtx)))
 	}
@@ -324,7 +324,7 @@ func (o bridgedOperation) Run(ctx operation.Context, input operation.Value) oper
 		return operation.Failed("plugin_runtime_failed", err.Error(), nil)
 	}
 	call := protocol.OperationCall{Name: string(o.spec.Ref.Name), Input: raw}
-	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(o.instance)}
+	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(o.instance), pluginruntime.WithConfig(pluginConfigMap(o.pluginCtx.Ref.Config))}
 	if o.hostCaller != nil {
 		options = append(options, pluginruntime.WithHostCaller(o.hostCaller(o.pluginCtx)))
 	}
@@ -343,6 +343,17 @@ func (o bridgedOperation) Run(ctx operation.Context, input operation.Value) oper
 		return operation.Failed("plugin_result_decode_failed", err.Error(), nil)
 	}
 	return operation.OK(output)
+}
+
+func pluginConfigMap(config map[string]any) map[string]any {
+	if len(config) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(config))
+	for key, value := range config {
+		out[key] = value
+	}
+	return out
 }
 
 type bridgedContextProvider struct {
@@ -385,7 +396,7 @@ func (p bridgedContextProvider) Build(ctx context.Context, req corecontext.Reque
 	if err != nil {
 		return nil, err
 	}
-	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(p.instance)}
+	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(p.instance), pluginruntime.WithConfig(pluginConfigMap(p.pluginCtx.Ref.Config))}
 	if p.hostCaller != nil {
 		options = append(options, pluginruntime.WithHostCaller(p.hostCaller(p.pluginCtx)))
 	}
@@ -441,7 +452,7 @@ func (o bridgedEvidenceObserver) Observe(ctx context.Context, req runtimeevidenc
 		Phase:        req.Phase,
 		Observations: append([]coreevidence.Observation(nil), req.Observations...),
 	}
-	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(o.instance)}
+	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(o.instance), pluginruntime.WithConfig(pluginConfigMap(o.pluginCtx.Ref.Config))}
 	if o.hostCaller != nil {
 		options = append(options, pluginruntime.WithHostCaller(o.hostCaller(o.pluginCtx)))
 	}
@@ -587,7 +598,7 @@ func (a bridgedDatasourceAccessor) call(ctx context.Context, command string, pay
 	if err != nil {
 		return nil, err
 	}
-	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(a.instance)}
+	options := []pluginruntime.InvokeOption{pluginruntime.WithInstance(a.instance), pluginruntime.WithConfig(pluginConfigMap(a.pluginCtx.Ref.Config))}
 	if a.hostCaller != nil {
 		options = append(options, pluginruntime.WithHostCaller(a.hostCaller(a.pluginCtx)))
 	}

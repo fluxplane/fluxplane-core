@@ -8,6 +8,7 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-plugin/management"
 	"github.com/fluxplane/fluxplane-plugin/pluginruntime"
@@ -120,6 +121,30 @@ func TestLoadInstalledPluginsReportsBrokenRecordsAsDiagnostics(t *testing.T) {
 	}
 }
 
+func TestLoadInstalledPluginsImportsStoredEndpoints(t *testing.T) {
+	store := fakeInstalledStore{
+		plugins: []management.Plugin{
+			{Ref: management.Ref{Name: "echo"}, Installed: true, Enabled: true, Runtime: management.RuntimeSpec{Kind: "direct"}},
+		},
+		endpoints: []fpendpoint.Record{{
+			EndpointRef: fpendpoint.EndpointRef{ID: "gitlab-main", URL: "https://gitlab.example.test", Product: "gitlab"},
+		}},
+	}
+	registry := fpendpoint.NewRegistry(0)
+	if _, err := LoadInstalled(
+		context.Background(),
+		WithInstalledStore(store),
+		WithInstalledRuntimeFactory(fakeInstalledRuntime),
+		WithInstalledEndpointRegistry(registry),
+	); err != nil {
+		t.Fatalf("LoadInstalled: %v", err)
+	}
+	resolved, ok := registry.Resolve(fpendpoint.NewRef("gitlab-main"))
+	if !ok || resolved.URL != "https://gitlab.example.test" || resolved.Metadata["product"] != "gitlab" {
+		t.Fatalf("resolved endpoint ok=%v endpoint=%#v", ok, resolved)
+	}
+}
+
 func TestStdioRuntimeFromInstalledPluginRejectsUnsupportedRuntime(t *testing.T) {
 	_, err := StdioRuntimeFromInstalledPlugin(management.Plugin{
 		Ref:     management.Ref{Name: "echo"},
@@ -133,6 +158,7 @@ func TestStdioRuntimeFromInstalledPluginRejectsUnsupportedRuntime(t *testing.T) 
 type fakeInstalledStore struct {
 	plugins   []management.Plugin
 	instances []management.Instance
+	endpoints []fpendpoint.Record
 }
 
 func (s fakeInstalledStore) ListPlugins(context.Context, management.ListRequest) ([]management.Plugin, error) {
@@ -152,6 +178,26 @@ func (s fakeInstalledStore) SetPluginEnabled(context.Context, management.SetEnab
 
 func (s fakeInstalledStore) RemovePlugin(context.Context, management.RemoveRequest) (management.RemoveResult, error) {
 	return management.RemoveResult{}, nil
+}
+
+func (s fakeInstalledStore) ListEndpoints(context.Context, management.EndpointListRequest) (management.EndpointListResult, error) {
+	return management.EndpointListResult{Records: append([]fpendpoint.Record(nil), s.endpoints...)}, nil
+}
+
+func (s fakeInstalledStore) GetEndpoint(context.Context, management.EndpointGetRequest) (management.EndpointGetResult, error) {
+	return management.EndpointGetResult{}, nil
+}
+
+func (s fakeInstalledStore) SaveEndpoint(context.Context, management.EndpointSaveRequest) (management.EndpointSaveResult, error) {
+	return management.EndpointSaveResult{}, nil
+}
+
+func (s fakeInstalledStore) SaveEndpointHealth(context.Context, management.EndpointHealthRequest) (management.EndpointHealthResult, error) {
+	return management.EndpointHealthResult{}, nil
+}
+
+func (s fakeInstalledStore) RemoveEndpoint(context.Context, management.EndpointRemoveRequest) (management.EndpointRemoveResult, error) {
+	return management.EndpointRemoveResult{}, nil
 }
 
 func fakeInstalledRuntime(plugin management.Plugin) (pluginruntime.Plugin, error) {

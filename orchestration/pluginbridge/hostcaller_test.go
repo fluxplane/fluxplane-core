@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	sdkhost "github.com/fluxplane/fluxplane-plugin/host"
 	"github.com/fluxplane/fluxplane-plugin/protocol"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
@@ -174,6 +175,30 @@ func TestSystemHostCallerHTTP(t *testing.T) {
 	}
 	if resp.StatusCode != 201 || string(resp.Body) != "ok" {
 		t.Fatalf("response = %#v", resp)
+	}
+}
+
+func TestSystemHostCallerHTTPResolvesEndpointRef(t *testing.T) {
+	network := &recordingHTTPNetwork{}
+	endpoints := fpendpoint.NewRegistry(0)
+	if _, err := endpoints.Put(fpendpoint.RuntimeRecord{
+		Spec: fpendpoint.Spec{Name: "gitlab-main", URL: "https://gitlab.example.test", Product: "gitlab"},
+	}); err != nil {
+		t.Fatalf("Put endpoint: %v", err)
+	}
+	caller := NewSystemHostCaller(testHTTPSystem(t, network), WithEndpointRegistry(endpoints))
+
+	_, err := caller.CallHost(protocol.HostCapabilityHTTPDo, sdkhost.HTTPRequest{
+		EndpointRef: "gitlab-main",
+		Path:        "/api/v4/user",
+		Query:       map[string][]string{"active": {"true"}},
+		Method:      "GET",
+	})
+	if err != nil {
+		t.Fatalf("HTTPDo: %v", err)
+	}
+	if network.request.URL != "https://gitlab.example.test/api/v4/user?active=true" {
+		t.Fatalf("request = %#v", network.request)
 	}
 }
 

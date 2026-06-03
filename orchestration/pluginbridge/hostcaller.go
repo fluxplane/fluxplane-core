@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
+	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	sdkhost "github.com/fluxplane/fluxplane-plugin/host"
 	"github.com/fluxplane/fluxplane-plugin/protocol"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
@@ -59,6 +60,14 @@ func WithPluginIdentity(plugin, instance string) HostCallerOption {
 	}
 }
 
+// WithEndpointRegistry lets SDK HTTP calls resolve endpoint refs through the
+// Core runtime endpoint registry.
+func WithEndpointRegistry(registry *fpendpoint.Registry) HostCallerOption {
+	return func(c *systemHostCaller) {
+		c.endpoints = registry
+	}
+}
+
 // WithSystemInfoProvider handles provider call system.info using
 // fluxplane-system host metadata.
 func WithSystemInfoProvider() HostCallerOption {
@@ -105,6 +114,7 @@ type systemHostCaller struct {
 	network      fpsystem.Network
 	environment  fpsystem.Environment
 	process      fpsystem.ProcessManager
+	endpoints    *fpendpoint.Registry
 	secrets      sharedsecret.Resolver
 	providerCall ProviderCallHandler
 }
@@ -119,6 +129,8 @@ func (c *systemHostCaller) CallHost(command string, payload any) (json.RawMessag
 		return c.processRun(payload)
 	case protocol.HostCapabilityHTTPDo:
 		return c.httpDo(payload)
+	case sdkhost.EndpointResolve:
+		return c.endpointResolve(payload)
 	case protocol.HostCapabilityBlobRead:
 		return c.blobRead(payload)
 	case protocol.HostCapabilityBlobWrite:
@@ -213,7 +225,7 @@ func (c *systemHostCaller) httpDo(payload any) (json.RawMessage, error) {
 	if err := decodeHostPayload(payload, &req); err != nil {
 		return nil, err
 	}
-	urlString, err := hostHTTPURL(req)
+	urlString, err := c.hostHTTPURL(req)
 	if err != nil {
 		return nil, err
 	}
@@ -244,6 +256,26 @@ func (c *systemHostCaller) httpDo(payload any) (json.RawMessage, error) {
 		Body:        resp.Body,
 		Truncated:   resp.Truncated,
 		DurationMS:  resp.Duration.Milliseconds(),
+	})
+}
+
+func (c *systemHostCaller) endpointResolve(payload any) (json.RawMessage, error) {
+	var req struct {
+		EndpointRef string `json:"endpoint_ref"`
+	}
+	if err := decodeHostPayload(payload, &req); err != nil {
+		return nil, err
+	}
+	resolved, ok := c.resolveEndpoint(req.EndpointRef)
+	if !ok {
+		return nil, protocol.HostError{Code: "host_endpoint_not_found", Message: fmt.Sprintf("endpoint %q is not registered", strings.TrimSpace(req.EndpointRef))}
+	}
+	return json.Marshal(fpendpoint.EndpointRef{
+		ID:       resolved.Ref.ID(),
+		URL:      resolved.URL,
+		Product:  resolved.Metadata["product"],
+		Protocol: endpointProtocol(resolved.URL),
+		Source:   resolved.Source.Kind,
 	})
 }
 
@@ -491,10 +523,14 @@ func decodeHostPayload(payload any, out any) error {
 	return json.Unmarshal(data, out)
 }
 
-func hostHTTPURL(req sdkhost.HTTPRequest) (string, error) {
+func (c *systemHostCaller) hostHTTPURL(req sdkhost.HTTPRequest) (string, error) {
 	raw := strings.TrimSpace(req.URL)
 	if raw == "" {
-		raw = strings.TrimSpace(req.EndpointRef)
+		resolved, ok := c.resolveEndpoint(req.EndpointRef)
+		if !ok {
+			return "", protocol.HostError{Code: "host_endpoint_not_found", Message: fmt.Sprintf("endpoint %q is not registered", strings.TrimSpace(req.EndpointRef))}
+		}
+		raw = resolved.URL
 	}
 	if raw == "" {
 		return "", protocol.HostError{Code: "host_http_url_required", Message: "host HTTP URL is required"}
@@ -521,6 +557,21 @@ func hostHTTPURL(req sdkhost.HTTPRequest) (string, error) {
 	}
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
+}
+
+func (c *systemHostCaller) resolveEndpoint(ref string) (fpendpoint.Resolved, bool) {
+	if c.endpoints == nil {
+		return fpendpoint.Resolved{}, false
+	}
+	return c.endpoints.Resolve(fpendpoint.ParseRef(ref))
+}
+
+func endpointProtocol(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	return parsed.Scheme
 }
 
 func blobPath(ref, path string) (string, error) {

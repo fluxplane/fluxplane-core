@@ -378,10 +378,13 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if taskScheduler != nil {
 		available = replacePlugin(available, task.NewWithConfig(task.Config{Runner: taskScheduler, Workspace: runtimeWorkspace}))
 	}
+	discoveryRegistry := fpendpoint.NewDiscoveryRegistry()
+	endpointRegistry := fpendpoint.NewRegistry(0)
 	if opts.EnableInstalledPlugins || len(opts.InstalledPluginNames) > 0 {
 		installedOptions := []pluginbridge.InstalledLoadOption{
 			pluginbridge.WithInstalledPluginNames(opts.InstalledPluginNames...),
-			pluginbridge.WithInstalledBridgeOptions(pluginbridge.WithHostCallerFactory(pluginbridge.NewSystemHostCallerFactory(runtimeSystem))),
+			pluginbridge.WithInstalledEndpointRegistry(endpointRegistry),
+			pluginbridge.WithInstalledBridgeOptions(pluginbridge.WithHostCallerFactory(pluginbridge.NewSystemHostCallerFactory(runtimeSystem, pluginbridge.WithEndpointRegistry(endpointRegistry)))),
 		}
 		if opts.InstalledPluginStore != nil {
 			installedOptions = append(installedOptions, pluginbridge.WithInstalledStore(opts.InstalledPluginStore))
@@ -410,8 +413,6 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		closeRuntime()
 		return Runtime{}, err
 	}
-	discoveryRegistry := fpendpoint.NewDiscoveryRegistry()
-	endpointRegistry := fpendpoint.NewRegistry(0)
 	discoverer := fpendpoint.NewRunner(discoveryRegistry, endpointRegistry)
 	needsDataStore := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memory.Name)
 	needsDatasourceRuntime := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memory.Name)
