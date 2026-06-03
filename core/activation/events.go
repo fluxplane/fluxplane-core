@@ -1,7 +1,7 @@
 package activation
 
 import (
-	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
+	corecontext "github.com/fluxplane/fluxplane-context"
 	"github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-event"
 	coreevidence "github.com/fluxplane/fluxplane-evidence"

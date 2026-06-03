@@ -4,12 +4,10 @@ package sessionenv
 import (
 	"context"
 	"errors"
-	"github.com/fluxplane/fluxplane-policy/policyauth"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
-	contextruntime "github.com/fluxplane/fluxplane-core/runtime/context"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimeskill "github.com/fluxplane/fluxplane-core/runtime/skill"
@@ -18,6 +16,7 @@ import (
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
+	"github.com/fluxplane/fluxplane-policy/policyauth"
 )
 
 // SessionSpec aliases the core session spec used by session orchestration.
@@ -105,17 +104,17 @@ func ActiveStateFromContext(ctx context.Context) (ActiveState, bool) {
 
 // BuildContext materializes provider context blocks.
 func BuildContext(providers []corecontext.Provider, previous map[corecontext.ProviderName]corecontext.ProviderRenderRecord, ctx context.Context, req corecontext.BuildRequest) (corecontext.BuildResult, error) {
-	return contextruntime.NewMaterializer(providers, previous).Build(ctx, req)
+	return corecontext.NewMaterializer(providers, previous).Build(ctx, req)
 }
 
 // RenderDiff renders a context diff for one placement.
 func RenderDiff(result corecontext.BuildResult, placement corecontext.Placement) (string, bool) {
-	return contextruntime.RenderDiff(result, placement)
+	return corecontext.RenderDiff(result, placement)
 }
 
 // BlockFingerprint returns the stable fingerprint for a rendered context block.
 func BlockFingerprint(block corecontext.Block) string {
-	return contextruntime.BlockFingerprint(block)
+	return corecontext.BlockFingerprint(block)
 }
 
 // DiscardEvents returns an event sink that drops payloads.

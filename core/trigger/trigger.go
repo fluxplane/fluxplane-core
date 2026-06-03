@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/fluxplane-core/core/reaction"
+	"github.com/fluxplane/fluxplane-reaction"
 )
 
 // Kind identifies a trigger source family.

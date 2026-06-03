@@ -15,7 +15,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/command"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
-	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/user"
@@ -35,6 +34,7 @@ import (
 	sdkmanifest "github.com/fluxplane/fluxplane-plugin/manifest"
 	"github.com/fluxplane/fluxplane-plugin/pluginbinding"
 	"github.com/fluxplane/fluxplane-plugin/pluginruntime"
+	corereaction "github.com/fluxplane/fluxplane-reaction"
 	"github.com/fluxplane/fluxplane-skill"
 )
 
@@ -770,7 +770,7 @@ func TestComposeDiagnosesReactionTargetsOutsideSelectedGraph(t *testing.T) {
 					{Kind: corereaction.ActionEnableContext, ContextProvider: corecontext.ProviderRef{Name: "missing.context"}},
 					{Kind: corereaction.ActionRunWorkflow, Workflow: corereaction.WorkflowAction{Name: "missing-workflow"}},
 					{Kind: corereaction.ActionRunOperation, Operation: corereaction.OperationAction{Operation: operation.Ref{Name: "missing-op"}}},
-					{Kind: corereaction.ActionRunCommand, Command: command.Invocation{Path: command.Path{"missing"}}},
+					{Kind: corereaction.ActionRunCommand, Command: corereaction.CommandInvocation{Path: corereaction.CommandPath{"missing"}}},
 				},
 			}},
 		}},
@@ -852,7 +852,7 @@ func TestComposeDoesNotDiagnoseKnownReactionTargets(t *testing.T) {
 					{Kind: corereaction.ActionEnableContext, ContextProvider: corecontext.ProviderRef{Name: "docs.context"}},
 					{Kind: corereaction.ActionRunWorkflow, Workflow: corereaction.WorkflowAction{Name: "inspect"}},
 					{Kind: corereaction.ActionRunOperation, Operation: corereaction.OperationAction{Operation: operation.Ref{Name: "echo"}}},
-					{Kind: corereaction.ActionRunCommand, Command: command.Invocation{Path: command.Path{"echo"}}},
+					{Kind: corereaction.ActionRunCommand, Command: corereaction.CommandInvocation{Path: corereaction.CommandPath{"echo"}}},
 				},
 			}},
 		}},

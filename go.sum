@@ -161,6 +161,8 @@ github.com/fluxplane/fluxplane-event v0.2.0 h1:LDGaNvng9bRFAJJqIXA31Kn6+QGNdPHF3
 github.com/fluxplane/fluxplane-event v0.2.0/go.mod h1:CYcx/cf6JBZ4nuo/1SBDVEQk+hz55yXlaU3paegSS+o=
 github.com/fluxplane/fluxplane-policy v0.1.1 h1:LNNWG/bdGwkAPm2j24g/Wpaw/DKL31eR7RVLbuWHZzQ=
 github.com/fluxplane/fluxplane-policy v0.1.1/go.mod h1:elG/jPzZtX1j7GaFewjpc2tiD8LJMW1lVTxZUPQPDsc=
+github.com/fluxplane/fluxplane-reaction v0.1.0 h1:XMEpvQvMFRuRFxkTsFmreLG3SplKU771oHt+5/cnWcY=
+github.com/fluxplane/fluxplane-reaction v0.1.0/go.mod h1:cNTzdo67xsDXx6XY2J/kfAcFL85w186KYYno/SQyOrI=
 github.com/fluxplane/fluxplane-secret v0.2.0 h1:/EzUoR2NysaV7iW70FeROGIcI/HG+SXFR4HD3U8Xqnc=
 github.com/fluxplane/fluxplane-secret v0.2.0/go.mod h1:XkWhjAtAy2a05s71Yx1VAy+KrbDr8kuPHc1Fp1rl1IU=
 github.com/fluxplane/fluxplane-system v0.1.6 h1:a8jlDrhTz10ejSpjO2PP8sa6JSn354W3RAqNTFHTmFI=

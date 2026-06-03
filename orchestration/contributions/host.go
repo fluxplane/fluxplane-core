@@ -6,7 +6,6 @@ import (
 
 	auth "github.com/fluxplane/fluxplane-auth"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/channelruntime"
 	"github.com/fluxplane/fluxplane-core/orchestration/identity"
@@ -18,6 +17,7 @@ import (
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
+	corereaction "github.com/fluxplane/fluxplane-reaction"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 

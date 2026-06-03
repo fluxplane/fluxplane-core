@@ -17,7 +17,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/environment"
 	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
-	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	corereview "github.com/fluxplane/fluxplane-core/core/review"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
@@ -45,6 +44,7 @@ import (
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
+	corereaction "github.com/fluxplane/fluxplane-reaction"
 	coreskill "github.com/fluxplane/fluxplane-skill"
 )
 
@@ -2365,8 +2365,8 @@ func TestExecuteInboundInputRunsCommandReactionThroughDispatcher(t *testing.T) {
 			When: corereaction.Matcher{Assertion: "command.ready", Target: "echo"},
 			Actions: []corereaction.Action{{
 				Kind: corereaction.ActionRunCommand,
-				Command: command.Invocation{
-					Path:  command.Path{"echo"},
+				Command: corereaction.CommandInvocation{
+					Path:  corereaction.CommandPath{"echo"},
 					Input: "from reaction",
 				},
 			}},

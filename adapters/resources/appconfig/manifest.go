@@ -22,7 +22,6 @@ import (
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
-	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
@@ -33,6 +32,7 @@ import (
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
+	corereaction "github.com/fluxplane/fluxplane-reaction"
 	coreskill "github.com/fluxplane/fluxplane-skill"
 	invjsonschema "github.com/invopop/jsonschema"
 	santhoshjsonschema "github.com/santhosh-tekuri/jsonschema/v6"
@@ -2175,7 +2175,7 @@ func agentTriggerSpec(agentName string, index int, raw agentTriggerDoc, seen map
 		actions = append(actions, corereaction.Action{
 			Kind: corereaction.ActionRunWorkflow,
 			Workflow: corereaction.WorkflowAction{
-				Name: workflow.Name(workflowName),
+				Name: corereaction.WorkflowName(workflowName),
 			},
 		})
 	}

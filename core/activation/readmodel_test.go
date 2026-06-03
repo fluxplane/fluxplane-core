@@ -3,7 +3,7 @@ package activation
 import (
 	"testing"
 
-	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
+	corecontext "github.com/fluxplane/fluxplane-context"
 	"github.com/fluxplane/fluxplane-datasource"
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"

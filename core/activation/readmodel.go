@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
+	corecontext "github.com/fluxplane/fluxplane-context"
 	"github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-operation"

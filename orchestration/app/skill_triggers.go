@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
+	corereaction "github.com/fluxplane/fluxplane-reaction"
 	coreskill "github.com/fluxplane/fluxplane-skill"
 )
 

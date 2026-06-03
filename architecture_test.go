@@ -76,6 +76,7 @@ func TestRemovedCoreLeafPackagesDoNotReturn(t *testing.T) {
 		"github.com/fluxplane/fluxplane-core/core/" + "evidence",
 		"github.com/fluxplane/fluxplane-core/core/" + "operation",
 		"github.com/fluxplane/fluxplane-core/core/" + "policy",
+		"github.com/fluxplane/fluxplane-core/core/" + "reaction",
 		"github.com/fluxplane/fluxplane-core/core/" + "skill",
 	}
 	forbiddenDirs := []string{
@@ -83,6 +84,7 @@ func TestRemovedCoreLeafPackagesDoNotReturn(t *testing.T) {
 		filepath.Join("core", "evidence"),
 		filepath.Join("core", "operation"),
 		filepath.Join("core", "policy"),
+		filepath.Join("core", "reaction"),
 		filepath.Join("core", "skill"),
 	}
 	var bad []string

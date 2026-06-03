@@ -24,13 +24,13 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/environment"
 	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
-	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
 	"github.com/fluxplane/fluxplane-core/core/user"
+	"github.com/fluxplane/fluxplane-core/core/workflow"
 	"github.com/fluxplane/fluxplane-core/orchestration/security"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessioncontrol"
@@ -46,6 +46,7 @@ import (
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
+	corereaction "github.com/fluxplane/fluxplane-reaction"
 	coreskill "github.com/fluxplane/fluxplane-skill"
 )
 
@@ -1060,7 +1061,7 @@ func (s Session) applyReactionCommands(ctx context.Context, inbound channel.Inbo
 		commandInbound := inbound
 		commandInbound.ID = reactionCommandRunID(inbound.ID, planned.IdempotencyKey, i+1)
 		commandInbound.Kind = channel.InboundCommand
-		commandInbound.Command = cloneCommandInvocation(planned.Action.Command)
+		commandInbound.Command = cloneReactionCommandInvocation(planned.Action.Command)
 		commandInbound.Message = nil
 		result := s.ExecuteInboundCommand(base, commandInbound)
 		switch result.Status {
@@ -1114,7 +1115,7 @@ func (s Session) applyReactionWorkflows(ctx context.Context, runID string, actio
 	var diagnostics []sessionenv.ReactionDiagnostic
 	var appliedKeys []string
 	for i, planned := range actions {
-		workflowName := planned.Action.Workflow.Name
+		workflowName := workflow.Name(planned.Action.Workflow.Name)
 		workflowRunID := reactionWorkflowRunID(runID, planned.IdempotencyKey, i+1)
 		spec := command.Spec{
 			Path: command.Path{"reaction", "workflow", string(workflowName)},
@@ -5776,11 +5777,12 @@ func reactionWorkflowRunID(runID, idempotencyKey string, ordinal int) string {
 	return runID + ":reaction_workflow:" + short
 }
 
-func cloneCommandInvocation(in command.Invocation) *command.Invocation {
-	out := in
-	out.Path = append(command.Path(nil), in.Path...)
-	out.Args = append([]string(nil), in.Args...)
-	return &out
+func cloneReactionCommandInvocation(in corereaction.CommandInvocation) *command.Invocation {
+	return &command.Invocation{
+		Path:  command.Path(append([]string(nil), in.Path...)),
+		Args:  append([]string(nil), in.Args...),
+		Input: in.Input,
+	}
 }
 
 func operationEffect(result operation.Result) environment.EffectResult {

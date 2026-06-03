@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
+	corecontext "github.com/fluxplane/fluxplane-context"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-event"
 	coreevidence "github.com/fluxplane/fluxplane-evidence"

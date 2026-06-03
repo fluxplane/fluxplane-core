@@ -3,8 +3,8 @@ package reaction
 import (
 	"testing"
 
-	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
+	corereaction "github.com/fluxplane/fluxplane-reaction"
 	"github.com/fluxplane/fluxplane-skill"
 )
 

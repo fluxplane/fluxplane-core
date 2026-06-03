@@ -3,6 +3,7 @@ package resource
 import (
 	"strings"
 
+	corecontext "github.com/fluxplane/fluxplane-context"
 	"github.com/fluxplane/fluxplane-core/core/activation"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
@@ -10,16 +11,15 @@ import (
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	"github.com/fluxplane/fluxplane-core/core/language"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
-	"github.com/fluxplane/fluxplane-core/core/reaction"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
-	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-event"
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
+	"github.com/fluxplane/fluxplane-reaction"
 	"github.com/fluxplane/fluxplane-skill"
 )
 
@@ -122,7 +122,7 @@ type ContributionBundle struct {
 	Sessions          []coresession.Spec                  `json:"sessions,omitempty"`
 	PostEditChecks    []coresession.PostEditCheckSpec     `json:"post_edit_checks,omitempty"`
 	Skills            []skill.Spec                        `json:"skills,omitempty"`
-	ContextProviders  []corecontext.ProviderSpec          `json:"context_providers,omitempty"`
+	ContextProviders  []corecontext.Spec                  `json:"context_providers,omitempty"`
 	Workflows         []workflow.Spec                     `json:"workflows,omitempty"`
 	Observers         []coreevidence.ObserverSpec         `json:"observers,omitempty"`
 	AssertionDerivers []coreevidence.AssertionDeriverSpec `json:"assertion_derivers,omitempty"`
@@ -186,7 +186,7 @@ func CloneContributionBundles(bundles []ContributionBundle) []ContributionBundle
 		out[i].Sessions = append([]coresession.Spec(nil), bundle.Sessions...)
 		out[i].PostEditChecks = append([]coresession.PostEditCheckSpec(nil), bundle.PostEditChecks...)
 		out[i].Skills = append([]skill.Spec(nil), bundle.Skills...)
-		out[i].ContextProviders = append([]corecontext.ProviderSpec(nil), bundle.ContextProviders...)
+		out[i].ContextProviders = append([]corecontext.Spec(nil), bundle.ContextProviders...)
 		out[i].Workflows = append([]workflow.Spec(nil), bundle.Workflows...)
 		out[i].Observers = append([]coreevidence.ObserverSpec(nil), bundle.Observers...)
 		out[i].AssertionDerivers = append([]coreevidence.AssertionDeriverSpec(nil), bundle.AssertionDerivers...)

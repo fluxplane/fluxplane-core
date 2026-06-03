@@ -925,7 +925,7 @@ core/evidence
 core/language
 core/llm
 core/operation
-core/reaction
+github.com/fluxplane/fluxplane-reaction
 core/session
 github.com/fluxplane/fluxplane-skill
 core/tool
@@ -959,7 +959,7 @@ Recommended order:
 4. Create `../fluxplane-context` or `fluxplane-plugin/context` for context provider contracts.
 5. Create `../fluxplane-evidence` for observation/assertion/evidence DTOs.
 6. Create/extract `../fluxplane-skill` for portable skill specs and refs. Done.
-7. Create `../fluxplane-reaction` for reaction rule contracts after its remaining command/workflow target refs are portable.
+7. Create `../fluxplane-reaction` for reaction rule contracts after its remaining command/workflow target refs are portable. Done.
 8. Only then evaluate `../fluxplane-agent` for reusable agent specs.
 9. Only after that evaluate a standalone contribution bundle module.
 
@@ -1292,7 +1292,7 @@ github.com/fluxplane/fluxplane-core/core/activation
 github.com/fluxplane/fluxplane-core/core/evidence
 github.com/fluxplane/fluxplane-core/core/operation
 github.com/fluxplane/fluxplane-core/core/policy
-github.com/fluxplane/fluxplane-core/core/reaction
+github.com/fluxplane/fluxplane-reaction
 github.com/fluxplane/fluxplane-core/core/resource
 github.com/fluxplane/fluxplane-core/orchestration/contributions
 github.com/fluxplane/fluxplane-core/runtime/evidence
@@ -1581,12 +1581,11 @@ Acceptance criteria:
 
 ### Step 10: Extract Evidence And Reaction Contracts
 
-Current blockers:
+Status: completed for portable evidence and reaction DTOs.
 
-- `intent_deriver.go`, tests, and assembly reaction rules import:
-  - `core/evidence`;
-  - `core/reaction`;
-  - `runtime/evidence`.
+The original blockers were SDK/plugin-facing imports of `core/evidence`,
+`core/reaction`, and `runtime/evidence`. Portable contracts now live in
+`../fluxplane-evidence` and `../fluxplane-reaction`.
 
 Actions:
 
@@ -1602,11 +1601,14 @@ Actions:
    - evidence renderer/normalizer interfaces if needed by plugins.
 3. Keep runtime evidence storage/projectors in `fluxplane-core/runtime/evidence` unless they are generic enough for a standalone runtime module.
 4. Update `fluxplane-plugin` intent derivation to depend on standalone evidence/reaction contracts, or move intent derivation out of base SDK into `adapter/core` if it is core-specific.
-5. Update core packages to alias/adapt.
+5. Update core packages to adapt. Done without aliases for `core/evidence` and
+   `core/reaction`.
 
 Acceptance criteria:
 
 - `fluxplane-plugin` no longer imports `core/evidence`, `core/reaction`, or `runtime/evidence`.
+- `fluxplane-core/core/evidence` and `fluxplane-core/core/reaction` are removed
+  and guarded from returning.
 
 ### Step 11: Extract Policy Contract Or Use Existing `fluxplane-policy`
 
@@ -1869,12 +1871,13 @@ Keep in core:
 
 #### `../fluxplane-reaction`
 
-Move reaction rule contracts out of `core/reaction`:
+Reaction rule contracts now live in `github.com/fluxplane/fluxplane-reaction`:
 
 - reaction specs;
-- trigger/condition DTOs;
-- intent reaction mappings;
-- assertion match conditions.
+- matcher/assertion match conditions;
+- action DTOs;
+- portable command invocation and workflow-name targets;
+- reaction event payloads.
 
 Keep in core:
 
@@ -4202,27 +4205,42 @@ cd ../fluxplane-plugin && go test ./...
 cd ../fluxplane-core && go test ./orchestration/app
 ```
 
-### Planning Update: Reaction Extraction Depends On Portable Action Targets
+### Progress Update: Portable Reaction Contracts Extracted
 
-`core/reaction` is the next attractive leaf-module candidate, but it is not a
-clean move yet. The reaction `Action` DTO currently embeds Core-owned target
-types:
+Completed in this batch:
 
-- `core/command.Invocation`;
-- `core/workflow.Name`;
-- runtime context provider refs.
+- Added `github.com/fluxplane/fluxplane-reaction` as a standalone leaf module
+  for inert evidence-driven reaction contracts:
+  - reaction modes, rules, matchers, and action kinds;
+  - reaction action DTOs;
+  - portable command invocation and workflow-name target DTOs;
+  - reaction runtime event payloads.
+- Kept `fluxplane-reaction` free of `fluxplane-core` and Dex imports.
+- Reused existing leaf modules for action targets:
+  - `github.com/fluxplane/fluxplane-skill`;
+  - `github.com/fluxplane/fluxplane-context`;
+  - `github.com/fluxplane/fluxplane-datasource`;
+  - `github.com/fluxplane/fluxplane-operation`;
+  - `github.com/fluxplane/fluxplane-evidence`.
+- Updated Core, Coder, and Slack Bot to import `fluxplane-reaction` directly.
+- Removed `fluxplane-core/core/reaction` instead of keeping aliases.
+- Updated Core architecture guards so `core/reaction` cannot return.
+- Added narrow Core-side adapters where portable reaction command/workflow
+  targets cross into Core command dispatch and workflow execution.
 
-Do not extract `fluxplane-reaction` as a module that imports
-`fluxplane-core`. That would recreate the dependency problem under a different
-module name. The clean extraction order is:
+Validation completed:
 
-1. use the completed `github.com/fluxplane/fluxplane-skill` refs;
-2. extract or define portable command invocation refs;
-3. extract or define portable workflow refs;
-4. decide whether runtime context provider refs stay Core-runtime-owned or need
-   a portable activation target DTO;
-5. then move reaction rules/events to `fluxplane-reaction` and update Core,
-   Coder, and Slack Bot to import it directly.
+```sh
+cd ../fluxplane-reaction && go test ./...
+cd ../fluxplane-core && go test ./...
+cd ../coder && go test ./...
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test ./...
+rg "github.com/fluxplane/fluxplane-core/core/reaction|core/reaction" ../fluxplane-core ../coder ../fluxplane-apps ../fluxplane-reaction -g'*.go' -g'go.mod' -g'*.md'
+rg "github.com/fluxplane/fluxplane-core|github.com/fluxplane/fluxplane-dex" ../fluxplane-reaction -g'*.go' -g'go.mod'
+```
+
+Result: all test suites passed, the old Core reaction path scan is clean, and
+the new reaction module has no Core or Dex imports.
 
 ### Progress Update: Portable Skill Contracts Extracted
 

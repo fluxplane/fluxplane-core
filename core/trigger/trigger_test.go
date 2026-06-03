@@ -3,7 +3,7 @@ package trigger
 import (
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/reaction"
+	"github.com/fluxplane/fluxplane-reaction"
 	"github.com/fluxplane/fluxplane-skill"
 )
 

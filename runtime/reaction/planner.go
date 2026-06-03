@@ -3,8 +3,8 @@ package reaction
 import (
 	"strconv"
 
-	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
+	corereaction "github.com/fluxplane/fluxplane-reaction"
 )
 
 // Request describes one pure reaction planning pass.

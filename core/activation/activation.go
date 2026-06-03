@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	corecontext "github.com/fluxplane/fluxplane-context"
 	"github.com/fluxplane/fluxplane-core/core/command"
 	"github.com/fluxplane/fluxplane-core/core/resourceaddr"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
-	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	"github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-skill"

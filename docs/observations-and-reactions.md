@@ -499,7 +499,7 @@ SignalDeriverContributor
 ReactionContributor
 ```
 
-Inert declarations should live in `core/environment` and `core/reaction`.
+Inert declarations should live in `core/environment` and `github.com/fluxplane/fluxplane-reaction`.
 Executable observer and deriver implementations should be resolved by
 `orchestration/contributions` and scheduled by orchestration. A plugin contribution
 bundle can carry observer specs and reaction rules for static inspection, while
@@ -650,7 +650,7 @@ Migration mapping:
 |---|---|---|
 | Coder `ActivationInput.ProjectSignals` | project observer + project signal deriver | `project.inventory` observations derive `language.detected`, `project.task_runner.detected`, and similar signals. |
 | Coder `ActivationInput.ToolchainStatuses` | toolchain observers + signal deriver | `toolchain.status` observations derive `toolchain.available`. |
-| `runtime/language.SignalMatcher` | `core/reaction.Matcher` over `environment.Signal` | Language plugins contribute reaction rules that enable operation sets from `language.detected` or `toolchain.available`. |
+| `runtime/language.SignalMatcher` | `github.com/fluxplane/fluxplane-reaction.Matcher` over `environment.Signal` | Language plugins contribute reaction rules that enable operation sets from `language.detected` or `toolchain.available`. |
 | Skill/reference phrase triggers | channel-message observer + reaction rules | Message observations derive `skill.requested` or `skill.reference.requested`, then activate skill state through normal reactions. |
 | Parallel-work intent phrases | channel-message observer + reaction rules | Message observations derive `work.parallel_requested` from phrases such as "at the same time" or "in parallel", then activate task scheduling tools. The model still decomposes concrete task boundaries. |
 | Datasource detection from ad hoc context text | context/message observations + datasource reactions | Datasource visibility is enabled by explicit signals, while providers can still inspect observations for rendering. |
@@ -968,7 +968,7 @@ This model is meant to converge several existing special cases:
   Coder now uses generic reactions for the first language operation-set
   activations and should continue moving session-visible tools to reaction state.
 - **Language support matching**: `runtime/language.SignalMatcher` has been
-  removed. Generic `core/reaction.Matcher` over `environment.Signal` is the
+  removed. Generic `github.com/fluxplane/fluxplane-reaction.Matcher` over `environment.Signal` is the
   activation matcher.
 - **Skill text triggers**: phrase-based skill and reference activation now uses
   generated reaction rules over channel-message observations.
@@ -1000,7 +1000,7 @@ Already present:
   shapes.
 - `core/environment` has a normalized `Signal` shape with activation keys and
   fingerprints for de-duplication and on-change reaction checks.
-- `core/reaction` has inert `Rule`, `Matcher`, and `Action` specs for
+- `github.com/fluxplane/fluxplane-reaction` has inert `Rule`, `Matcher`, and `Action` specs for
   activation and effectful reaction planning.
 - `runtime/reaction` has a pure planner that evaluates rules against signals,
   supports `on_change` and `every_turn`, computes current signal fingerprints,
@@ -1185,7 +1185,7 @@ Suggested package placement:
 core/environment
   Observation, observer/reaction-facing inert signal shapes
 
-core/reaction
+github.com/fluxplane/fluxplane-reaction
   Rule, matcher, action specs
 
 orchestration/contributions

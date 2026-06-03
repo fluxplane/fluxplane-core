@@ -6,12 +6,12 @@ import (
 	"strings"
 
 	coreactivation "github.com/fluxplane/fluxplane-core/core/activation"
-	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	"github.com/fluxplane/fluxplane-core/runtime/skill"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
+	corereaction "github.com/fluxplane/fluxplane-reaction"
 	coreskill "github.com/fluxplane/fluxplane-skill"
 )
 

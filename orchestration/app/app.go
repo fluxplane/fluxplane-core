@@ -8,8 +8,8 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
+	"github.com/fluxplane/fluxplane-core/core/command"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
-	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/appresources"
 	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
@@ -27,6 +27,7 @@ import (
 	coreevidence "github.com/fluxplane/fluxplane-evidence"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
+	corereaction "github.com/fluxplane/fluxplane-reaction"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
 )
 
@@ -502,7 +503,7 @@ func validateReactionTargets(bindings []reactionRuleBinding, specs resourcecatal
 					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q runs unknown operation %q", binding.Rule.Name, action.Operation.Operation.Name)))
 				}
 			case corereaction.ActionRunCommand:
-				if _, ok := resources.Commands.Resolve(action.Command.Path); !ok {
+				if _, ok := resources.Commands.Resolve(command.Path(action.Command.Path)); !ok {
 					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q runs unknown command %q", binding.Rule.Name, action.Command.Path.String())))
 				}
 			}
