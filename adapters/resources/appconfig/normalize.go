@@ -6,11 +6,11 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/activation"
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 // NormalizeOptions supplies already-resolved contribution metadata used to

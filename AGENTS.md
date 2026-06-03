@@ -131,8 +131,9 @@ name cannot be explained that way, it probably should not exist yet.
 - `Command`: parsed imperative control instruction with a known handler.
   `core/command` owns syntax/invocation contracts; UI/adapters do not own
   command semantics.
-- `Operation`: callable capability/tool contract. `core/operation` owns specs
-  and schemas; runtime/plugins/adapters implement execution behind safety.
+- `Operation`: callable capability/tool contract. `fluxplane-operation` owns
+  specs and schemas; runtime/plugins/adapters implement execution behind
+  safety.
 - `Workflow`: multi-step process shape. `core/workflow` stays inert;
   runtime/orchestration owns runs and state transitions.
 - `Execution`/`Run`: one runtime attempt. Do not put execution state in `Spec`

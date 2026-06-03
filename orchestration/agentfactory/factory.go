@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
@@ -18,6 +17,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/toolprojection"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimeskill "github.com/fluxplane/fluxplane-core/runtime/skill"
 )
 

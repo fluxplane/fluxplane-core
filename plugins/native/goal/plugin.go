@@ -11,10 +11,8 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	"github.com/fluxplane/fluxplane-core/core/command"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	corereview "github.com/fluxplane/fluxplane-core/core/review"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
@@ -23,9 +21,11 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessioncontrol"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimegoal "github.com/fluxplane/fluxplane-core/runtime/goal"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

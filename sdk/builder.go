@@ -13,10 +13,10 @@ import (
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	"github.com/fluxplane/fluxplane-core/core/command"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

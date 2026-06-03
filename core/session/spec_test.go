@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestSpecValidateAllowsDelegationPolicy(t *testing.T) {

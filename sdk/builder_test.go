@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestTaskResultModelTextSummaries(t *testing.T) {

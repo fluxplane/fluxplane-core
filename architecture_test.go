@@ -70,6 +70,62 @@ func TestCoreGoModDoesNotDependOnDexOrPluginImplementations(t *testing.T) {
 	}
 }
 
+func TestDeprecatedCoreLeafAliasPackagesDoNotReturn(t *testing.T) {
+	forbiddenImports := []string{
+		"github.com/fluxplane/fluxplane-core/core/" + "context",
+		"github.com/fluxplane/fluxplane-core/core/" + "operation",
+		"github.com/fluxplane/fluxplane-core/core/" + "policy",
+	}
+	forbiddenDirs := []string{
+		filepath.Join("core", "context"),
+		filepath.Join("core", "operation"),
+		filepath.Join("core", "policy"),
+	}
+	var bad []string
+	for _, dir := range forbiddenDirs {
+		if _, err := os.Stat(dir); err == nil {
+			bad = append(bad, dir+" compatibility package exists")
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("stat %s: %v", dir, err)
+		}
+	}
+	err := filepath.WalkDir(".", func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "bin", "vendor":
+				return filepath.SkipDir
+			default:
+				return nil
+			}
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, imported := range file.Imports {
+			pathValue := strings.Trim(imported.Path.Value, "\"")
+			for _, forbidden := range forbiddenImports {
+				if pathValue == forbidden {
+					bad = append(bad, path+" imports deprecated alias package "+pathValue)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk core module: %v", err)
+	}
+	if len(bad) > 0 {
+		t.Fatalf("deprecated core leaf alias package boundary violations:\n%s", strings.Join(bad, "\n"))
+	}
+}
+
 func TestCoreProviderSDKDirectDependenciesArePinnedForExtraction(t *testing.T) {
 	raw, err := os.ReadFile("go.mod")
 	if err != nil {
@@ -80,13 +136,13 @@ func TestCoreProviderSDKDirectDependenciesArePinnedForExtraction(t *testing.T) {
 		t.Fatal(err)
 	}
 	transitionalAllowlist := map[string]bool{
-		"github.com/go-sql-driver/mysql":         true,
-		"github.com/moby/go-archive":             true,
-		"github.com/moby/moby/api":               true,
-		"github.com/moby/moby/client":            true,
-		"github.com/openai/openai-go/v3":         true,
-		"github.com/slack-go/slack":              true,
-		"k8s.io/client-go":                       true,
+		"github.com/go-sql-driver/mysql": true,
+		"github.com/moby/go-archive":     true,
+		"github.com/moby/moby/api":       true,
+		"github.com/moby/moby/client":    true,
+		"github.com/openai/openai-go/v3": true,
+		"github.com/slack-go/slack":      true,
+		"k8s.io/client-go":               true,
 	}
 	providerPrefixes := []string{
 		"github.com/aws/aws-sdk-go-v2",

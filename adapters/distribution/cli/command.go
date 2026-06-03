@@ -19,11 +19,11 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	corecommand "github.com/fluxplane/fluxplane-core/core/command"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/spf13/cobra"
 )
 

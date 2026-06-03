@@ -9,8 +9,8 @@ import (
 	distcli "github.com/fluxplane/fluxplane-core/adapters/distribution/cli"
 	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
 	distrun "github.com/fluxplane/fluxplane-core/adapters/distribution/run"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/spf13/cobra"
 )
 

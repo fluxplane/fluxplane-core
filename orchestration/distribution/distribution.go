@@ -8,11 +8,11 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 // Distribution is a runnable package declaration plus its local runtime hook.

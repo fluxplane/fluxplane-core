@@ -15,8 +15,6 @@ import (
 	"time"
 
 	coreactivation "github.com/fluxplane/fluxplane-core/core/activation"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/skill"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	"github.com/fluxplane/fluxplane-core/core/testrun"
@@ -25,10 +23,12 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
 	"github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimehuman "github.com/fluxplane/fluxplane-core/runtime/human"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	coreevent "github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )

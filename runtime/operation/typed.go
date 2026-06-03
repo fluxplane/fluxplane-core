@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/invopop/jsonschema"
 )
 

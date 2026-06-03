@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 )
 

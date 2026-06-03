@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
@@ -19,6 +18,7 @@ import (
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"

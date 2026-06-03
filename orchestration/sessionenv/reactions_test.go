@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-event"
 )

@@ -8,7 +8,6 @@ import (
 
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	corememory "github.com/fluxplane/fluxplane-core/core/memory"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
@@ -16,6 +15,7 @@ import (
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

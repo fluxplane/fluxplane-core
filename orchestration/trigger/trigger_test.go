@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	sessionruntime "github.com/fluxplane/fluxplane-core/orchestration/session"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestHostFireSubmitsConfiguredTrigger(t *testing.T) {

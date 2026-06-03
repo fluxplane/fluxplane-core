@@ -11,8 +11,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	"github.com/fluxplane/fluxplane-core/core/command"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
@@ -28,12 +26,14 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
 	"github.com/fluxplane/fluxplane-core/orchestration/toolprojection"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	coreevent "github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

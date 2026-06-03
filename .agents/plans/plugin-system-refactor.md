@@ -73,11 +73,14 @@ Purpose: lean agent runtime/kernel.
 Keep only:
 
 - agent/session runtime;
-- operation contracts and execution model;
-- context provider contracts;
+- operation execution model, projection, safety, and agent-runtime use of
+  `github.com/fluxplane/fluxplane-operation`;
+- evidence-aware context materialization in `runtime/context`, using portable
+  contracts from `github.com/fluxplane/fluxplane-context`;
 - contribution/resource model;
 - evidence, observations, assertions, reactions;
-- policy/access-control integration points;
+- policy/access-control integration points using
+  `github.com/fluxplane/fluxplane-policy`;
 - workspace/process/network/environment abstractions where they are runtime boundaries;
 - plugin host/loading contracts;
 - minimal test/example plugins only if needed.
@@ -3887,3 +3890,129 @@ Completed in this batch:
 Architectural result: end-user products can now turn on installed provider
 plugins without importing Dex, without importing `fluxplane-plugins`, and
 without hand-rolling the installed state/runtime bridge.
+
+### Updated Next Large Steps After Installed Plugin Checkpoint
+
+The core migration target is now structurally in place: `fluxplane-plugin`
+owns reusable plugin management/runtime/CLI behavior, `fluxplane-plugins` owns
+concrete plugin implementations, Core owns the agent runtime bridge, and
+products opt in through Core without importing Dex.
+
+Recommended next work:
+
+1. Remove legacy Dex naming from the plugin protocol and manifests:
+   - replace manifest metadata such as `dex.protocol` with a
+     `fluxplane-plugin`/protocol-owned key;
+   - keep a compatibility reader only if old installed manifests need to keep
+     working during local state migration;
+   - update tests and smoke outputs so new examples do not mention Dex.
+2. Add automated installed-plugin product smoke coverage:
+   - keep the existing Core launch injected-store test as the runtime proof;
+   - add a Coder test around static installed-plugin discovery using an
+     injectable store/runtime path or a small test-only installed state;
+   - add a Slack Bot runtime config test that asserts configured installed
+     plugin names reach Core serve/launch options.
+3. Decide whether installed plugin selection should become distribution config:
+   - current products wire `EnableInstalledPlugins` and explicit names
+     manually;
+   - if multiple products need the same config shape, move the config model
+     into Core distribution/launch helpers;
+   - keep `fluxplane-plugin` as the owner of state storage and CLI behavior.
+4. Finish Dex repository administration:
+   - either delete Dex from the workspace, archive it upstream, or leave it as
+     a standalone legacy CLI with no product dependency path;
+   - keep the no-Dex-import gates in product/Core/plugin repos.
+5. Continue Core dependency reduction only where the boundary is clear:
+   - Slack channel/runtime IO remains Core-owned;
+   - AWS environment evidence observation remains Core-owned unless portable
+     evidence observer/assertion contracts are intentionally introduced;
+   - do not move Coder-specific language/coding plugins out of Coder unless a
+     second product needs them.
+
+Best next chunk: legacy Dex naming cleanup in `fluxplane-plugin` and
+`fluxplane-plugins`, followed by automated product smoke tests for installed
+plugins. That removes the most visible architectural inconsistency while
+protecting the new installed-plugin path from regression.
+
+### Progress Update: Fluxplane Protocol Naming And Product Smoke Tests
+
+Completed in this batch:
+
+- Removed the Dex-owned protocol names from the reusable plugin SDK:
+  - protocol versions are now `fluxplane.plugin.v2` and
+    `fluxplane.plugin.v1`;
+  - manifest protocol metadata now uses `fluxplane.plugin.protocol`;
+  - old `dex.plugin.*` and `dex.protocol` names are not accepted as legacy
+    aliases.
+- Replaced SDK-generated user-facing Dex command guidance with
+  `fluxplane-plugin` command guidance:
+  - auth status/connect helpers point at `fluxplane-plugin auth ...`;
+  - operation/index helper text points at
+    `fluxplane-plugin operation invoke ...`.
+- Updated concrete plugin manifest assertions to use the shared
+  `pluginbinding.ManifestProtocolKey` constant, so plugin tests track the
+  protocol-owned metadata key.
+- Added product regression coverage for installed plugin loading:
+  - Coder static discovery now has a test-backed injected installed state and
+    direct runtime path, proving installed plugin declarations and operations
+    appear in static resource views;
+  - Slack Bot now has a test-backed Core local runtime config helper, proving
+    `[runtime].plugins` forwards installed plugin names into Core launch
+    options.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-plugins && go test ./...
+cd ../fluxplane-plugins && for mod in $(find . -mindepth 2 -maxdepth 2 -name go.mod -printf '%h\n' | sort); do (cd "$mod" && go test ./...) || exit 1; done
+cd ../coder && GOWORK=off go test ./...
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test ./...
+cd ../fluxplane-core && go test ./...
+rg "dex\.protocol|dex\.plugin|Use dex|dex auth|dex op" ../fluxplane-plugin ../fluxplane-plugins ../fluxplane-core ../coder ../fluxplane-apps -n
+cd ../fluxplane-plugins && HOME=/tmp/fluxplane-plugin-protocol-smoke go run ../fluxplane-plugin/cmd/fluxplane-plugin install sleep
+cd ../fluxplane-plugins && HOME=/tmp/fluxplane-plugin-protocol-smoke go run ../fluxplane-plugin/cmd/fluxplane-plugin run sleep
+cd ../fluxplane-plugins && HOME=/tmp/fluxplane-plugin-protocol-smoke go run ../fluxplane-plugin/cmd/fluxplane-plugin operation invoke sleep sleep --input '{"duration":0.001}'
+```
+
+Result: active SDK/plugin/product code no longer emits or accepts Dex protocol
+names. The remaining scan matches are historical changelog text or test fixture
+content, not protocol compatibility or product wiring. The fresh CLI smoke
+reported manifest metadata `fluxplane.plugin.protocol=fluxplane.plugin.v2` and
+successfully invoked the installed `sleep` operation.
+
+### Progress Update: Removed Core Leaf Alias Packages
+
+Completed in this batch:
+
+- Removed the deprecated compatibility packages:
+  - `fluxplane-core/core/context`;
+  - `fluxplane-core/core/operation`;
+  - `fluxplane-core/core/policy`.
+- Moved Core-specific context materialization contracts to
+  `fluxplane-core/runtime/context`:
+  - evidence-aware provider request/build request types;
+  - provider/fingerprinting interfaces;
+  - render records/diffs;
+  - context render events.
+- Routed portable contract imports directly to leaf modules:
+  - operation contracts use `github.com/fluxplane/fluxplane-operation`;
+  - policy contracts use `github.com/fluxplane/fluxplane-policy`;
+  - portable context contracts remain in
+    `github.com/fluxplane/fluxplane-context`;
+  - Core runtime context providers use
+    `github.com/fluxplane/fluxplane-core/runtime/context`.
+- Added a Core architecture boundary test that fails if the deleted alias
+  directories or import paths return.
+- Updated current docs to describe the leaf-module ownership and the Core
+  runtime context package.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-core && go test ./...
+cd ../fluxplane-context && go test ./...
+cd ../coder && GOWORK=off go test ./...
+cd ../fluxplane-apps/slack-bot && GOWORK=off go test ./...
+rg "github.com/fluxplane/fluxplane-core/core/(context|operation|policy)" ../fluxplane-core ../coder ../fluxplane-apps -g'*.go' -g'go.mod'
+```

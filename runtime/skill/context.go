@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/core/tool"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 )
 
 const ContextProviderName corecontext.ProviderName = "skills"

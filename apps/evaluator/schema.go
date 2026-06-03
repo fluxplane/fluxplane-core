@@ -4,9 +4,9 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	coreusage "github.com/fluxplane/fluxplane-core/core/usage"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 type Scenario struct {

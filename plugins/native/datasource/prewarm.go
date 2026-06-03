@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )

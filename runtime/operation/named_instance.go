@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 const (

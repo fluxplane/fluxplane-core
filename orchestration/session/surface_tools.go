@@ -8,14 +8,14 @@ import (
 	"strings"
 
 	coreactivation "github.com/fluxplane/fluxplane-core/core/activation"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	"github.com/fluxplane/fluxplane-core/core/environment"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 const surfaceSchemaProviderName = corecontext.ProviderName("surface.schema")

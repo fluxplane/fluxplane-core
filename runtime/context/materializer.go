@@ -6,24 +6,22 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"sort"
 	"strings"
-
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 )
 
 // Materializer renders providers into change-only context diffs.
 type Materializer struct {
-	providers []corecontext.Provider
-	records   map[corecontext.ProviderName]corecontext.ProviderRenderRecord
+	providers []Provider
+	records   map[ProviderName]ProviderRenderRecord
 }
 
 // NewMaterializer returns a context materializer initialized with previous
 // committed render records.
-func NewMaterializer(providers []corecontext.Provider, previous map[corecontext.ProviderName]corecontext.ProviderRenderRecord) *Materializer {
+func NewMaterializer(providers []Provider, previous map[ProviderName]ProviderRenderRecord) *Materializer {
 	m := &Materializer{
-		providers: append([]corecontext.Provider(nil), providers...),
+		providers: append([]Provider(nil), providers...),
 		records:   cloneRecords(previous),
 	}
 	sort.SliceStable(m.providers, func(i, j int) bool {
@@ -33,7 +31,7 @@ func NewMaterializer(providers []corecontext.Provider, previous map[corecontext.
 }
 
 // Records returns the current committed render records.
-func (m *Materializer) Records() map[corecontext.ProviderName]corecontext.ProviderRenderRecord {
+func (m *Materializer) Records() map[ProviderName]ProviderRenderRecord {
 	if m == nil {
 		return nil
 	}
@@ -41,9 +39,9 @@ func (m *Materializer) Records() map[corecontext.ProviderName]corecontext.Provid
 }
 
 // Build renders all providers and commits the resulting in-memory records.
-func (m *Materializer) Build(ctx stdcontext.Context, req corecontext.BuildRequest) (corecontext.BuildResult, error) {
+func (m *Materializer) Build(ctx stdcontext.Context, req BuildRequest) (BuildResult, error) {
 	if m == nil {
-		return corecontext.BuildResult{}, fmt.Errorf("context: materializer is nil")
+		return BuildResult{}, fmt.Errorf("context: materializer is nil")
 	}
 	if ctx == nil {
 		ctx = stdcontext.Background()
@@ -53,7 +51,7 @@ func (m *Materializer) Build(ctx stdcontext.Context, req corecontext.BuildReques
 		previous = cloneRecords(req.Previous)
 	}
 	next := cloneRecords(previous)
-	result := corecontext.BuildResult{
+	result := BuildResult{
 		TurnID:  req.TurnID,
 		Reason:  req.Reason,
 		Records: next,
@@ -64,11 +62,11 @@ func (m *Materializer) Build(ctx stdcontext.Context, req corecontext.BuildReques
 		}
 		spec := provider.Spec()
 		if err := spec.Validate(); err != nil {
-			return corecontext.BuildResult{}, err
+			return BuildResult{}, err
 		}
 		name := spec.Name
 		prev, hasPrevious := previous[name]
-		providerReq := corecontext.Request{
+		providerReq := Request{
 			ThreadID:      req.ThreadID,
 			BranchID:      req.BranchID,
 			TurnID:        req.TurnID,
@@ -83,15 +81,15 @@ func (m *Materializer) Build(ctx stdcontext.Context, req corecontext.BuildReques
 			copied := cloneRecord(prev)
 			providerReq.Previous = &copied
 		}
-		if fast, ok := provider.(corecontext.FingerprintingProvider); ok && hasPrevious {
+		if fast, ok := provider.(FingerprintingProvider); ok && hasPrevious {
 			fingerprint, valid, err := fast.StateFingerprint(ctx, providerReq)
 			if err != nil {
-				return corecontext.BuildResult{}, fmt.Errorf("context provider %q fingerprint: %w", name, err)
+				return BuildResult{}, fmt.Errorf("context provider %q fingerprint: %w", name, err)
 			}
 			if valid && fingerprint != "" && fingerprint == prev.Fingerprint {
 				record := cloneRecord(prev)
 				next[name] = record
-				result.Providers = append(result.Providers, corecontext.ProviderDiff{
+				result.Providers = append(result.Providers, ProviderDiff{
 					Provider: name,
 					Record:   record,
 					Skipped:  true,
@@ -102,11 +100,11 @@ func (m *Materializer) Build(ctx stdcontext.Context, req corecontext.BuildReques
 		}
 		blocks, err := provider.Build(ctx, providerReq)
 		if err != nil {
-			return corecontext.BuildResult{}, fmt.Errorf("context provider %q: %w", name, err)
+			return BuildResult{}, fmt.Errorf("context provider %q: %w", name, err)
 		}
 		record, diff, err := buildProviderRecord(name, spec.DefaultPlacement, prev, blocks)
 		if err != nil {
-			return corecontext.BuildResult{}, fmt.Errorf("context provider %q: %w", name, err)
+			return BuildResult{}, fmt.Errorf("context provider %q: %w", name, err)
 		}
 		next[name] = cloneRecord(record)
 		result.Providers = append(result.Providers, diff)
@@ -120,20 +118,20 @@ func (m *Materializer) Build(ctx stdcontext.Context, req corecontext.BuildReques
 	return result, nil
 }
 
-func buildProviderRecord(name corecontext.ProviderName, defaultPlacement corecontext.Placement, previous corecontext.ProviderRenderRecord, blocks []corecontext.Block) (corecontext.ProviderRenderRecord, corecontext.ProviderDiff, error) {
+func buildProviderRecord(name ProviderName, defaultPlacement Placement, previous ProviderRenderRecord, blocks []Block) (ProviderRenderRecord, ProviderDiff, error) {
 	normalized, err := normalizeBlocks(name, defaultPlacement, blocks)
 	if err != nil {
-		return corecontext.ProviderRenderRecord{}, corecontext.ProviderDiff{}, err
+		return ProviderRenderRecord{}, ProviderDiff{}, err
 	}
-	record := corecontext.ProviderRenderRecord{
+	record := ProviderRenderRecord{
 		Provider: name,
-		Blocks:   make(map[string]corecontext.RenderedBlockRecord, len(normalized)),
+		Blocks:   make(map[string]RenderedBlockRecord, len(normalized)),
 	}
-	diff := corecontext.ProviderDiff{Provider: name}
+	diff := ProviderDiff{Provider: name}
 	for _, block := range normalized {
 		fingerprint := BlockFingerprint(block)
 		id := block.ID
-		rendered := corecontext.RenderedBlockRecord{ID: id, Fingerprint: fingerprint, Block: block}
+		rendered := RenderedBlockRecord{ID: id, Fingerprint: fingerprint, Block: block}
 		record.Blocks[id] = rendered
 		prev, ok := previous.Blocks[id]
 		switch {
@@ -150,14 +148,14 @@ func buildProviderRecord(name corecontext.ProviderName, defaultPlacement corecon
 		if _, ok := record.Blocks[id]; ok {
 			continue
 		}
-		removed := corecontext.BlockRemoved{
+		removed := BlockRemoved{
 			Provider:            name,
 			ID:                  id,
-			Placement:           corecontext.NormalizePlacement(prev.Block.Placement),
+			Placement:           NormalizePlacement(prev.Block.Placement),
 			PreviousFingerprint: prev.Fingerprint,
 		}
 		diff.Removed = append(diff.Removed, removed)
-		record.Blocks[id] = corecontext.RenderedBlockRecord{
+		record.Blocks[id] = RenderedBlockRecord{
 			ID:          id,
 			Fingerprint: prev.Fingerprint,
 			Block:       prev.Block,
@@ -169,8 +167,8 @@ func buildProviderRecord(name corecontext.ProviderName, defaultPlacement corecon
 	return record, diff, nil
 }
 
-func normalizeBlocks(provider corecontext.ProviderName, defaultPlacement corecontext.Placement, blocks []corecontext.Block) ([]corecontext.Block, error) {
-	out := make([]corecontext.Block, 0, len(blocks))
+func normalizeBlocks(provider ProviderName, defaultPlacement Placement, blocks []Block) ([]Block, error) {
+	out := make([]Block, 0, len(blocks))
 	seen := map[string]struct{}{}
 	for i, block := range blocks {
 		if strings.TrimSpace(block.Content) == "" && strings.TrimSpace(block.URI) == "" {
@@ -185,7 +183,7 @@ func normalizeBlocks(provider corecontext.ProviderName, defaultPlacement corecon
 		if block.Placement == "" {
 			block.Placement = defaultPlacement
 		}
-		block.Placement = corecontext.NormalizePlacement(block.Placement)
+		block.Placement = NormalizePlacement(block.Placement)
 		if _, ok := seen[block.ID]; ok {
 			return nil, fmt.Errorf("duplicate block id %q", block.ID)
 		}
@@ -202,14 +200,14 @@ func normalizeBlocks(provider corecontext.ProviderName, defaultPlacement corecon
 }
 
 // BlockFingerprint returns a stable fingerprint for the provider-visible block.
-func BlockFingerprint(block corecontext.Block) string {
+func BlockFingerprint(block Block) string {
 	data, _ := json.Marshal(block)
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // ProviderFingerprint returns a stable fingerprint for an ordered active block set.
-func ProviderFingerprint(blocks []corecontext.Block) string {
+func ProviderFingerprint(blocks []Block) string {
 	parts := make([]string, 0, len(blocks))
 	for _, block := range blocks {
 		parts = append(parts, block.ID+"\x00"+BlockFingerprint(block))
@@ -219,7 +217,7 @@ func ProviderFingerprint(blocks []corecontext.Block) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func activeBlocks(record corecontext.ProviderRenderRecord) []corecontext.Block {
+func activeBlocks(record ProviderRenderRecord) []Block {
 	if len(record.Blocks) == 0 {
 		return nil
 	}
@@ -230,25 +228,25 @@ func activeBlocks(record corecontext.ProviderRenderRecord) []corecontext.Block {
 		}
 	}
 	sort.Strings(ids)
-	out := make([]corecontext.Block, 0, len(ids))
+	out := make([]Block, 0, len(ids))
 	for _, id := range ids {
 		out = append(out, record.Blocks[id].Block)
 	}
 	return out
 }
 
-func cloneRecords(records map[corecontext.ProviderName]corecontext.ProviderRenderRecord) map[corecontext.ProviderName]corecontext.ProviderRenderRecord {
-	out := make(map[corecontext.ProviderName]corecontext.ProviderRenderRecord, len(records))
+func cloneRecords(records map[ProviderName]ProviderRenderRecord) map[ProviderName]ProviderRenderRecord {
+	out := make(map[ProviderName]ProviderRenderRecord, len(records))
 	for key, record := range records {
 		out[key] = cloneRecord(record)
 	}
 	return out
 }
 
-func cloneRecord(record corecontext.ProviderRenderRecord) corecontext.ProviderRenderRecord {
+func cloneRecord(record ProviderRenderRecord) ProviderRenderRecord {
 	out := record
 	if record.Blocks != nil {
-		out.Blocks = make(map[string]corecontext.RenderedBlockRecord, len(record.Blocks))
+		out.Blocks = make(map[string]RenderedBlockRecord, len(record.Blocks))
 		for key, block := range record.Blocks {
 			out.Blocks[key] = cloneRenderedBlock(block)
 		}
@@ -256,7 +254,7 @@ func cloneRecord(record corecontext.ProviderRenderRecord) corecontext.ProviderRe
 	return out
 }
 
-func cloneRenderedBlock(record corecontext.RenderedBlockRecord) corecontext.RenderedBlockRecord {
+func cloneRenderedBlock(record RenderedBlockRecord) RenderedBlockRecord {
 	out := record
 	out.Block.Metadata = cloneStringMap(record.Block.Metadata)
 	return out

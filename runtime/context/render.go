@@ -4,13 +4,11 @@ import (
 	"encoding/xml"
 	"sort"
 	"strings"
-
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 )
 
 // RenderDiff renders the provider-visible context diff for one placement.
-func RenderDiff(result corecontext.BuildResult, placement corecontext.Placement) (string, bool) {
-	placement = corecontext.NormalizePlacement(placement)
+func RenderDiff(result BuildResult, placement Placement) (string, bool) {
+	placement = NormalizePlacement(placement)
 	var b strings.Builder
 	var hasDiff bool
 	for _, provider := range result.Providers {
@@ -43,32 +41,32 @@ func RenderDiff(result corecontext.BuildResult, placement corecontext.Placement)
 	return b.String(), true
 }
 
-func filterBlocks(blocks []corecontext.Block, placement corecontext.Placement) []corecontext.Block {
-	out := make([]corecontext.Block, 0, len(blocks))
+func filterBlocks(blocks []Block, placement Placement) []Block {
+	out := make([]Block, 0, len(blocks))
 	for _, block := range blocks {
-		if corecontext.NormalizePlacement(block.Placement) == placement {
+		if NormalizePlacement(block.Placement) == placement {
 			out = append(out, block)
 		}
 	}
 	return out
 }
 
-func filterRemoved(blocks []corecontext.BlockRemoved, placement corecontext.Placement) []corecontext.BlockRemoved {
-	out := make([]corecontext.BlockRemoved, 0, len(blocks))
+func filterRemoved(blocks []BlockRemoved, placement Placement) []BlockRemoved {
+	out := make([]BlockRemoved, 0, len(blocks))
 	for _, block := range blocks {
-		if corecontext.NormalizePlacement(block.Placement) == placement {
+		if NormalizePlacement(block.Placement) == placement {
 			out = append(out, block)
 		}
 	}
 	return out
 }
 
-func writeBlockDiff(b *strings.Builder, tag string, block corecontext.Block, indent int) {
+func writeBlockDiff(b *strings.Builder, tag string, block Block, indent int) {
 	attrs := map[string]string{
 		"block":       block.ID,
 		"provider":    string(block.Provider),
 		"kind":        string(block.Kind),
-		"placement":   string(corecontext.NormalizePlacement(block.Placement)),
+		"placement":   string(NormalizePlacement(block.Placement)),
 		"sensitivity": string(block.Sensitivity),
 		"freshness":   string(block.Freshness),
 		"fingerprint": BlockFingerprint(block),
@@ -80,11 +78,11 @@ func writeBlockDiff(b *strings.Builder, tag string, block corecontext.Block, ind
 	writeXMLEnd(b, tag, indent)
 }
 
-func writeRemoved(b *strings.Builder, removed corecontext.BlockRemoved, indent int) {
+func writeRemoved(b *strings.Builder, removed BlockRemoved, indent int) {
 	writeXMLStart(b, "removed", map[string]string{
 		"block":                removed.ID,
 		"provider":             string(removed.Provider),
-		"placement":            string(corecontext.NormalizePlacement(removed.Placement)),
+		"placement":            string(NormalizePlacement(removed.Placement)),
 		"previous_fingerprint": removed.PreviousFingerprint,
 	}, indent)
 	writeXMLEnd(b, "removed", indent)

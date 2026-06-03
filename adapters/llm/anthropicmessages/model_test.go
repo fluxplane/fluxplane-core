@@ -13,10 +13,10 @@ import (
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	coretool "github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/core/usage"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestTranscriptSystemContextItemMapsToSystemBlocks(t *testing.T) {

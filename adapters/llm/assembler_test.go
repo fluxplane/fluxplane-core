@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/invocation"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/tool"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestToolCallAssemblerBuildsOperationRequestFromStreamedArguments(t *testing.T) {

@@ -13,9 +13,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	"github.com/fluxplane/fluxplane-core/core/command"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
@@ -29,10 +27,12 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
 	"github.com/fluxplane/fluxplane-core/orchestration/toolprojection"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	coreevent "github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

@@ -9,13 +9,13 @@ import (
 	coreactivation "github.com/fluxplane/fluxplane-core/core/activation"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	"github.com/fluxplane/fluxplane-core/core/command"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessioncontrol"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimeskill "github.com/fluxplane/fluxplane-core/runtime/skill"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 type activateCommandInput struct {

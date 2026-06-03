@@ -6,11 +6,11 @@ import (
 	"testing"
 
 	auth "github.com/fluxplane/fluxplane-auth"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	"github.com/fluxplane/fluxplane-operation"
 	sdkmanifest "github.com/fluxplane/fluxplane-plugin/manifest"
 	"github.com/fluxplane/fluxplane-plugin/pluginbinding"
 	"github.com/fluxplane/fluxplane-plugin/pluginruntime"

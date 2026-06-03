@@ -39,7 +39,7 @@ agent decision
   -> result + audit/runtime events
 ```
 
-`core/operation.Semantics` describes the intrinsic operation properties:
+`fluxplane-operation.Semantics` describes the intrinsic operation properties:
 effects, idempotency, determinism, and coarse declared risk. It does not encode
 caller trust, channel exposure, or app-specific policy. Those are applied by
 orchestration and runtime safety when an operation is projected or executed.

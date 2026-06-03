@@ -9,13 +9,13 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	"github.com/fluxplane/fluxplane-core/core/command"
-	coreoperation "github.com/fluxplane/fluxplane-core/core/operation"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessioncontrol"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
+	coreoperation "github.com/fluxplane/fluxplane-operation"
 )
 
 func TestSessionCommandsContributesLoopHandler(t *testing.T) {

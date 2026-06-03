@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 )
 
 func TestContributionsExposeDefaultActivationSet(t *testing.T) {

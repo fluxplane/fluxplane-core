@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestRendererRendersCodeExecuteSuccess(t *testing.T) {

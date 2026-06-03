@@ -6,7 +6,7 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	corellmagent "github.com/fluxplane/fluxplane-core/core/agent/llmagent"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 )
 
 // SelfContextProviderName identifies the runtime-injected agent self context.

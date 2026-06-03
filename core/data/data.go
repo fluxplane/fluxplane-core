@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/core/workspace"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 // SourceName identifies one data source instance.

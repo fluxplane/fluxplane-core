@@ -6,7 +6,7 @@ import (
 	"github.com/fluxplane/fluxplane-policy/policyauth"
 	"strings"
 
-	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

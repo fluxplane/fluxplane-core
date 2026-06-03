@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	adapterllm "github.com/fluxplane/fluxplane-core/adapters/llm"
-	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 type messageRequest struct {

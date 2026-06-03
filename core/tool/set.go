@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/invocation"
-	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 // Set groups related model-facing tools into one capability surface.

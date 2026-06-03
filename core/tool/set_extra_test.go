@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/invocation"
-	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestSetValidateRejectsEmptyName(t *testing.T) {

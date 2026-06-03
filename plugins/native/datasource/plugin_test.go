@@ -8,14 +8,14 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/activation"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestStringFilterMapAcceptsScalarJSONValues(t *testing.T) {

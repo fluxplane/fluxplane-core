@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	coreworkflow "github.com/fluxplane/fluxplane-core/core/workflow"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestAgentTaskRendersStructuredInput(t *testing.T) {

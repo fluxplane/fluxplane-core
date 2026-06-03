@@ -2,10 +2,10 @@ package sessionrun
 
 import (
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 const (

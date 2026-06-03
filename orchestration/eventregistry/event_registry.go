@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"github.com/fluxplane/fluxplane-policy/policyauth"
 
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
 	corememory "github.com/fluxplane/fluxplane-core/core/memory"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/skill"
@@ -20,8 +18,10 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
 	"github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-operation"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 

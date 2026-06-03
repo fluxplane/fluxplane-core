@@ -8,10 +8,8 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/command"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
@@ -19,8 +17,10 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/agentconfig"
 	appcomposition "github.com/fluxplane/fluxplane-core/orchestration/app"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimeskill "github.com/fluxplane/fluxplane-core/runtime/skill"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

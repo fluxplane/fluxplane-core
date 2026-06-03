@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/agentfactory"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestResolverStopEvaluatorUsesParentAgentInference(t *testing.T) {

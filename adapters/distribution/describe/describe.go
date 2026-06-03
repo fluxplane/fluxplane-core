@@ -15,10 +15,10 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 var (

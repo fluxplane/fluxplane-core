@@ -1133,13 +1133,13 @@ Already present:
   continuations, and operation effects into observations and passes them through
   agent step input.
 - context materialization passes the active observations through
-  `core/context.Request`, including fingerprinting providers, so context
+  `runtime/context.Request`, including fingerprinting providers, so context
   providers can consume observations without hidden side channels.
-- the datasource detected context provider reads `core/context.Request`
+- the datasource detected context provider reads `runtime/context.Request`
   observations directly for local reference detection, and the older
   `DetectionInput`/detected-ref context side channel has been removed.
 - context providers already support dynamic blocks through
-  `core/context.FreshnessDynamic`.
+  `runtime/context.FreshnessDynamic`.
 - pluginhost already resolves selected plugin refs and collects executable
   operation, context provider, channel, datasource, auth, and
   identity contributions.

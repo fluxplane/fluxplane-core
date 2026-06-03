@@ -9,10 +9,10 @@ import (
 	"github.com/fluxplane/fluxplane-core/adapters/channels/httpsse"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	coreusage "github.com/fluxplane/fluxplane-core/core/usage"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	coreevent "github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

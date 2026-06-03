@@ -9,11 +9,11 @@ import (
 	"strings"
 
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 	invjsonschema "github.com/invopop/jsonschema"
 )

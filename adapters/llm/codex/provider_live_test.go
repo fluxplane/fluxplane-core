@@ -15,7 +15,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/core/usage"
@@ -25,6 +24,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 const liveCodexSystem = "You are a concise live-test assistant. Follow the requested output exactly."

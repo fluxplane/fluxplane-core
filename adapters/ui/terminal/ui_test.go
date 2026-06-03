@@ -7,9 +7,7 @@ import (
 	"testing"
 
 	coreactivation "github.com/fluxplane/fluxplane-core/core/activation"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	"github.com/fluxplane/fluxplane-core/core/testrun"
@@ -18,8 +16,10 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionrun"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

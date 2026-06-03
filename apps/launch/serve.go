@@ -89,7 +89,7 @@ type ServeDistributionOptions struct {
 	// schemas reach the LLM via developer-context blocks (dispatched through
 	// surface_call) instead of being projected into the tools array — which
 	// keeps the Anthropic prompt cache stable across activation events and
-	// avoids leaking every dex operation's schema as a model-visible tool.
+	// avoids leaking every installed plugin operation schema as a model-visible tool.
 	SessionToolProjection orchestrationsession.ToolProjectionMode
 	ModelResolver         agentfactory.ModelResolver
 	AllowPrivateNetwork   bool

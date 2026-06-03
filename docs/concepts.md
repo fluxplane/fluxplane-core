@@ -477,9 +477,9 @@ workflow.Spec != workflow run/execution
 
 ### Operations in Fluxplane
 
-`core/operation` owns operation specs and model-facing operation contracts.
-Operation implementations live in runtime, adapters, or plugins depending on the
-responsibility and side-effect boundary.
+`fluxplane-operation` owns operation specs and model-facing operation
+contracts. Operation implementations live in runtime, adapters, or plugins
+depending on the responsibility and side-effect boundary.
 
 Important distinctions:
 

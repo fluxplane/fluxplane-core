@@ -6,12 +6,12 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/command"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resourceaddr"
 	"github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	"github.com/fluxplane/fluxplane-datasource"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestSetValidateAcceptsSupportedTargets(t *testing.T) {

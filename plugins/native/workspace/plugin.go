@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
 )
 

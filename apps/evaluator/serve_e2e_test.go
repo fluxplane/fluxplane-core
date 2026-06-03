@@ -14,10 +14,10 @@ import (
 	"github.com/fluxplane/fluxplane-core/apps/launch"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/agentfactory"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	coreevent "github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestTargetSubmitOperationUsesLaunchServeUnixSocket(t *testing.T) {

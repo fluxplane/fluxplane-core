@@ -10,12 +10,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	coretask "github.com/fluxplane/fluxplane-core/core/task"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 	sessionruntime "github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionagent"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/slack-go/slack"
 )
 

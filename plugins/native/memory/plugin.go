@@ -11,7 +11,6 @@ import (
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	corememory "github.com/fluxplane/fluxplane-core/core/memory"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/user"
@@ -22,6 +21,7 @@ import (
 	runtimememory "github.com/fluxplane/fluxplane-core/runtime/memory"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
 )
 

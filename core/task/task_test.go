@@ -6,8 +6,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestTaskValidateAcceptsPlanexecShapedTask(t *testing.T) {

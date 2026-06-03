@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-operation"
 	fpsystem "github.com/fluxplane/fluxplane-system"
 )
 

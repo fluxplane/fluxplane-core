@@ -6,7 +6,7 @@ import (
 
 	fluxplane "github.com/fluxplane/fluxplane-core"
 	distrun "github.com/fluxplane/fluxplane-core/adapters/distribution/run"
-	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/spf13/pflag"
 )
 

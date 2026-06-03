@@ -2,7 +2,7 @@ package language
 
 import (
 	corelanguage "github.com/fluxplane/fluxplane-core/core/language"
-	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 // Support describes the reusable activation surface for one language family.

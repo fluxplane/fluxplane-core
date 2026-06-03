@@ -7,10 +7,10 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	corellmagent "github.com/fluxplane/fluxplane-core/core/agent/llmagent"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/tool"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 )
 

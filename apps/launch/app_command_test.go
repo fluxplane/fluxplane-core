@@ -10,19 +10,19 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 	coretool "github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/spf13/cobra"
 )
 

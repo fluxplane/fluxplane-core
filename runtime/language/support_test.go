@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	corelanguage "github.com/fluxplane/fluxplane-core/core/language"
-	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 func TestOperationSetsIncludesStaticAndToolchainSets(t *testing.T) {

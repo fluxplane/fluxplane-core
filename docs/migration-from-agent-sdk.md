@@ -468,21 +468,21 @@ we audit every package in detail.
 | Agent spec/config | `core/agent` | Pure spec, inference options, model policy, stop config. |
 | Running agent instance | `runtime/agent` + `orchestration/session` | Split turn engine/runtime state from session lifecycle. |
 | Model/tool turn loop | `runtime/agent` or `runtime/model` | Keep provider transport outside if it needs IO adapters. |
-| Actions | `core/operation` + `runtime/operation` | Consider renaming `Action` to `Operation` as the single executable primitive. |
+| Actions | `github.com/fluxplane/fluxplane-operation` + `runtime/operation` | Operation is the single executable primitive; Core runtime owns execution/safety, not the portable operation contract. |
 | Tools | later near `core/agent/llmagent` or model adapter layer | Do not recreate old executable tool concept. LLM tools are driver-facing projections of operations. |
 | Commands | `core/command` + `orchestration/session` command dispatch | Channel-facing invocation specs. Slash parsing/rendering belongs in adapters. |
 | Workflows | `core/workflow` + `orchestration/workflow` or `runtime/workflow` | Specs/events/projectors in core; executor placement depends on whether it composes runtime implementations. |
 | Thread/event state | `github.com/fluxplane/fluxplane-event` + `core/thread` + `runtime/thread` or `adapters/event*` | Generic event stream port in fluxplane-event; thread-domain port in core; event-backed thread projection in runtime. |
 | Projections/read models | `core/projection` + `runtime/projection` + runtime read models | Checkpoints/projector contracts in core; runner/checkpoint stores in runtime; concrete read models near their concept. |
-| Context providers | `core/context` + `runtime/context` | Structured context blocks in core; provider execution/materialization in runtime. |
+| Context providers | `github.com/fluxplane/fluxplane-context` + `runtime/context` | Portable context specs/blocks live in the leaf module; Core runtime owns evidence-aware provider execution/materialization. |
 | Capabilities | `core/capability` + `runtime/capability` | Capability specs/events in core; state machine implementations in runtime/plugins. |
 | Skills | `core/skill` + `plugins/skills` + resource adapters | Metadata/activation in core; discovery/loading in adapters. |
 | Resources | `core/resource` + `adapters/appconfig`/`adapters/agentdir` + `orchestration/app` | Contribution data is core; loading/parsing is adapter; executable composition is orchestration. |
 | Plugins | `core/plugin` or `orchestration/pluginhost` + `plugins/*` | Keep contracts separate from implementations. |
 | Datasources | `core/datasource` + `plugins/datasources` | Search contract in core; runtime/provider details outward. |
 | Channels | `core/channel` + `orchestration/client` + `adapters/terminal/http/slack` | Core has normalized envelopes/specs; client defines handle API; adapters implement transports. |
-| Invocation policy | `core/policy` | Caller, principal, trust kind/level, scopes, and projection invocation policy. |
-| Safety | `core/safety` + `runtime/operation` gates + adapter approval UX | Operation semantics remain intrinsic; projection policy and channel trust use `core/policy`; enforcement happens at execution boundary. |
+| Invocation policy | `github.com/fluxplane/fluxplane-policy` | Caller, principal, trust kind/level, scopes, and projection invocation policy. |
+| Safety | `runtime/operation` gates + adapter approval UX | Operation semantics remain intrinsic; projection policy and channel trust use `github.com/fluxplane/fluxplane-policy`; enforcement happens at execution boundary. |
 | Usage | `core/usage` + `runtime/usage` + orchestration events | Records/types in core; aggregation/persistence outward. |
 | App composition | `orchestration/app` | Current `app.App` should be split from resource loading and plugin implementations. |
 | Harness/session/client | `orchestration/client` + `orchestration/harness` + `orchestration/session` | Client defines ChannelClient/SessionHandle/RunHandle and Submission; harness binds channels/conversations; session owns execution for one bound thread. |
@@ -500,12 +500,12 @@ ported.
 
 | Current package/directory | Proposed destination | Audit notes |
 | --- | --- | --- |
-| `action` | `core/operation` | Pure operation spec/result/type/ref mostly belongs in core. |
+| `action` | `github.com/fluxplane/fluxplane-operation` | Pure operation spec/result/type/ref belongs in the leaf operation module. |
 | `action/declarative` | `runtime/operation/declarative` or app/resource config adapters | Split declarative metadata from executable aliases/shell bindings. |
 | `actionmw` | `runtime/operation/middleware` | Middleware implementation; safety types go to `core/safety`. |
 | `agent` | split | Specs to `core/agent`; runtime construction to `runtime/agent`; session lifecycle to `orchestration/session`. |
 | `agentconfig` | `core/agent` | Pure config candidate. |
-| `agentcontext` | split into `core/context` and `runtime/context` | Descriptors/types core; manager/provider execution runtime. |
+| `agentcontext` | split into `github.com/fluxplane/fluxplane-context` and `runtime/context` | Portable descriptors/types in the leaf module; manager/provider execution in Core runtime. |
 | `agentcontext/contextproviders` | `runtime/context/providers` + adapters | Static/time pure-ish; file/cmd/git/environment need adapter/runtime split. |
 | `agentdir` | `adapters/agentdir` | Filesystem/external format loader. |
 | `agentstate` | `runtime/agent/state` or `core/thread` events | Audit whether this is projected state or event definitions. |
@@ -601,7 +601,7 @@ The current rewrite proves the inner-to-outer path for the first executable
 slice:
 
 ```text
-core operation/command/channel/session/thread model + fluxplane-event
+fluxplane-operation + core command/channel/session/thread model + fluxplane-event
   -> runtime operation/event/thread implementations
   -> orchestration session + harness + client handles
   -> direct channel and HTTP/SSE channel adapters
@@ -610,7 +610,8 @@ core operation/command/channel/session/thread model + fluxplane-event
 
 Implemented and green:
 
-- `core/operation`: operation specs, semantics, results, events, and registry.
+- `github.com/fluxplane/fluxplane-operation`: operation specs, semantics,
+  results, events, and registry.
 - `core/app`: pure app manifest specs for default refs, sources, discovery
   policy, model policy, and plugin refs.
 - `core/agent`: inert agent specs now carry engineer-style system prompts,
@@ -631,8 +632,9 @@ Implemented and green:
   thread index, list replay fallback, and optional projected read model.
 - `core/projection`, `runtime/projection`, `orchestration/projections`:
   checkpoint/projector contracts, runner, and orchestration freshness manager.
-- `core/command`, `core/invocation`, `core/policy`: channel-facing command
-  specs, invocation target vocabulary, caller/trust/policy evaluation.
+- `core/command`, `core/invocation`, and
+  `github.com/fluxplane/fluxplane-policy`: channel-facing command specs,
+  invocation target vocabulary, caller/trust/policy evaluation.
 - `core/tool`: provider-neutral model-facing tool projection descriptors.
 - `core/channel`: normalized channel specs and inbound/outbound envelopes.
 - `orchestration/session`: command and conversational input execution for one
@@ -928,10 +930,10 @@ Recommended order:
    apps; signal dispatch semantics belong in orchestration.
 
 8. **Context Provider Runtime**
-   Add the first narrow `core/context` provider contracts and
-   `runtime/context` materializer, then migrate only providers needed by the
-   first app. File/git/shell-backed providers should remain adapter/plugin
-   owned.
+   Add the first narrow `github.com/fluxplane/fluxplane-context` provider
+   contracts and `runtime/context` materializer, then migrate only providers
+   needed by the first app. File/git/shell-backed providers should remain
+   adapter/plugin owned.
 
 Do not start with LLM provider integration or Slack. They are important, but
 they depend on the app/plugin/channel boundaries being stable enough that they

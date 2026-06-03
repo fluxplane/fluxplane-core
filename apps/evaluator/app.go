@@ -11,10 +11,10 @@ import (
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/spf13/cobra"
 )
 

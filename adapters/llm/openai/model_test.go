@@ -15,9 +15,9 @@ import (
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	corellm "github.com/fluxplane/fluxplane-core/core/llm"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	"github.com/fluxplane/fluxplane-core/core/usage"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/openai/openai-go/v3/responses"
 
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"

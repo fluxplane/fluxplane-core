@@ -8,7 +8,6 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/adapters/channels/httpsse"
 	"github.com/fluxplane/fluxplane-core/core/channel"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
@@ -17,6 +16,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	coreevent "github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 const TargetSubmitOperation = "target_submit"

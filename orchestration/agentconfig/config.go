@@ -6,11 +6,11 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/command"
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/tool"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 // FilterTools returns the projected tools allowed by spec-level tool,

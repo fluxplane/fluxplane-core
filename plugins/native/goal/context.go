@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimegoal "github.com/fluxplane/fluxplane-core/runtime/goal"
 )
 

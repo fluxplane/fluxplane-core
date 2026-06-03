@@ -5,9 +5,9 @@ import (
 	"strings"
 
 	codewandlercmdrisk "github.com/codewandler/cmdrisk"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-operation"
 )
 
 const (

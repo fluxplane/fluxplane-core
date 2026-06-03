@@ -23,7 +23,6 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
-	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/agentfactory"
 	"github.com/fluxplane/fluxplane-core/orchestration/app"
@@ -59,6 +58,7 @@ import (
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	fpendpoint "github.com/fluxplane/fluxplane-endpoint"
 	"github.com/fluxplane/fluxplane-event"
+	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-plugin/management"
 	"github.com/fluxplane/fluxplane-policy"
 )
