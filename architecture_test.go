@@ -129,8 +129,10 @@ func TestDeprecatedCoreLeafAliasPackagesDoNotReturn(t *testing.T) {
 func TestRemovedCorePluginImplementationDirsDoNotReturn(t *testing.T) {
 	forbiddenDirs := []string{
 		filepath.Join("plugins", "bundles"),
+		filepath.Join("plugins", "examples"),
 		filepath.Join("plugins", "internal"),
 		filepath.Join("plugins", "languages"),
+		filepath.Join("plugins", "support"),
 		filepath.Join("plugins", "integrations", "openapi"),
 		filepath.Join("plugins", "integrations", "slack"),
 		filepath.Join("plugins", "native", "browser"),
@@ -140,20 +142,23 @@ func TestRemovedCorePluginImplementationDirsDoNotReturn(t *testing.T) {
 		filepath.Join("plugins", "native", "project"),
 		filepath.Join("plugins", "native", "shell"),
 		filepath.Join("plugins", "native", "sleep"),
+		filepath.Join("plugins", "native", "text"),
 	}
 	forbiddenImports := []string{
 		"github.com/fluxplane/fluxplane-core/plugins/" + "bundles/",
+		"github.com/fluxplane/fluxplane-core/plugins/" + "examples/",
 		"github.com/fluxplane/fluxplane-core/plugins/" + "internal/",
 		"github.com/fluxplane/fluxplane-core/plugins/" + "languages/",
+		"github.com/fluxplane/fluxplane-core/plugins/" + "support/",
 		"github.com/fluxplane/fluxplane-core/plugins/integrations/" + "openapi",
 		"github.com/fluxplane/fluxplane-core/plugins/integrations/" + "slack",
-		"github.com/fluxplane/fluxplane-core/plugins/native/" + "browser",
-		"github.com/fluxplane/fluxplane-core/plugins/native/" + "clock",
-		"github.com/fluxplane/fluxplane-core/plugins/native/" + "code",
-		"github.com/fluxplane/fluxplane-core/plugins/native/" + "filesystem",
-		"github.com/fluxplane/fluxplane-core/plugins/native/" + "project",
-		"github.com/fluxplane/fluxplane-core/plugins/native/" + "shell",
-		"github.com/fluxplane/fluxplane-core/plugins/native/" + "sleep",
+		"github.com/fluxplane/fluxplane-core/contrib/" + "browser",
+		"github.com/fluxplane/fluxplane-core/contrib/" + "clock",
+		"github.com/fluxplane/fluxplane-core/contrib/" + "code",
+		"github.com/fluxplane/fluxplane-core/contrib/" + "filesystem",
+		"github.com/fluxplane/fluxplane-core/contrib/" + "project",
+		"github.com/fluxplane/fluxplane-core/contrib/" + "shell",
+		"github.com/fluxplane/fluxplane-core/contrib/" + "sleep",
 	}
 	var bad []string
 	for _, dir := range forbiddenDirs {
@@ -197,6 +202,44 @@ func TestRemovedCorePluginImplementationDirsDoNotReturn(t *testing.T) {
 	}
 	if len(bad) > 0 {
 		t.Fatalf("drained core plugin implementation boundary violations:\n%s", strings.Join(bad, "\n"))
+	}
+}
+
+func TestContribProvidersDoNotImportRemovedHostPackage(t *testing.T) {
+	surfaceDirs := []string{
+		"contrib",
+	}
+	forbidden := "github.com/fluxplane/fluxplane-core/orchestration/" + "plugin" + "host"
+	var bad []string
+	for _, root := range surfaceDirs {
+		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") {
+				return nil
+			}
+			file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+			if err != nil {
+				return err
+			}
+			for _, imported := range file.Imports {
+				pathValue := strings.Trim(imported.Path.Value, "\"")
+				if pathValue == forbidden {
+					bad = append(bad, path+" imports removed host package")
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", root, err)
+		}
+	}
+	if len(bad) > 0 {
+		t.Fatalf("migrated Core surface import boundary violations:\n%s", strings.Join(bad, "\n"))
 	}
 }
 

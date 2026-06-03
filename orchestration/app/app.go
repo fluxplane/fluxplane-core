@@ -13,9 +13,9 @@ import (
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/orchestration/appresources"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	"github.com/fluxplane/fluxplane-core/orchestration/identity"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/orchestration/resourcecatalog"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
@@ -39,7 +39,7 @@ type Config struct {
 	EventStore           event.Store
 	DataStore            coredata.Store
 	EventTypes           []event.Event
-	Plugins              []pluginhost.Plugin
+	Plugins              []contributions.Provider
 	Bundles              []resource.ContributionBundle
 	BundleTransforms     []BundleTransform
 	EnvironmentObservers []runtimeevidence.Observer
@@ -541,12 +541,12 @@ func appendEventTypesFromBundles(base []event.Event, bundles []resource.Contribu
 	return out
 }
 
-func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store, discoveryRegistry *fpendpoint.DiscoveryRegistry, discoverer *fpendpoint.Runner, endpointRegistry *fpendpoint.Registry) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, session.SessionCommandCatalog, []coredatasource.Provider, []runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, []reactionRuleBinding, []identity.ExternalResolver, *fpendpoint.DiscoveryRegistry, *fpendpoint.Runner, *fpendpoint.Registry, *sharedsecret.Registry, []resource.Diagnostic, error) {
+func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []contributions.Provider, eventStore event.Store, dataStore coredata.Store, discoveryRegistry *fpendpoint.DiscoveryRegistry, discoverer *fpendpoint.Runner, endpointRegistry *fpendpoint.Registry) ([]resource.ContributionBundle, []contributions.OperationContribution, []corecontext.Provider, session.SessionCommandCatalog, []coredatasource.Provider, []runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, []reactionRuleBinding, []identity.ExternalResolver, *fpendpoint.DiscoveryRegistry, *fpendpoint.Runner, *fpendpoint.Registry, *sharedsecret.Registry, []resource.Diagnostic, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	out := append([]resource.ContributionBundle(nil), bundles...)
-	var operations []pluginhost.OperationContribution
+	var operations []contributions.OperationContribution
 	var contextProviders []corecontext.Provider
 	sessionCommands := session.SessionCommandCatalog{}
 	var datasourceProviders []coredatasource.Provider
@@ -555,7 +555,7 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 	var reactions []reactionRuleBinding
 	var externalIdentities []identity.ExternalResolver
 	var diagnostics []resource.Diagnostic
-	host, err := pluginhost.New(plugins...)
+	host, err := contributions.New(plugins...)
 	if err != nil {
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
 		return out, operations, contextProviders, sessionCommands, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, nil, nil, nil, nil, diagnostics, err
@@ -579,7 +579,7 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 
 	type pluginResolution struct {
 		bundle      resource.ContributionBundle
-		contributed pluginhost.Resolution
+		contributed contributions.Resolution
 		err         error
 	}
 	results := make([]pluginResolution, len(bundles))

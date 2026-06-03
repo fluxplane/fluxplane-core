@@ -7,7 +7,7 @@ import (
 
 	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-operation"
@@ -23,7 +23,7 @@ func TestPluginContributesManifestOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	bundle, err := bridge.Contributions(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: "echo"}})
+	bundle, err := bridge.Contributions(context.Background(), contributions.Context{Ref: resource.PluginRef{Name: "echo"}})
 	if err != nil {
 		t.Fatalf("Contributions: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestPluginContributesAuthMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	methods, err := bridge.AuthMethods(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: "echo"}})
+	methods, err := bridge.AuthMethods(context.Background(), contributions.Context{Ref: resource.PluginRef{Name: "echo"}})
 	if err != nil {
 		t.Fatalf("AuthMethods: %v", err)
 	}
@@ -64,11 +64,11 @@ func TestPluginAuthTestInvokesRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	reports := make(chan pluginhost.AuthTestReport, 1)
+	reports := make(chan contributions.AuthTestReport, 1)
 	err = bridge.TestConnection(
 		context.Background(),
-		pluginhost.Context{Ref: resource.PluginRef{Name: "echo", Instance: "work"}},
-		pluginhost.AuthTestRequest{
+		contributions.Context{Ref: resource.PluginRef{Name: "echo", Instance: "work"}},
+		contributions.AuthTestRequest{
 			Ref:    resource.PluginRef{Name: "echo", Instance: "work"},
 			Method: "token",
 			Secrets: secret.ResolverFunc(func(_ context.Context, ref secret.Ref) (secret.Material, bool, error) {
@@ -94,7 +94,7 @@ func TestPluginOperationInvokesRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	ops, err := bridge.Operations(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: "echo", Instance: "work"}})
+	ops, err := bridge.Operations(context.Background(), contributions.Context{Ref: resource.PluginRef{Name: "echo", Instance: "work"}})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestPluginContextProviderInvokesRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	providers, err := bridge.ContextProviders(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: "echo", Instance: "work"}})
+	providers, err := bridge.ContextProviders(context.Background(), contributions.Context{Ref: resource.PluginRef{Name: "echo", Instance: "work"}})
 	if err != nil {
 		t.Fatalf("ContextProviders: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestPluginDatasourceProviderInvokesRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	providers, err := bridge.DatasourceProviders(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: "echo", Instance: "work"}})
+	providers, err := bridge.DatasourceProviders(context.Background(), contributions.Context{Ref: resource.PluginRef{Name: "echo", Instance: "work"}})
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
 	}

@@ -17,7 +17,7 @@ import (
 	"github.com/fluxplane/fluxplane-auth/authstatus"
 	"github.com/fluxplane/fluxplane-core/adapters/auth/oauth2flow"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/runtime/oauth2client"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
 	"github.com/spf13/cobra"
@@ -26,7 +26,7 @@ import (
 
 // TargetRegistry supplies app-scoped plugin auth targets exposed by the auth
 // command.
-type TargetRegistry func(context.Context) ([]pluginhost.AuthTarget, error)
+type TargetRegistry func(context.Context) ([]contributions.AuthTarget, error)
 
 // CommandOptions configures the shared auth command.
 type CommandOptions struct {
@@ -45,7 +45,7 @@ type options struct {
 }
 
 type target struct {
-	auth   pluginhost.AuthTarget
+	auth   contributions.AuthTarget
 	method string
 }
 
@@ -422,15 +422,15 @@ func statusPlans(ctx context.Context, targets []target, resolver sharedsecret.Re
 }
 
 func runConnectivityTest(ctx context.Context, out io.Writer, resolver sharedsecret.Resolver, plan statusPlan, renderer statusRenderer) error {
-	tester, ok := plan.Target.auth.Plugin.(pluginhost.AuthTestContributor)
+	tester, ok := plan.Target.auth.Provider.(contributions.AuthTestProvider)
 	if !ok {
-		renderer.printTestReport(out, pluginhost.AuthTestReport{Method: plan.RequestedMethod, Check: "connection", Status: "skipped", Message: "plugin does not support auth testing"})
+		renderer.printTestReport(out, contributions.AuthTestReport{Method: plan.RequestedMethod, Check: "connection", Status: "skipped", Message: "plugin does not support auth testing"})
 		return nil
 	}
-	reports := make(chan pluginhost.AuthTestReport)
+	reports := make(chan contributions.AuthTestReport)
 	runErr := make(chan error, 1)
 	go func() {
-		runErr <- tester.TestConnection(ctx, plan.Target.auth.Context, pluginhost.AuthTestRequest{Ref: plan.Target.ref(), Method: plan.RequestedMethod, Secrets: resolver}, reports)
+		runErr <- tester.TestConnection(ctx, plan.Target.auth.Context, contributions.AuthTestRequest{Ref: plan.Target.ref(), Method: plan.RequestedMethod, Secrets: resolver}, reports)
 		close(reports)
 	}()
 	for report := range reports {
@@ -662,7 +662,7 @@ func (r statusRenderer) printMissingFields(out io.Writer, fields []authstatus.Fi
 	_, _ = fmt.Fprintf(out, "  %-8s %s\n", r.muted("missing"), strings.Join(missing, ", "))
 }
 
-func (r statusRenderer) printTestReport(out io.Writer, report pluginhost.AuthTestReport) {
+func (r statusRenderer) printTestReport(out io.Writer, report contributions.AuthTestReport) {
 	check := strings.TrimSpace(report.Check)
 	if check == "" {
 		check = strings.TrimSpace(report.Method)
@@ -868,7 +868,7 @@ func missingRequiredFields(fields []authstatus.FieldStatus, specs []auth.FieldSp
 	return missing
 }
 
-func targetsFor(opts options, authTargets []pluginhost.AuthTarget, defaultAll bool) ([]target, error) {
+func targetsFor(opts options, authTargets []contributions.AuthTarget, defaultAll bool) ([]target, error) {
 	names := splitValues(opts.plugins)
 	if len(names) == 0 && !defaultAll {
 		return nil, fmt.Errorf("auth: at least one --plugin is required")
@@ -887,7 +887,7 @@ func targetsFor(opts options, authTargets []pluginhost.AuthTarget, defaultAll bo
 	if len(instanceBare) > 0 && len(names) != 1 {
 		return nil, fmt.Errorf("auth: bare --instance is only valid with one --plugin")
 	}
-	byPlugin := map[string][]pluginhost.AuthTarget{}
+	byPlugin := map[string][]contributions.AuthTarget{}
 	for _, authTarget := range authTargets {
 		name := strings.TrimSpace(authTarget.Ref.Name)
 		if name != "" {
@@ -957,7 +957,7 @@ func (t target) label() string {
 	return strings.TrimSpace(ref.Name) + "/" + strings.TrimSpace(instance)
 }
 
-func registryTargets(ctx context.Context, registry TargetRegistry) ([]pluginhost.AuthTarget, error) {
+func registryTargets(ctx context.Context, registry TargetRegistry) ([]contributions.AuthTarget, error) {
 	if registry == nil {
 		return nil, nil
 	}

@@ -9,7 +9,7 @@ import (
 
 	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 )
 
 func TestCollectFieldsRejectsSensitivePromptOnNonTerminal(t *testing.T) {
@@ -99,10 +99,10 @@ func TestCollectFieldsAcceptsRequiredGroupAlternative(t *testing.T) {
 }
 
 func TestTargetsForMappedMethodAndInstance(t *testing.T) {
-	authTargets, err := pluginhost.ResolveAuthTargets(context.Background(), []resource.PluginRef{
+	authTargets, err := contributions.ResolveAuthTargets(context.Background(), []resource.PluginRef{
 		{Name: "issues", Instance: "company-a"},
 		{Name: "chat", Instance: "team-chat"},
-	}, []pluginhost.Plugin{fakePlugin{name: "issues"}, fakePlugin{name: "chat"}})
+	}, []contributions.Provider{fakePlugin{name: "issues"}, fakePlugin{name: "chat"}})
 	if err != nil {
 		t.Fatalf("ResolveAuthTargets: %v", err)
 	}
@@ -120,10 +120,10 @@ func TestTargetsForMappedMethodAndInstance(t *testing.T) {
 }
 
 func TestTargetsForRejectsBareMethodWithMultiplePlugins(t *testing.T) {
-	authTargets, err := pluginhost.ResolveAuthTargets(context.Background(), []resource.PluginRef{
+	authTargets, err := contributions.ResolveAuthTargets(context.Background(), []resource.PluginRef{
 		{Name: "issues"},
 		{Name: "chat"},
-	}, []pluginhost.Plugin{fakePlugin{name: "issues"}, fakePlugin{name: "chat"}})
+	}, []contributions.Provider{fakePlugin{name: "issues"}, fakePlugin{name: "chat"}})
 	if err != nil {
 		t.Fatalf("ResolveAuthTargets: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestTargetsForRejectsBareMethodWithMultiplePlugins(t *testing.T) {
 }
 
 func TestTargetsForRejectsUndeclaredInstance(t *testing.T) {
-	authTargets, err := pluginhost.ResolveAuthTargets(context.Background(), []resource.PluginRef{{Name: "chat", Instance: "team-chat"}}, []pluginhost.Plugin{fakePlugin{name: "chat"}})
+	authTargets, err := contributions.ResolveAuthTargets(context.Background(), []resource.PluginRef{{Name: "chat", Instance: "team-chat"}}, []contributions.Provider{fakePlugin{name: "chat"}})
 	if err != nil {
 		t.Fatalf("ResolveAuthTargets: %v", err)
 	}
@@ -363,9 +363,9 @@ func TestNewCommandExposesAuthSubcommands(t *testing.T) {
 	}
 }
 
-func testCommandOptions(refs []resource.PluginRef, plugins ...pluginhost.Plugin) CommandOptions {
-	return CommandOptions{TargetRegistry: func(ctx context.Context) ([]pluginhost.AuthTarget, error) {
-		return pluginhost.ResolveAuthTargets(ctx, refs, plugins)
+func testCommandOptions(refs []resource.PluginRef, plugins ...contributions.Provider) CommandOptions {
+	return CommandOptions{TargetRegistry: func(ctx context.Context) ([]contributions.AuthTarget, error) {
+		return contributions.ResolveAuthTargets(ctx, refs, plugins)
 	}}
 }
 
@@ -373,15 +373,15 @@ type partialAuthPlugin struct {
 	name string
 }
 
-func (p partialAuthPlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: p.name}
+func (p partialAuthPlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: p.name}
 }
 
-func (p partialAuthPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (p partialAuthPlugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{}, nil
 }
 
-func (p partialAuthPlugin) AuthMethods(context.Context, pluginhost.Context) ([]auth.MethodSpec, error) {
+func (p partialAuthPlugin) AuthMethods(context.Context, contributions.Context) ([]auth.MethodSpec, error) {
 	return []auth.MethodSpec{{
 		Name:   "api_token",
 		Method: auth.MethodStored,
@@ -401,15 +401,15 @@ type fakePlugin struct {
 	name string
 }
 
-func (p fakePlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: p.name}
+func (p fakePlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: p.name}
 }
 
-func (p fakePlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (p fakePlugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{}, nil
 }
 
-func (p fakePlugin) AuthMethods(context.Context, pluginhost.Context) ([]auth.MethodSpec, error) {
+func (p fakePlugin) AuthMethods(context.Context, contributions.Context) ([]auth.MethodSpec, error) {
 	return []auth.MethodSpec{
 		{
 			Name:   "token",
@@ -432,8 +432,8 @@ func (p fakePlugin) AuthMethods(context.Context, pluginhost.Context) ([]auth.Met
 	}, nil
 }
 
-func (p fakePlugin) TestConnection(_ context.Context, ctx pluginhost.Context, req pluginhost.AuthTestRequest, reports chan<- pluginhost.AuthTestReport) error {
-	reports <- pluginhost.AuthTestReport{
+func (p fakePlugin) TestConnection(_ context.Context, ctx contributions.Context, req contributions.AuthTestRequest, reports chan<- contributions.AuthTestReport) error {
+	reports <- contributions.AuthTestReport{
 		Plugin:   p.name,
 		Instance: ctx.Ref.InstanceName(),
 		Method:   req.Method,

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fluxplane/fluxplane-core/contrib/text"
 	"github.com/fluxplane/fluxplane-core/core/activation"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
@@ -21,12 +22,11 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/skill"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	"github.com/fluxplane/fluxplane-core/core/workflow"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	"github.com/fluxplane/fluxplane-core/orchestration/identity"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessioncontrol"
-	"github.com/fluxplane/fluxplane-core/plugins/native/text"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
@@ -110,7 +110,7 @@ func TestComposeCollectsPluginExternalIdentityResolvers(t *testing.T) {
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{Name: "external-identity"}},
 		}},
-		Plugins: []pluginhost.Plugin{externalIdentityPlugin{}},
+		Plugins: []contributions.Provider{externalIdentityPlugin{}},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -192,7 +192,7 @@ func TestComposeBuildsEventRegistryFromPluginContributions(t *testing.T) {
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{Name: "event-plugin"}},
 		}},
-		Plugins: []pluginhost.Plugin{eventPlugin{}},
+		Plugins: []contributions.Provider{eventPlugin{}},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -390,7 +390,7 @@ func TestComposeRejectsAppDefaultSessionWhenUnbound(t *testing.T) {
 
 func TestComposeResolvesPluginContributions(t *testing.T) {
 	composition, err := Compose(Config{
-		Plugins: []pluginhost.Plugin{echoPlugin{}},
+		Plugins: []contributions.Provider{echoPlugin{}},
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{Name: "echo-plugin"}},
 		}},
@@ -413,7 +413,7 @@ func TestComposeResolvesPluginBundlesConcurrently(t *testing.T) {
 
 	go func() {
 		_, err := Compose(Config{
-			Plugins: []pluginhost.Plugin{
+			Plugins: []contributions.Provider{
 				blockingPlugin{name: "blocking-a", started: started, release: release},
 				blockingPlugin{name: "blocking-b", started: started, release: release},
 			},
@@ -449,7 +449,7 @@ func TestComposeResolvesPluginBundlesConcurrently(t *testing.T) {
 
 func TestComposeCarriesPluginSessionCommandHandlers(t *testing.T) {
 	composition, err := Compose(Config{
-		Plugins: []pluginhost.Plugin{sessionCommandPlugin{}},
+		Plugins: []contributions.Provider{sessionCommandPlugin{}},
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{Name: "session-command-plugin"}},
 		}},
@@ -464,7 +464,7 @@ func TestComposeCarriesPluginSessionCommandHandlers(t *testing.T) {
 
 func TestComposeCarriesEnvironmentPluginContributions(t *testing.T) {
 	composition, err := Compose(Config{
-		Plugins: []pluginhost.Plugin{environmentPlugin{}},
+		Plugins: []contributions.Provider{environmentPlugin{}},
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{Name: "environment-plugin"}},
 		}},
@@ -488,7 +488,7 @@ func TestComposeCarriesEnvironmentPluginContributions(t *testing.T) {
 
 func TestComposeAppliesConfiguredObserverOverridesToSelectedImplementations(t *testing.T) {
 	composition, err := Compose(Config{
-		Plugins: []pluginhost.Plugin{environmentPlugin{}},
+		Plugins: []contributions.Provider{environmentPlugin{}},
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{Name: "environment-plugin"}},
 			Skills:  []skill.Spec{{Name: "go"}},
@@ -531,7 +531,7 @@ func TestComposeAppliesConfiguredObserverOverridesToSelectedImplementations(t *t
 
 func TestComposeAppliesConfiguredObserverDisableToSelectedImplementations(t *testing.T) {
 	composition, err := Compose(Config{
-		Plugins: []pluginhost.Plugin{environmentPlugin{}},
+		Plugins: []contributions.Provider{environmentPlugin{}},
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{Name: "environment-plugin"}},
 			Skills:  []skill.Spec{{Name: "go"}},
@@ -613,7 +613,7 @@ func TestComposeRunsBundleAssertionDeriversAsTemplates(t *testing.T) {
 
 func TestComposeRunsPluginAssertionDeriverSpecsAsTemplates(t *testing.T) {
 	composition, err := Compose(Config{
-		Plugins: []pluginhost.Plugin{templateAssertionPlugin{}},
+		Plugins: []contributions.Provider{templateAssertionPlugin{}},
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{Name: "template-assertion-plugin"}},
 		}},
@@ -908,7 +908,7 @@ func hasEnvironmentAssertion(assertions []coreevidence.Assertion, kind, target s
 
 func TestComposeResolvesConfiguredPluginContributions(t *testing.T) {
 	composition, err := Compose(Config{
-		Plugins: []pluginhost.Plugin{text.New()},
+		Plugins: []contributions.Provider{text.New()},
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{
 				Name: text.Name,
@@ -951,7 +951,7 @@ func TestComposeAllowsDuplicateOperationNamesAcrossResourceIDs(t *testing.T) {
 	})
 	composition, err := Compose(Config{
 		Operations: []operation.Operation{echo},
-		Plugins:    []pluginhost.Plugin{echoPlugin{}},
+		Plugins:    []contributions.Provider{echoPlugin{}},
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{Name: "echo-plugin"}},
 		}},
@@ -1019,7 +1019,7 @@ func TestComposeAllowsDuplicateCommandPathAcrossResourceIDs(t *testing.T) {
 
 func TestComposeBindsPluginCommandToSiblingOperationWithSameShortName(t *testing.T) {
 	composition, err := Compose(Config{
-		Plugins: []pluginhost.Plugin{
+		Plugins: []contributions.Provider{
 			sameNamePlugin{name: "foo"},
 			sameNamePlugin{name: "bar"},
 		},
@@ -1148,19 +1148,19 @@ type echoPlugin struct{}
 
 type sessionCommandPlugin struct{}
 
-func (echoPlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: "echo-plugin"}
+func (echoPlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: "echo-plugin"}
 }
 
-func (sessionCommandPlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: "session-command-plugin"}
+func (sessionCommandPlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: "session-command-plugin"}
 }
 
-func (sessionCommandPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (sessionCommandPlugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{}, nil
 }
 
-func (sessionCommandPlugin) SessionCommands(context.Context, pluginhost.Context) ([]session.SessionCommandBinding, error) {
+func (sessionCommandPlugin) SessionCommands(context.Context, contributions.Context) ([]session.SessionCommandBinding, error) {
 	return []session.SessionCommandBinding{{
 		Spec: command.Spec{Path: command.Path{"custom"}, Target: invocation.Target{Kind: invocation.TargetSession}},
 		Handler: func(session.Session, context.Context, channel.Inbound, command.Spec, sessioncontrol.PolicyEvaluation) session.CommandResult {
@@ -1177,11 +1177,11 @@ func (testPluginEvent) EventName() coreevent.Name { return "test.plugin.event" }
 
 type eventPlugin struct{}
 
-func (eventPlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: "event-plugin"}
+func (eventPlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: "event-plugin"}
 }
 
-func (eventPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (eventPlugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{
 		EventTypes: []coreevent.Event{testPluginEvent{}},
 	}, nil
@@ -1189,15 +1189,15 @@ func (eventPlugin) Contributions(context.Context, pluginhost.Context) (resource.
 
 type externalIdentityPlugin struct{}
 
-func (externalIdentityPlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: "external-identity"}
+func (externalIdentityPlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: "external-identity"}
 }
 
-func (externalIdentityPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (externalIdentityPlugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{}, nil
 }
 
-func (externalIdentityPlugin) ExternalIdentityResolvers(context.Context, pluginhost.Context) ([]identity.ExternalResolver, error) {
+func (externalIdentityPlugin) ExternalIdentityResolvers(context.Context, contributions.Context) ([]identity.ExternalResolver, error) {
 	return []identity.ExternalResolver{identity.ExternalResolverFunc(func(_ context.Context, req identity.ExternalRequest) (identity.ExternalResult, error) {
 		if req.Actor.User.ID != "timo@company.org" {
 			return identity.ExternalResult{}, nil
@@ -1206,7 +1206,7 @@ func (externalIdentityPlugin) ExternalIdentityResolvers(context.Context, pluginh
 	})}, nil
 }
 
-func (echoPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (echoPlugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{
 		Commands: []command.Spec{{
 			Path: command.Path{"echo"},
@@ -1218,7 +1218,7 @@ func (echoPlugin) Contributions(context.Context, pluginhost.Context) (resource.C
 	}, nil
 }
 
-func (echoPlugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
+func (echoPlugin) Operations(context.Context, contributions.Context) ([]operation.Operation, error) {
 	return []operation.Operation{
 		operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
 			return operation.OK(input)
@@ -1232,11 +1232,11 @@ type blockingPlugin struct {
 	release <-chan struct{}
 }
 
-func (p blockingPlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: p.name}
+func (p blockingPlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: p.name}
 }
 
-func (p blockingPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (p blockingPlugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	p.started <- p.name
 	<-p.release
 	return resource.ContributionBundle{}, nil
@@ -1244,23 +1244,23 @@ func (p blockingPlugin) Contributions(context.Context, pluginhost.Context) (reso
 
 type environmentPlugin struct{}
 
-func (environmentPlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: "environment-plugin"}
+func (environmentPlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: "environment-plugin"}
 }
 
-func (environmentPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (environmentPlugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{}, nil
 }
 
-func (environmentPlugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
+func (environmentPlugin) EnvironmentObservers(context.Context, contributions.Context) ([]runtimeevidence.Observer, error) {
 	return []runtimeevidence.Observer{testEnvironmentObserver{}}, nil
 }
 
-func (environmentPlugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimeevidence.AssertionDeriver, error) {
+func (environmentPlugin) AssertionDerivers(context.Context, contributions.Context) ([]runtimeevidence.AssertionDeriver, error) {
 	return []runtimeevidence.AssertionDeriver{testAssertionDeriver{}}, nil
 }
 
-func (environmentPlugin) Reactions(context.Context, pluginhost.Context) ([]corereaction.Rule, error) {
+func (environmentPlugin) Reactions(context.Context, contributions.Context) ([]corereaction.Rule, error) {
 	return []corereaction.Rule{{
 		Name: "go-skill",
 		When: corereaction.Matcher{Assertion: "language.detected", Target: "go"},
@@ -1293,11 +1293,11 @@ func (testAssertionDeriver) Derive(context.Context, runtimeevidence.AssertionDer
 
 type templateAssertionPlugin struct{}
 
-func (templateAssertionPlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: "template-assertion-plugin"}
+func (templateAssertionPlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: "template-assertion-plugin"}
 }
 
-func (templateAssertionPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (templateAssertionPlugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{
 		AssertionDerivers: []coreevidence.AssertionDeriverSpec{{
 			Name:             "template.assertions",
@@ -1313,11 +1313,11 @@ type sameNamePlugin struct {
 	name string
 }
 
-func (p sameNamePlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: p.name}
+func (p sameNamePlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: p.name}
 }
 
-func (p sameNamePlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (p sameNamePlugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{
 		Operations: []operation.Spec{{Ref: operation.Ref{Name: "run"}}},
 		Commands: []command.Spec{{
@@ -1330,7 +1330,7 @@ func (p sameNamePlugin) Contributions(context.Context, pluginhost.Context) (reso
 	}, nil
 }
 
-func (p sameNamePlugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
+func (p sameNamePlugin) Operations(context.Context, contributions.Context) ([]operation.Operation, error) {
 	return []operation.Operation{
 		operation.New(operation.Spec{Ref: operation.Ref{Name: "run"}}, func(_ operation.Context, input operation.Value) operation.Result {
 			return operation.OK(map[string]any{"plugin": p.name, "input": input})

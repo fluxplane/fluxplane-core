@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-plugin/management"
 	pluginlocal "github.com/fluxplane/fluxplane-plugin/management/local"
 	"github.com/fluxplane/fluxplane-plugin/pluginruntime"
@@ -22,7 +22,7 @@ type InstalledRuntimeFactory func(management.Plugin) (pluginruntime.Plugin, erro
 // InstalledLoadResult contains Core plugin implementations and the plugin refs
 // that should be declared in a contribution bundle to activate them.
 type InstalledLoadResult struct {
-	Plugins []pluginhost.Plugin
+	Plugins []contributions.Provider
 	Refs    []resource.PluginRef
 	Bundle  resource.ContributionBundle
 }
@@ -80,7 +80,7 @@ func WithInstalledPluginNames(names ...string) InstalledLoadOption {
 }
 
 // LoadInstalled loads enabled installed plugins from the configured state
-// provider and adapts them to Core pluginhost plugins.
+// provider and adapts them to Core contributions plugins.
 func LoadInstalled(ctx context.Context, opts ...InstalledLoadOption) (InstalledLoadResult, error) {
 	if ctx == nil {
 		ctx = context.Background()

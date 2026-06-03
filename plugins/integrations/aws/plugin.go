@@ -8,7 +8,7 @@ import (
 
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 )
 
@@ -30,27 +30,27 @@ type Config struct {
 
 // Plugin observes local AWS configuration without exposing credential values.
 type Plugin struct {
-	pluginhost.Configurable[Config]
+	contributions.Configurable[Config]
 	environment fpsystem.Environment
 	ref         resource.PluginRef
 	cfg         Config
 }
 
-var _ pluginhost.Plugin = Plugin{}
-var _ pluginhost.InstanceFactory = Plugin{}
-var _ pluginhost.ObserverContributor = Plugin{}
-var _ pluginhost.AssertionDeriverContributor = Plugin{}
+var _ contributions.Provider = Plugin{}
+var _ contributions.InstanceFactory = Plugin{}
+var _ contributions.ObserverProvider = Plugin{}
+var _ contributions.AssertionDeriverProvider = Plugin{}
 
 func NewWithEnvironment(environment fpsystem.Environment) Plugin {
 	return Plugin{environment: environment}
 }
 
-func (Plugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: Name, Description: "AWS environment observation."}
+func (Plugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: Name, Description: "AWS environment observation."}
 }
 
-func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginhost.Plugin, error) {
-	cfg, err := pluginhost.ConfigAs[Config](ctx)
+func (p Plugin) Instantiate(_ context.Context, ctx contributions.Context) (contributions.Provider, error) {
+	cfg, err := contributions.ConfigAs[Config](ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 	return p, nil
 }
 
-func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
+func (p Plugin) Contributions(_ context.Context, ctx contributions.Context) (resource.ContributionBundle, error) {
 	p.ref = ctx.Ref
 	return resource.ContributionBundle{
 		Observers:         []coreevidence.ObserverSpec{observerSpec(p.ref)},
@@ -67,11 +67,11 @@ func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resour
 	}, nil
 }
 
-func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
+func (p Plugin) EnvironmentObservers(context.Context, contributions.Context) ([]runtimeevidence.Observer, error) {
 	return []runtimeevidence.Observer{observer{plugin: p}}, nil
 }
 
-func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimeevidence.AssertionDeriver, error) {
+func (Plugin) AssertionDerivers(context.Context, contributions.Context) ([]runtimeevidence.AssertionDeriver, error) {
 	return []runtimeevidence.AssertionDeriver{assertionDeriver{}}, nil
 }
 

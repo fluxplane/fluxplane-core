@@ -6,7 +6,7 @@ import (
 
 	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 )
 
@@ -20,7 +20,7 @@ func TestAWSPluginContributesObserverAndDeriver(t *testing.T) {
 		"AWS_SESSION_TOKEN":     "token",
 	})
 	ref := resource.PluginRef{Name: Name, Instance: "dev"}
-	instantiated, err := plugin.Instantiate(ctx, pluginhost.Context{
+	instantiated, err := plugin.Instantiate(ctx, contributions.Context{
 		Ref:    ref,
 		Config: Config{},
 	})
@@ -28,7 +28,7 @@ func TestAWSPluginContributesObserverAndDeriver(t *testing.T) {
 		t.Fatalf("Instantiate: %v", err)
 	}
 	resolved := instantiated.(Plugin)
-	bundle, err := resolved.Contributions(ctx, pluginhost.Context{Ref: ref})
+	bundle, err := resolved.Contributions(ctx, contributions.Context{Ref: ref})
 	if err != nil {
 		t.Fatalf("Contributions: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestAWSPluginContributesObserverAndDeriver(t *testing.T) {
 	if len(bundle.AssertionDerivers) != 1 || bundle.AssertionDerivers[0].Name != deriverName {
 		t.Fatalf("assertion derivers = %#v, want AWS deriver spec", bundle.AssertionDerivers)
 	}
-	observers, err := resolved.EnvironmentObservers(ctx, pluginhost.Context{Ref: ref})
+	observers, err := resolved.EnvironmentObservers(ctx, contributions.Context{Ref: ref})
 	if err != nil {
 		t.Fatalf("EnvironmentObservers: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestAWSPluginContributesObserverAndDeriver(t *testing.T) {
 			t.Fatalf("content leaked secret value %q: %#v", secret, content)
 		}
 	}
-	derivers, err := resolved.AssertionDerivers(ctx, pluginhost.Context{Ref: ref})
+	derivers, err := resolved.AssertionDerivers(ctx, contributions.Context{Ref: ref})
 	if err != nil {
 		t.Fatalf("AssertionDerivers: %v", err)
 	}

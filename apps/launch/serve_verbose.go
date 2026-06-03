@@ -10,10 +10,10 @@ import (
 	"unicode/utf8"
 
 	fluxplane "github.com/fluxplane/fluxplane-core"
+	"github.com/fluxplane/fluxplane-core/contrib/human"
 	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
-	"github.com/fluxplane/fluxplane-core/plugins/native/human"
 )
 
 type serveEventWatcher interface {

@@ -3,8 +3,8 @@ package launch
 import (
 	"fmt"
 
+	"github.com/fluxplane/fluxplane-core/contrib/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
-	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	coreevent "github.com/fluxplane/fluxplane-event"
 )
 

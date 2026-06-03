@@ -101,7 +101,7 @@ Concrete execution/storage implementation of a core contract?  -> runtime
 Use-case flow composing runtime pieces?                        -> orchestration
 IO/protocol boundary: fs, terminal, HTTP, Slack, provider,
   SQL, browser, shell, CLI?                                    -> adapters
-Optional first-party capability bundle?                        -> plugins
+Core-bundled contribution provider?                            -> contrib
 Assembled product, distribution, or default set?                -> apps
 Executable main package only?                                  -> cmd
 ```

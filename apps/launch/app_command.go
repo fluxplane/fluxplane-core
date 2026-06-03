@@ -14,11 +14,11 @@ import (
 	distdescribe "github.com/fluxplane/fluxplane-core/adapters/distribution/describe"
 	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
 	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
+	"github.com/fluxplane/fluxplane-core/contrib/datasource"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/spf13/cobra"
 )
 
@@ -425,7 +425,7 @@ func configSchemaData(ctx context.Context, loader Loader, appDir string) ([]byte
 	return appconfig.ManifestSchemaWithOptions(opts)
 }
 
-func configSchemaAvailablePlugins(appDir string) []pluginhost.Plugin {
+func configSchemaAvailablePlugins(appDir string) []contributions.Provider {
 	hostSystem := configSchemaSystem(appDir)
 	available := availablePlugins(hostSystem, hostSystem.Workspace(), nil, nil, "", false)
 	return appendPluginIfMissing(available, datasource.New(nil))
@@ -442,7 +442,7 @@ func configSchemaSystem(appDir string) *hostSystem {
 	return hostSystem
 }
 
-func configSchemaPlugins(available []pluginhost.Plugin) ([]appconfig.PluginSchema, error) {
+func configSchemaPlugins(available []contributions.Provider) ([]appconfig.PluginSchema, error) {
 	out := make([]appconfig.PluginSchema, 0, len(available))
 	for _, plugin := range available {
 		if plugin == nil {
@@ -453,7 +453,7 @@ func configSchemaPlugins(available []pluginhost.Plugin) ([]appconfig.PluginSchem
 			Kind:        strings.TrimSpace(manifest.Name),
 			Description: strings.TrimSpace(manifest.Description),
 		}
-		if provider, ok := plugin.(pluginhost.ConfigSchemaProvider); ok {
+		if provider, ok := plugin.(contributions.ConfigSchemaProvider); ok {
 			data, err := provider.ConfigSchema()
 			if err != nil {
 				return nil, fmt.Errorf("app config schema: plugin %q config schema: %w", schema.Kind, err)
@@ -471,7 +471,7 @@ func configSchemaPlugins(available []pluginhost.Plugin) ([]appconfig.PluginSchem
 	return out, nil
 }
 
-func configSchemaResources(ctx context.Context, loader Loader, appDir string, available []pluginhost.Plugin) (appconfig.ResourceSchema, []appconfig.DatasourceSchema, bool, error) {
+func configSchemaResources(ctx context.Context, loader Loader, appDir string, available []contributions.Provider) (appconfig.ResourceSchema, []appconfig.DatasourceSchema, bool, error) {
 	if loader == nil {
 		loader = distlocal.Load
 	}
@@ -493,7 +493,7 @@ func configSchemaResources(ctx context.Context, loader Loader, appDir string, av
 		Bundles:                          loaded.Distribution.Bundles,
 		Launch:                           loaded.Launch,
 		IncludeConfigSchemaContributions: true,
-		Plugins: func(PluginFactoryContext) []pluginhost.Plugin {
+		Plugins: func(PluginFactoryContext) []contributions.Provider {
 			return available
 		},
 	})

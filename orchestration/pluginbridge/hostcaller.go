@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	sdkhost "github.com/fluxplane/fluxplane-plugin/host"
 	"github.com/fluxplane/fluxplane-plugin/protocol"
 	sharedsecret "github.com/fluxplane/fluxplane-secret"
@@ -89,7 +89,7 @@ func NewSystemHostCaller(sys fpsystem.System, opts ...HostCallerOption) protocol
 // NewSystemHostCallerFactory returns a pluginbridge host-caller factory backed
 // by the same Core system boundary for each plugin instance.
 func NewSystemHostCallerFactory(sys fpsystem.System, opts ...HostCallerOption) HostCallerFactory {
-	return func(ctx pluginhost.Context) protocol.HostCaller {
+	return func(ctx contributions.Context) protocol.HostCaller {
 		factoryOpts := append([]HostCallerOption(nil), opts...)
 		factoryOpts = append(factoryOpts, WithPluginIdentity(ctx.Ref.Name, ctx.Ref.InstanceName()), WithSecretResolver(ctx.Secrets))
 		return NewSystemHostCaller(sys, factoryOpts...)

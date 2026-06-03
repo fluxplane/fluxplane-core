@@ -8,8 +8,8 @@ import (
 
 	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/datasourceindex"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/spf13/cobra"
@@ -32,12 +32,12 @@ type datasourceIndexOptions struct {
 	dev             bool
 	allowAuthEnv    bool
 	requireManifest bool
-	pluginFactory   func(PluginFactoryContext) []pluginhost.Plugin
+	pluginFactory   func(PluginFactoryContext) []contributions.Provider
 }
 
 // DatasourceCommandOptions configures the datasource management command.
 type DatasourceCommandOptions struct {
-	PluginFactory   func(PluginFactoryContext) []pluginhost.Plugin
+	PluginFactory   func(PluginFactoryContext) []contributions.Provider
 	RequireManifest bool
 }
 

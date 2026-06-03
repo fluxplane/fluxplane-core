@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fluxplane/fluxplane-core/contrib/datasource"
 	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/fluxplane/fluxplane-policy"
 )
 
@@ -17,7 +17,7 @@ import (
 type StaticPluginOptions struct {
 	Bundles                          []resource.ContributionBundle
 	Launch                           distribution.LaunchConfig
-	Plugins                          func(PluginFactoryContext) []pluginhost.Plugin
+	Plugins                          func(PluginFactoryContext) []contributions.Provider
 	IncludeConfigSchemaContributions bool
 }
 
@@ -82,13 +82,13 @@ func staticPluginContributions(ctx context.Context, bundles []resource.Contribut
 			err := fmt.Errorf("plugin %q is not available", ref.Key())
 			return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
 		}
-		pluginCtx := pluginhost.Context{Ref: ref}
-		pluginCtx, err = pluginhost.PrepareContext(ctx, plugin, pluginCtx)
+		pluginCtx := contributions.Context{Ref: ref}
+		pluginCtx, err = contributions.PrepareContext(ctx, plugin, pluginCtx)
 		if err != nil {
 			return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
 		}
 		resolvedPlugin := plugin
-		if factory, ok := plugin.(pluginhost.InstanceFactory); ok {
+		if factory, ok := plugin.(contributions.InstanceFactory); ok {
 			resolvedPlugin, err = factory.Instantiate(ctx, pluginCtx)
 			if err != nil {
 				err := fmt.Errorf("plugin %q instantiate: %w", ref.Key(), err)
@@ -105,7 +105,7 @@ func staticPluginContributions(ctx context.Context, bundles []resource.Contribut
 			return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
 		}
 		if opts.IncludeConfigSchemaContributions {
-			contributor, ok := resolvedPlugin.(pluginhost.ConfigSchemaContributor)
+			contributor, ok := resolvedPlugin.(contributions.ConfigSchemaContributor)
 			if ok {
 				schemaBundle, err := contributor.ConfigSchemaContributions(ctx, pluginCtx)
 				if err != nil {
@@ -139,7 +139,7 @@ func staticPluginRefs(bundles []resource.ContributionBundle) []resource.PluginRe
 	return out
 }
 
-func availableStaticPlugins(opts StaticPluginOptions) []pluginhost.Plugin {
+func availableStaticPlugins(opts StaticPluginOptions) []contributions.Provider {
 	if opts.Plugins != nil {
 		return opts.Plugins(PluginFactoryContext{})
 	}
@@ -150,8 +150,8 @@ func availableStaticPlugins(opts StaticPluginOptions) []pluginhost.Plugin {
 	return plugins
 }
 
-func pluginsByName(plugins []pluginhost.Plugin) (map[string]pluginhost.Plugin, error) {
-	out := map[string]pluginhost.Plugin{}
+func pluginsByName(plugins []contributions.Provider) (map[string]contributions.Provider, error) {
+	out := map[string]contributions.Provider{}
 	for _, plugin := range plugins {
 		if plugin == nil {
 			continue

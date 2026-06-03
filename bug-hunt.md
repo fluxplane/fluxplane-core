@@ -196,7 +196,7 @@ session. One bug per iteration: find → reproduce → fix → commit.
   fail on the old code (`invalid UTF-8: "...\xe2\x82"`).
 - **Notes:** Two other `truncate` helpers exist in the tree
   (`runtime/datasource/detect.go` `truncateBytes` cap 64KB regex input,
-  `plugins/native/datasource/filesystem.go` `truncate` cap 1200 byte
+  `contrib/datasource/filesystem.go` `truncate` cap 1200 byte
   body preview). Those touch user-visible text rather than indexed
   values, so the impact is cosmetic and they're left for a separate
   pass.

@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/fluxplane/fluxplane-core/adapters/channels/httpsse"
+	"github.com/fluxplane/fluxplane-core/contrib/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	coreevent "github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-operation"
@@ -23,20 +23,20 @@ const TargetSubmitOperation = "target_submit"
 
 type Plugin struct{}
 
-var _ pluginhost.Plugin = Plugin{}
-var _ pluginhost.OperationContributor = Plugin{}
+var _ contributions.Provider = Plugin{}
+var _ contributions.OperationProvider = Plugin{}
 
 func NewPlugin() Plugin { return Plugin{} }
 
-func (Plugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: AppName, Description: "Evaluator target channel operations."}
+func (Plugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: AppName, Description: "Evaluator target channel operations."}
 }
 
-func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (Plugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{Operations: []operation.Spec{targetSubmitSpec()}}, nil
 }
 
-func (Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
+func (Plugin) Operations(context.Context, contributions.Context) ([]operation.Operation, error) {
 	return []operation.Operation{operationruntime.NewTypedResult[TargetSubmitInput, TargetSubmitOutput](targetSubmitSpec(), targetSubmit, operationruntime.WithIntent(targetSubmitIntent))}, nil
 }
 

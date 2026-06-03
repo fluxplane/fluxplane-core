@@ -1,0 +1,65 @@
+package eventcatalog
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/fluxplane/fluxplane-core/contrib/human"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
+	coreevent "github.com/fluxplane/fluxplane-event"
+)
+
+func TestAllHasUniqueEventNames(t *testing.T) {
+	seen := map[string]bool{}
+	for _, sample := range All() {
+		name := string(sample.EventName())
+		if name == "" {
+			t.Fatalf("event sample %T has empty name", sample)
+		}
+		if seen[name] {
+			t.Fatalf("duplicate event name %q", name)
+		}
+		seen[name] = true
+	}
+}
+
+func TestHumanEventsDecodeFromRegisteredCatalog(t *testing.T) {
+	registry := coreevent.NewRegistry()
+	for _, sample := range All() {
+		if err := registry.Register(sample); err != nil {
+			t.Fatalf("Register %s: %v", sample.EventName(), err)
+		}
+	}
+	raw, err := json.Marshal(human.ClarificationRequested{
+		Prompt: "pick one",
+	})
+	if err != nil {
+		t.Fatalf("Marshal clarification: %v", err)
+	}
+	decoded, err := registry.Decode(human.EventClarificationRequested, raw)
+	if err != nil {
+		t.Fatalf("Decode clarification: %v", err)
+	}
+	if got := decoded.(human.ClarificationRequested).Prompt; got != "pick one" {
+		t.Fatalf("decoded prompt = %q, want pick one", got)
+	}
+}
+
+func TestAllCoversPluginContributedEventTypes(t *testing.T) {
+	catalog := map[string]bool{}
+	for _, sample := range All() {
+		catalog[string(sample.EventName())] = true
+	}
+	humanBundle, err := human.New(nil).Contributions(context.Background(), contributions.Context{})
+	if err != nil {
+		t.Fatalf("human contributions: %v", err)
+	}
+	var samples []coreevent.Event
+	samples = append(samples, humanBundle.EventTypes...)
+	for _, sample := range samples {
+		if !catalog[string(sample.EventName())] {
+			t.Fatalf("catalog missing contributed event %s", sample.EventName())
+		}
+	}
+}

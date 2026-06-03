@@ -82,14 +82,14 @@ Keep only:
 - policy/access-control integration points using
   `github.com/fluxplane/fluxplane-policy`;
 - workspace/process/network/environment abstractions where they are runtime boundaries;
-- plugin host/loading contracts;
+- contribution resolver/loading contracts;
 - minimal test/example plugins only if needed.
 
 Remove or migrate from core:
 
 - `plugins/integrations/*`;
 - `plugins/languages/*`;
-- `plugins/native/*`;
+- `contrib/*`;
 - `plugins/bundles/coding`;
 - provider SDK dependencies and integration-specific auth/client code.
 
@@ -244,7 +244,7 @@ Belongs in `fluxplane-core`:
 - operation model;
 - session/agent runtime;
 - contribution/resource model;
-- plugin host abstractions;
+- contribution resolver abstractions;
 - policy/evidence/context contracts;
 - workspace/process/network/env boundaries;
 - no provider SDKs.
@@ -376,7 +376,7 @@ fluxplane-plugin
   ↑
   ├── fluxplane-core
   ├── fluxplane-dex
-  ├── fluxplane-plugins/native
+  ├── fluxplane-contrib
   ├── fluxplane-plugins/integrations/gitlab
   └── ...
 
@@ -549,11 +549,11 @@ Move coding-product tools into coder-owned packages:
 
 ```text
 coder/internal/plugins/coding
-coder/internal/plugins/native/filesystem
-coder/internal/plugins/native/shell
-coder/internal/plugins/native/project
-coder/internal/plugins/native/browser
-coder/internal/plugins/native/code
+coder/internal/contrib/filesystem
+coder/internal/contrib/shell
+coder/internal/contrib/project
+coder/internal/contrib/browser
+coder/internal/contrib/code
 coder/internal/plugins/languages/golang
 coder/internal/plugins/languages/markdown
 ```
@@ -568,11 +568,11 @@ Source packages:
 
 ```text
 fluxplane-core/plugins/bundles/coding
-fluxplane-core/plugins/native/filesystem
-fluxplane-core/plugins/native/shell
-fluxplane-core/plugins/native/project
-fluxplane-core/plugins/native/browser
-fluxplane-core/plugins/native/code
+fluxplane-core/contrib/filesystem
+fluxplane-core/contrib/shell
+fluxplane-core/contrib/project
+fluxplane-core/contrib/browser
+fluxplane-core/contrib/code
 fluxplane-core/plugins/languages/golang
 fluxplane-core/plugins/languages/markdown
 fluxplane-core/plugins/integrations/git
@@ -955,7 +955,7 @@ Recommended order:
 
 1. Use existing `../fluxplane-operation` as the canonical operation contract module.
 2. Create minimal `../fluxplane-resource` for leaf resource refs only.
-3. Move plugin host/contributor contracts to `fluxplane-plugin/pluginhost` unless a separate `../fluxplane-pluginhost` becomes clearly necessary.
+3. Move contribution resolver/contributor contracts to `fluxplane-plugin/contributions` unless a separate `../fluxplane-contributions` becomes clearly necessary.
 4. Create `../fluxplane-context` or `fluxplane-plugin/context` for context provider contracts.
 5. Create `../fluxplane-evidence` for observation/assertion/evidence DTOs.
 6. Create `../fluxplane-reaction` for reaction rule contracts.
@@ -1294,7 +1294,7 @@ github.com/fluxplane/fluxplane-core/core/operation
 github.com/fluxplane/fluxplane-core/core/policy
 github.com/fluxplane/fluxplane-core/core/reaction
 github.com/fluxplane/fluxplane-core/core/resource
-github.com/fluxplane/fluxplane-core/orchestration/pluginhost
+github.com/fluxplane/fluxplane-core/orchestration/contributions
 github.com/fluxplane/fluxplane-core/runtime/evidence
 github.com/fluxplane/fluxplane-core/runtime/workspace
 ```
@@ -1334,7 +1334,7 @@ binding/direct/ # direct binding contracts/adapters; no dex imports
 binding/stdio/  # stdio serve/client; depends on protocol and sdk only
 testkit/        # fake hosts, manifest lints, protocol parity helpers
 adapter/dex/    # transitional dex-engine adapter, temporary or moved out later
-adapter/core/   # transitional core pluginhost adapter, temporary or moved out later
+adapter/core/   # transitional core contribution resolver adapter, temporary or moved out later
 ```
 
 Acceptance criteria:
@@ -1467,28 +1467,28 @@ Acceptance criteria:
 - Dex owns dex-runtime wiring.
 - System-host wiring imports no dex package.
 
-### Step 6: Extract `pluginhost` Contracts From Core
+### Step 6: Extract `contribution resolver` Contracts From Core
 
 Current blockers:
 
-- Most adapter files import `github.com/fluxplane/fluxplane-core/orchestration/pluginhost`.
-- `pluginhost` is a core orchestration package but contains reusable plugin-facing contracts.
+- Most adapter files import `github.com/fluxplane/fluxplane-core/orchestration/contributions`.
+- `contribution resolver` is a core orchestration package but contains reusable plugin-facing contracts.
 
 Actions:
 
 1. Create a standalone plugin-host contract package, preferably inside `fluxplane-plugin`:
 
    ```text
-   github.com/fluxplane/fluxplane-plugin/pluginhost
+   github.com/fluxplane/fluxplane-plugin/contributions
    ```
 
    or, if it has broader runtime use:
 
    ```text
-   github.com/fluxplane/fluxplane-pluginhost
+   github.com/fluxplane/fluxplane-contributions
    ```
 
-2. Move/alias these kinds of contracts from core `orchestration/pluginhost`:
+2. Move/alias these kinds of contracts from core `orchestration/contributions`:
    - `Plugin`;
    - `Context`;
    - operation contributor interfaces;
@@ -1497,13 +1497,13 @@ Actions:
    - discovery provider contributor interfaces;
    - auth target contributor interfaces;
    - plugin config metadata that is not core-runtime-specific.
-3. Update `fluxplane-core/orchestration/pluginhost` to alias or adapt the standalone contracts.
+3. Update `fluxplane-core/orchestration/contributions` to alias or adapt the standalone contracts.
 4. Update `fluxplane-plugin` to use standalone contracts.
 5. Update `coder` and apps gradually.
 
 Acceptance criteria:
 
-- `fluxplane-plugin` no longer imports `fluxplane-core/orchestration/pluginhost`.
+- `fluxplane-plugin` no longer imports `fluxplane-core/orchestration/contributions`.
 - Core remains source-compatible through aliases during migration.
 
 ### Step 7: Extract Resource Reference Types From Core
@@ -1523,7 +1523,7 @@ Actions:
    - canonical resource ID helpers;
    - resource metadata structs that do not require core runtime.
 3. Update core `core/resource` to alias the standalone module types.
-4. Update `fluxplane-plugin` and `pluginhost` contracts to import standalone resource types.
+4. Update `fluxplane-plugin` and `contribution resolver` contracts to import standalone resource types.
 
 Acceptance criteria:
 
@@ -1563,7 +1563,7 @@ Current blocker and explicit requirement:
 Actions:
 
 1. Create `../fluxplane-context` or `fluxplane-plugin/context` depending on how broadly the contracts are used.
-2. Move pure contracts from `fluxplane-core/core/context` and relevant `pluginhost` context-provider contributor interfaces:
+2. Move pure contracts from `fluxplane-core/core/context` and relevant `contribution resolver` context-provider contributor interfaces:
    - context provider spec;
    - context build request/result;
    - context item/block/message DTOs;
@@ -1677,14 +1677,14 @@ Acceptance criteria:
 Current state:
 
 - `fluxplane-plugin` already imports `github.com/fluxplane/fluxplane-datasource`, which is acceptable as a standalone module.
-- The adapter still bridges dex datasource specs into core pluginhost contributor surfaces.
+- The adapter still bridges dex datasource specs into core contribution resolver contributor surfaces.
 
 Actions:
 
 1. Keep datasource core contracts in `fluxplane-datasource`.
 2. Move any remaining dex datasource DTOs into `fluxplane-plugin/datasource` or map them onto `fluxplane-datasource` types directly.
 3. Keep dex datasource runtime execution in dex.
-4. Make datasource provider contribution interfaces use standalone pluginhost/resource/context contracts.
+4. Make datasource provider contribution interfaces use standalone contribution resolver/resource/context contracts.
 
 Acceptance criteria:
 
@@ -1818,7 +1818,7 @@ Reason:
 
 #### `../fluxplane-context`
 
-Move context provider contracts out of `core/context` and `orchestration/pluginhost`:
+Move context provider contracts out of `core/context` and `orchestration/contributions`:
 
 - context provider specs;
 - context block/item DTOs;
@@ -1837,19 +1837,19 @@ Reason:
 
 - Plugin modules need to expose context providers directly.
 
-#### `../fluxplane-pluginhost` Or `fluxplane-plugin/pluginhost`
+#### `../fluxplane-contributions` Or `fluxplane-plugin/contributions`
 
-Move reusable plugin host/contributor interfaces out of `orchestration/pluginhost`:
+Move reusable contribution resolver/contributor interfaces out of `orchestration/contributions`:
 
 - `Plugin` interface;
 - contributor interfaces for operations, datasources, context, discovery, auth targets;
 - plugin registration metadata;
-- plugin host context DTOs.
+- contribution resolver context DTOs.
 
 Recommendation:
 
-- If the interfaces are only meaningful for the plugin SDK, put them under `fluxplane-plugin/pluginhost`.
-- If products need them independently from the SDK package, create `../fluxplane-pluginhost`.
+- If the interfaces are only meaningful for the plugin SDK, put them under `fluxplane-plugin/contributions`.
+- If products need them independently from the SDK package, create `../fluxplane-contributions`.
 
 #### `../fluxplane-evidence`
 
@@ -2078,12 +2078,12 @@ coder/internal/plugins/languages/markdown
 ../fluxplane-plugins/integrations/websearch
 
 fluxplane-core/adapters/channels/slack      # channel adapter stays in Core
-fluxplane-core/plugins/native/identity         # runtime/domain plugin stays
-fluxplane-core/plugins/native/goal             # runtime/domain plugin stays
-fluxplane-core/plugins/native/loop             # runtime/domain plugin stays
-fluxplane-core/plugins/native/sessionhistory   # runtime/domain plugin stays
-fluxplane-core/plugins/native/usage            # runtime/domain plugin stays
-fluxplane-core/plugins/native/task             # runtime/domain plugin stays
+fluxplane-core/contrib/identity         # runtime/domain plugin stays
+fluxplane-core/contrib/goal             # runtime/domain plugin stays
+fluxplane-core/contrib/loop             # runtime/domain plugin stays
+fluxplane-core/contrib/sessionhistory   # runtime/domain plugin stays
+fluxplane-core/contrib/usage            # runtime/domain plugin stays
+fluxplane-core/contrib/task             # runtime/domain plugin stays
 ```
 
 Notes:
@@ -2281,7 +2281,7 @@ Completed in the current uncommitted batch:
   history and the legacy wire protocol key intact.
 - Added `fluxplane-core/orchestration/pluginbridge`:
   - Core depends on `fluxplane-plugin`;
-  - adapts `fluxplane-plugin/pluginruntime.Plugin` into Core `pluginhost.Plugin`;
+  - adapts `fluxplane-plugin/pluginruntime.Plugin` into Core `contributions.Provider`;
   - converts SDK manifests into Core operation/datasource/auth contribution specs;
   - executes Core operations through the plugin protocol/runtime.
 - Updated `coder` with Go-level plugin extension points:
@@ -2371,7 +2371,7 @@ Validation completed:
 
 ```sh
 cd ../fluxplane-core && go test ./orchestration/pluginbridge
-cd ../fluxplane-core && go test ./orchestration/pluginhost ./orchestration/app
+cd ../fluxplane-core && go test ./orchestration/contributions ./orchestration/app
 cd ../fluxplane-datasource && go test ./...
 ```
 
@@ -2395,7 +2395,7 @@ Completed in this batch:
   - exposes `NewSystemHostCallerFactory` so products can wire the adapter into
     `WithHostCallerFactory` without duplicating closure glue.
 - Extended `pluginbridge.Plugin` to implement Core
-  `pluginhost.AuthTestContributor`:
+  `contributions.AuthTestProvider`:
   - maps Core auth-test requests into SDK `auth.test` runtime calls;
   - resolves declared auth fields from Core `fluxplane-secret.Resolver`
     instances when available;
@@ -2432,7 +2432,7 @@ Completed in this batch:
   - `pluginbridge.NewSystemHostCallerFactory`;
   - `pluginbridge.WithSystemInfoProvider`.
 - Added product tests proving coder and Slack Bot can import a real
-  `fluxplane-plugins` module, resolve it through Core's pluginhost, and execute
+  `fluxplane-plugins` module, resolve it through Core's contribution resolver, and execute
   `system.info` through the Core host-capability bridge.
 - Added local `go.mod` requirements/replaces for
   `github.com/fluxplane/fluxplane-plugins/system` in coder and Slack Bot.
@@ -2524,9 +2524,9 @@ Completed in this batch:
   - `fluxplane-plugins/README.md`;
   - `fluxplane-plugins/marketplace.json`.
 - Switched coder's foundational sleep plugin from
-  `fluxplane-core/plugins/native/sleep` to the concrete
+  `fluxplane-core/contrib/sleep` to the concrete
   `fluxplane-plugins/sleep` module through Core's plugin bridge.
-- Removed the old Core-native `plugins/native/sleep` package.
+- Removed the old Core-native `contrib/sleep` package.
 - Updated Core's plugin bridge so SDK operation responses shaped as
   `{text,data}` become Core `operation.Rendered`, and SDK `canceled` errors map
   back to Core canceled operation results.
@@ -2561,9 +2561,9 @@ Implemented in this uncommitted batch:
   - `fluxplane-plugins/README.md`;
   - `fluxplane-plugins/marketplace.json`.
 - Switched Slack Bot's default wall-clock context provider from
-  `fluxplane-core/plugins/native/clock` to the concrete
+  `fluxplane-core/contrib/clock` to the concrete
   `fluxplane-plugins/clock` module through Core's plugin bridge.
-- Removed the old Core-native `plugins/native/clock` package.
+- Removed the old Core-native `contrib/clock` package.
 - Updated package documentation to make the context split explicit:
   - `fluxplane-context` owns portable provider specs, requests, and blocks;
   - `fluxplane-core/core/context` owns Core runtime materialization, render
@@ -2587,7 +2587,7 @@ Boundary checks completed:
 
 ```sh
 rg '"github.com/fluxplane/fluxplane-dex' coder fluxplane-apps/slack-bot fluxplane-core fluxplane-plugin fluxplane-plugins -g '*.go' -g 'go.mod'
-rg 'plugins/native/(sleep|clock)|sleep\.New\(|clock\.New\(|github.com/fluxplane/fluxplane-core/plugins/native/clock|github.com/fluxplane/fluxplane-core/plugins/native/sleep' fluxplane-core coder fluxplane-apps/slack-bot -g '*.go'
+rg 'contrib/(sleep|clock)|sleep\.New\(|clock\.New\(|github.com/fluxplane/fluxplane-core/contrib/clock|github.com/fluxplane/fluxplane-core/contrib/sleep' fluxplane-core coder fluxplane-apps/slack-bot -g '*.go'
 rg 'github.com/fluxplane/fluxplane-plugins' fluxplane-core -g '*.go' -g 'go.mod'
 rg 'github.com/fluxplane/fluxplane-core' fluxplane-plugin fluxplane-context fluxplane-plugins/clock fluxplane-plugins/sleep -g '*.go' -g 'go.mod'
 ```
@@ -2796,7 +2796,7 @@ Completed in this batch:
   - username/password purposes map to HTTP Basic auth;
   - header purposes map to explicit HTTP headers;
   - `NewSystemHostCallerFactory` now derives plugin name, instance, and secret
-    resolver from `pluginhost.Context`.
+    resolver from `contributions.Context`.
 - Kept `fluxplane-plugin` Core-free. The auth-capable host bridge lives in
   Core, where Core adapts plugin SDK calls into the agent runtime.
 - Added `fluxplane-apps/slack-bot` direct wiring for
@@ -2805,7 +2805,7 @@ Completed in this batch:
   - `slack` is now the standalone plugin-owned operation/datasource surface;
   - the app manifest declares both roles explicitly.
 - Added Slack Bot coverage proving both `slack_channel` and the standalone
-  `slack` plugin resolve through Core's pluginhost and that the standalone
+  `slack` plugin resolve through Core's contribution resolver and that the standalone
   Slack plugin exposes operations and datasource providers.
 
 Validation:
@@ -2842,7 +2842,7 @@ Completed in this batch:
   - `websearch` is registered when web access is granted;
   - the old Core `web` plugin is not registered by Slack Bot;
   - `websearch.provider.list` and `websearch.search` resolve through
-    Core's pluginhost bridge;
+    Core's contribution resolver bridge;
   - the provider list includes the standalone DuckDuckGo and Tavily provider
     plugins.
 
@@ -2930,7 +2930,7 @@ Completed in this batch:
 - Removed stale active Slack Bot config/example comments that described
   optional plugin surfaces as Dex marketplace plugins.
 - Added regression coverage proving each granted standalone integration plugin
-  is registered, resolves through Core's pluginhost, contributes an expected
+  is registered, resolves through Core's contribution resolver, contributes an expected
   operation, contributes an expected datasource declaration, and exposes
   datasource providers.
 
@@ -3168,7 +3168,7 @@ Validation completed:
 cd ../fluxplane-core && go test ./core/operation
 cd ../fluxplane-core && go test ./core/...
 cd ../fluxplane-core && go test ./runtime/...
-cd ../fluxplane-core && go test ./orchestration/pluginbridge ./orchestration/pluginhost
+cd ../fluxplane-core && go test ./orchestration/pluginbridge ./orchestration/contributions
 cd ../fluxplane-core && go test ./orchestration/...
 ```
 
@@ -3284,11 +3284,11 @@ Completed in this batch:
   - `plugins/bundles/coding`;
   - `plugins/languages/golang`;
   - `plugins/languages/markdown`;
-  - `plugins/native/browser`;
-  - `plugins/native/code`;
-  - `plugins/native/filesystem`;
-  - `plugins/native/project`;
-  - `plugins/native/shell`.
+  - `contrib/browser`;
+  - `contrib/code`;
+  - `contrib/filesystem`;
+  - `contrib/project`;
+  - `contrib/shell`.
 - Kept Core runtime/domain/native packages such as workspace, datasource,
   discovery, goal, human, identity, image, loop, memory, sessionhistory, skills,
   task, text, and usage.
@@ -3299,12 +3299,12 @@ Validation completed:
 
 ```sh
 cd ../coder && GOWORK=off go test ./...
-cd ../fluxplane-core && go test ./apps/launch ./plugins/support/eventcatalog ./plugins/native/... ./core/... ./runtime/... ./orchestration/pluginbridge ./orchestration/pluginhost
-cd ../fluxplane-core && go list ./plugins/bundles/coding ./plugins/languages/golang ./plugins/languages/markdown ./plugins/native/browser ./plugins/native/code ./plugins/native/filesystem ./plugins/native/project ./plugins/native/shell
+cd ../fluxplane-core && go test ./apps/launch ./plugins/support/eventcatalog ./contrib/... ./core/... ./runtime/... ./orchestration/pluginbridge ./orchestration/contributions
+cd ../fluxplane-core && go list ./plugins/bundles/coding ./plugins/languages/golang ./plugins/languages/markdown ./contrib/browser ./contrib/code ./contrib/filesystem ./contrib/project ./contrib/shell
 rg -n 'github.com/fluxplane/fluxplane-core/plugins/(bundles/coding|languages/(golang|markdown)|native/(browser|code|filesystem|project|shell))' ../fluxplane-core ../coder ../fluxplane-apps/slack-bot -g'*.go'
 ```
 
-Result: focused Core/runtime/pluginhost tests and the full coder suite passed.
+Result: focused Core/runtime/contribution resolver tests and the full coder suite passed.
 The removed Core packages report no Go files. The import scan found only the
 coder architecture-test forbidden-prefix literals.
 
@@ -3331,7 +3331,7 @@ Why this matters:
 - Reusable process-backed plugins such as Git can now move to
   `fluxplane-plugins` without importing Core.
 - Product-owned process-backed plugins can also use the SDK host capability when
-  they need a stdio/runtime shape rather than a direct Core pluginhost
+  they need a stdio/runtime shape rather than a direct Core contribution resolver
   implementation.
 
 Validation completed:
@@ -3404,7 +3404,7 @@ Completed in this batch:
 Validation completed:
 
 ```sh
-cd ../fluxplane-core && go test . ./examples/go/slack-bot-coded ./apps/launch ./plugins/support/eventcatalog ./orchestration/pluginbridge ./orchestration/pluginhost ./plugins/integrations/aws ./adapters/channels/slack
+cd ../fluxplane-core && go test . ./examples/go/slack-bot-coded ./apps/launch ./plugins/support/eventcatalog ./orchestration/pluginbridge ./orchestration/contributions ./plugins/integrations/aws ./adapters/channels/slack
 rg 'github.com/fluxplane/fluxplane-core/plugins/integrations/(confluence|docker|git|gitlab|jira|kubernetes|loki|mysql|openai|web)' ../fluxplane-core ../coder ../fluxplane-apps ../fluxplane-plugin ../fluxplane-plugins -g'*.go' -g'go.mod'
 find ../fluxplane-core/plugins/integrations -maxdepth 2 -type f
 ```
@@ -3512,7 +3512,7 @@ Completed in this batch:
 Validation completed:
 
 ```sh
-cd ../fluxplane-core && go test . ./plugins/integrations/aws ./adapters/channels/slack ./apps/launch ./orchestration/pluginbridge ./plugins/native/datasource
+cd ../fluxplane-core && go test . ./plugins/integrations/aws ./adapters/channels/slack ./apps/launch ./orchestration/pluginbridge ./contrib/datasource
 cd ../fluxplane-plugins/atlassian && go test ./...
 cd ../fluxplane-apps/slack-bot && GOWORK=off go test .
 rg "github.com/fluxplane/fluxplane-core/plugins/(internal/atlassian|integrations/(confluence|jira|openapi))|plugins/internal/atlassian|github.com/fluxplane/fluxplane-dex" ../fluxplane-core ../coder ../fluxplane-apps ../fluxplane-plugin ../fluxplane-plugins -g'*.go' -g'go.mod'
@@ -3832,7 +3832,7 @@ Completed in this batch:
     `WithInstalledPlugins(...)`, and its main distribution/channel launch
     paths pass that state to Core launch.
 - Added tests proving:
-  - enabled installed plugins resolve through Core pluginhost contributions;
+  - enabled installed plugins resolve through Core contribution resolver contributions;
   - bridged installed operations invoke through `fluxplane-plugin` runtime
     paths;
   - disabled plugins and disabled instances are skipped;
@@ -4042,4 +4042,53 @@ cd ../fluxplane-core && go test ./...
 cd ../fluxplane-apps/slack-bot && GOWORK=off go test ./...
 rg "github.com/fluxplane/fluxplane-core/plugins/integrations/slack|plugins/integrations/slack" ../fluxplane-core ../coder ../fluxplane-apps ../fluxplane-plugin ../fluxplane-plugins -g'*.go' -g'go.mod'
 find ../fluxplane-core/plugins -maxdepth 3 -type d | sort
+```
+
+### Progress Update: Core Contributions And `contrib` Umbrella
+
+Completed in this batch:
+
+- Removed the Core `orchestration/pluginhost` package.
+- Moved the Core contribution resolver/contracts to
+  `orchestration/contributions` with the neutral `Provider` vocabulary.
+- Moved Core-bundled contribution providers from the misleading
+  `plugins/native/*` bucket into `contrib/*`.
+- Added the root `contrib` package with `Runtime(...)` as the default bundled
+  provider entrypoint for product/runtime wiring.
+- Kept runtime/domain primitives in their direct packages, for example
+  `runtime/goal` and `runtime/workspace`, while provider wiring lives in
+  `contrib/goal`, `contrib/workspace`, `contrib/identity`, `contrib/loop`, and
+  `contrib/text`.
+- Updated launch, datasource indexing, examples, plugin bridge, auth connect,
+  support packages, and tests to import contribution providers from `contrib`.
+- Updated architecture guards so deleted plugin buckets and the removed Core
+  host package cannot return through Go imports.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-core && go test ./...
+rg "github.com/fluxplane/fluxplane-core/orchestration/pluginhost|github.com/fluxplane/fluxplane-core/plugins/native" ../fluxplane-core -g'*.go'
+```
+
+### Progress Update: `contrib` Cleanup Checkpoint
+
+Completed in this batch:
+
+- Renamed the remaining contribution resolver files from `pluginhost.go` /
+  `pluginhost_test.go` to `host.go` / `host_test.go`.
+- Moved the smoke-test echo provider from `plugins/examples/echo` to
+  `contrib/echo`.
+- Moved the bundled provider event catalog from `plugins/support/eventcatalog`
+  to `contrib/eventcatalog`.
+- Updated launch, devclient, evaluator, operation-command tests, service tests,
+  and docs to use the new `contrib` paths.
+- Extended architecture guards so `plugins/examples` and `plugins/support`
+  cannot return as Core package buckets.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-core && go test ./...
+rg "plugins/examples|plugins/support|pluginhost|orchestration/contributions/pluginhost" ../fluxplane-core -g'*.go' -g'*.md'
 ```

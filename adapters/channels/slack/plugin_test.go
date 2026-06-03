@@ -16,7 +16,7 @@ import (
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	"github.com/fluxplane/fluxplane-core/core/user"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
@@ -48,7 +48,7 @@ func TestAccessPolicyChecksKindAndTrust(t *testing.T) {
 }
 
 func TestContributionsExposeDefaultActivationSet(t *testing.T) {
-	bundle, err := NewWithBoundaries(Boundaries{}, nil).Contributions(context.Background(), pluginhost.Context{
+	bundle, err := NewWithBoundaries(Boundaries{}, nil).Contributions(context.Background(), contributions.Context{
 		Ref: resource.PluginRef{Name: Name},
 	})
 	if err != nil {

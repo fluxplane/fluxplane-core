@@ -8,6 +8,14 @@ import (
 	fluxplane "github.com/fluxplane/fluxplane-core"
 	"github.com/fluxplane/fluxplane-core/adapters/distribution/localruntime"
 	embedaxon "github.com/fluxplane/fluxplane-core/adapters/embeddings/axon"
+	"github.com/fluxplane/fluxplane-core/contrib/datasource"
+	"github.com/fluxplane/fluxplane-core/contrib/eventcatalog"
+	"github.com/fluxplane/fluxplane-core/contrib/memory"
+	"github.com/fluxplane/fluxplane-core/contrib/sessionhistory"
+	"github.com/fluxplane/fluxplane-core/contrib/task"
+	"github.com/fluxplane/fluxplane-core/contrib/text"
+	usageplugin "github.com/fluxplane/fluxplane-core/contrib/usage"
+	"github.com/fluxplane/fluxplane-core/contrib/workspace"
 	coreagent "github.com/fluxplane/fluxplane-core/core/agent"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	"github.com/fluxplane/fluxplane-core/core/channel"
@@ -16,19 +24,11 @@ import (
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/datasourceindex"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginbridge"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
-	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
-	"github.com/fluxplane/fluxplane-core/plugins/native/sessionhistory"
-	"github.com/fluxplane/fluxplane-core/plugins/native/task"
-	"github.com/fluxplane/fluxplane-core/plugins/native/text"
-	usageplugin "github.com/fluxplane/fluxplane-core/plugins/native/usage"
-	"github.com/fluxplane/fluxplane-core/plugins/native/workspace"
-	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	runtimeworkspace "github.com/fluxplane/fluxplane-core/runtime/workspace"
@@ -123,10 +123,10 @@ func TestAttachLocalRuntimePreservesConcreteRuntime(t *testing.T) {
 }
 
 func TestMergeInstalledPluginsAddsNonCollidingPluginRefs(t *testing.T) {
-	existing := []pluginhost.Plugin{staticContributionPlugin{name: "builtin"}}
+	existing := []contributions.Provider{staticContributionPlugin{name: "builtin"}}
 	bundles := []resource.ContributionBundle{{Plugins: []resource.PluginRef{{Name: "builtin"}}}}
 	installed := pluginbridge.InstalledLoadResult{
-		Plugins: []pluginhost.Plugin{
+		Plugins: []contributions.Provider{
 			staticContributionPlugin{name: "installed"},
 			staticContributionPlugin{name: "builtin"},
 		},
@@ -275,7 +275,7 @@ func TestSelectDeclaredPluginsAllowsMultipleInstances(t *testing.T) {
 			{Name: text.Name, Instance: "company-a"},
 			{Name: text.Name, Instance: "company-b"},
 		},
-	}}, []pluginhost.Plugin{workspace.New(nil), text.New()})
+	}}, []contributions.Provider{workspace.New(nil), text.New()})
 	if err != nil {
 		t.Fatalf("selectDeclaredPlugins: %v", err)
 	}
@@ -298,8 +298,8 @@ func TestLaunchUsesInjectedProductPluginWhenDeclared(t *testing.T) {
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{Name: pluginName}},
 		}},
-		PluginFactory: func(PluginFactoryContext) []pluginhost.Plugin {
-			return []pluginhost.Plugin{
+		PluginFactory: func(PluginFactoryContext) []contributions.Provider {
+			return []contributions.Provider{
 				workspace.New(nil),
 				staticContributionPlugin{
 					name: pluginName,
@@ -452,7 +452,7 @@ func TestLaunchOpensDatasourceThroughInjectedProductPlugin(t *testing.T) {
 			Entities:    []coredatasource.EntityType{entityType},
 		}},
 	}}
-	plugins := []pluginhost.Plugin{staticDatasourcePlugin{
+	plugins := []contributions.Provider{staticDatasourcePlugin{
 		name: pluginName,
 		provider: staticDatasourceProvider{entity: coredatasource.EntitySpec{
 			Type:         entityType,
@@ -490,7 +490,7 @@ func TestDatasourceIndexRuntimePassesProcessAuthEnvToPluginFactory(t *testing.T)
 		Root:               t.TempDir(),
 		Provider:           "hash",
 		AllowPluginAuthEnv: true,
-		PluginFactory: func(factoryCtx PluginFactoryContext) []pluginhost.Plugin {
+		PluginFactory: func(factoryCtx PluginFactoryContext) []contributions.Provider {
 			material, ok, err := factoryCtx.NativeAuthResolver.ResolveSecret(ctx, sharedsecret.Ref{
 				Scheme: sharedsecret.SchemeEnv,
 				Slot:   "DATASOURCE_INDEX_TEST_SECRET",
@@ -844,11 +844,11 @@ type staticContributionPlugin struct {
 	bundle resource.ContributionBundle
 }
 
-func (p staticContributionPlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: p.name}
+func (p staticContributionPlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: p.name}
 }
 
-func (p staticContributionPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (p staticContributionPlugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	return p.bundle, nil
 }
 
@@ -857,15 +857,15 @@ type staticDatasourcePlugin struct {
 	provider coredatasource.Provider
 }
 
-func (p staticDatasourcePlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: p.name}
+func (p staticDatasourcePlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: p.name}
 }
 
-func (p staticDatasourcePlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (p staticDatasourcePlugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{}, nil
 }
 
-func (p staticDatasourcePlugin) DatasourceProviders(context.Context, pluginhost.Context) ([]coredatasource.Provider, error) {
+func (p staticDatasourcePlugin) DatasourceProviders(context.Context, contributions.Context) ([]coredatasource.Provider, error) {
 	return []coredatasource.Provider{p.provider}, nil
 }
 

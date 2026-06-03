@@ -10,7 +10,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/activation"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-system/systemkit"
@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	// Name is the pluginhost registration name for the native slack
+	// Name is the contributions registration name for the native slack
 	// channel adapter. It is intentionally NOT "slack" so standalone Slack
 	// operation/datasource plugins can register richer API surfaces under
 	// their own plugin names without colliding with Core channel transport.
@@ -42,7 +42,7 @@ type Boundaries struct {
 }
 
 type Plugin struct {
-	pluginhost.Configurable[Config]
+	contributions.Configurable[Config]
 	network       fpsystem.Network
 	environment   fpsystem.Environment
 	store         sharedsecret.FileStore
@@ -53,11 +53,11 @@ type Plugin struct {
 	clientFactory slackClientFactory
 }
 
-var _ pluginhost.Plugin = Plugin{}
-var _ pluginhost.InstanceFactory = Plugin{}
-var _ pluginhost.OperationContributor = Plugin{}
-var _ pluginhost.AuthMethodContributor = Plugin{}
-var _ pluginhost.AuthTestContributor = Plugin{}
+var _ contributions.Provider = Plugin{}
+var _ contributions.InstanceFactory = Plugin{}
+var _ contributions.OperationProvider = Plugin{}
+var _ contributions.AuthMethodProvider = Plugin{}
+var _ contributions.AuthTestProvider = Plugin{}
 
 func NewWithBoundaries(boundaries Boundaries, dispatcher *Dispatcher, stores ...sharedsecret.FileStore) Plugin {
 	return NewWithBoundariesAndResolver(boundaries, dispatcher, nil, stores...)
@@ -77,12 +77,12 @@ func NewWithBoundariesAndResolver(boundaries Boundaries, dispatcher *Dispatcher,
 	return Plugin{network: boundaries.Network, environment: boundaries.Environment, store: store, secrets: resolver, dispatcher: dispatcher}
 }
 
-func (Plugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: Name, Description: "Slack channel transport and active-thread operations."}
+func (Plugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: Name, Description: "Slack channel transport and active-thread operations."}
 }
 
-func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginhost.Plugin, error) {
-	cfg, err := pluginhost.ConfigAs[Config](ctx)
+func (p Plugin) Instantiate(_ context.Context, ctx contributions.Context) (contributions.Provider, error) {
+	cfg, err := contributions.ConfigAs[Config](ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 	return p, nil
 }
 
-func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
+func (p Plugin) Contributions(_ context.Context, ctx contributions.Context) (resource.ContributionBundle, error) {
 	p = p.withRef(ctx.Ref)
 	setName := p.ref.InstanceName()
 	if setName == "" {
@@ -127,7 +127,7 @@ func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resour
 	}, nil
 }
 
-func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {
+func (p Plugin) Operations(_ context.Context, ctx contributions.Context) ([]operation.Operation, error) {
 	p = p.withRef(ctx.Ref)
 	return []operation.Operation{
 		operationruntime.NewTypedResult[channelSendInput, channelSendOutput](p.channelSendSpec(), p.channelSend),
@@ -136,12 +136,12 @@ func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operati
 	}, nil
 }
 
-func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]auth.MethodSpec, error) {
+func (p Plugin) AuthMethods(_ context.Context, ctx contributions.Context) ([]auth.MethodSpec, error) {
 	p = p.withRef(ctx.Ref)
 	return AuthMethods(p.ref, p.cfg), nil
 }
 
-func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context, req pluginhost.AuthTestRequest, reports chan<- pluginhost.AuthTestReport) error {
+func (p Plugin) TestConnection(ctx context.Context, pluginCtx contributions.Context, req contributions.AuthTestRequest, reports chan<- contributions.AuthTestReport) error {
 	ref := req.Ref
 	if ref.Name == "" {
 		ref = pluginCtx.Ref
@@ -165,7 +165,7 @@ func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context
 	return nil
 }
 
-func (p Plugin) testSlackAPIToken(ctx context.Context, reports chan<- pluginhost.AuthTestReport, method, check, token, appToken string) {
+func (p Plugin) testSlackAPIToken(ctx context.Context, reports chan<- contributions.AuthTestReport, method, check, token, appToken string) {
 	token = strings.TrimSpace(token)
 	if token == "" {
 		return
@@ -190,8 +190,8 @@ func (p Plugin) testSlackAPIToken(ctx context.Context, reports chan<- pluginhost
 	})
 }
 
-func (p Plugin) authTestReport(method, check, status, message string, details map[string]string) pluginhost.AuthTestReport {
-	return pluginhost.AuthTestReport{
+func (p Plugin) authTestReport(method, check, status, message string, details map[string]string) contributions.AuthTestReport {
+	return contributions.AuthTestReport{
 		Plugin:   Name,
 		Instance: p.ref.InstanceName(),
 		Method:   strings.TrimSpace(method),

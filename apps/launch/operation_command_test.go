@@ -10,15 +10,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/plugins/examples/echo"
+	"github.com/fluxplane/fluxplane-core/contrib/echo"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 )
 
 func TestOperationRunCommandRunsConfiguredOperation(t *testing.T) {
 	dir := t.TempDir()
 	writeOperationRunManifest(t, dir)
 
-	cmd := NewOperationCommandWithLoader(nil, func(ctx PluginFactoryContext) []pluginhost.Plugin {
+	cmd := NewOperationCommandWithLoader(nil, func(ctx PluginFactoryContext) []contributions.Provider {
 		return append(availablePluginsWithAuth(ctx.System, nil, ctx.Dispatcher, ctx.TaskRunner, ctx.NativeAuthStore, ctx.NativeAuthResolver), echo.New())
 	})
 	out := bytes.Buffer{}
@@ -44,7 +44,7 @@ func TestOperationRunCommandReportsUnknownOperation(t *testing.T) {
 	dir := t.TempDir()
 	writeOperationRunManifest(t, dir)
 
-	cmd := NewOperationCommandWithLoader(nil, func(ctx PluginFactoryContext) []pluginhost.Plugin {
+	cmd := NewOperationCommandWithLoader(nil, func(ctx PluginFactoryContext) []contributions.Provider {
 		return append(availablePluginsWithAuth(ctx.System, nil, ctx.Dispatcher, ctx.TaskRunner, ctx.NativeAuthStore, ctx.NativeAuthResolver), echo.New())
 	})
 	cmd.SetOut(&bytes.Buffer{})
@@ -83,7 +83,7 @@ func TestOperationRunCommandPassesAuthPathToPluginFactory(t *testing.T) {
 	}
 	var resolved bool
 
-	cmd := NewOperationCommandWithLoader(nil, func(ctx PluginFactoryContext) []pluginhost.Plugin {
+	cmd := NewOperationCommandWithLoader(nil, func(ctx PluginFactoryContext) []contributions.Provider {
 		material, ok, err := ctx.NativeAuthResolver.ResolveSecret(context.Background(), ref)
 		if err != nil {
 			t.Fatalf("ResolveSecret: %v", err)
@@ -118,7 +118,7 @@ func TestOperationRunCommandProcessAuthEnvRequiresOptIn(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var found bool
-			cmd := NewOperationCommandWithLoader(nil, func(ctx PluginFactoryContext) []pluginhost.Plugin {
+			cmd := NewOperationCommandWithLoader(nil, func(ctx PluginFactoryContext) []contributions.Provider {
 				material, ok, err := ctx.NativeAuthResolver.ResolveSecret(context.Background(), ref)
 				if err != nil {
 					t.Fatalf("ResolveSecret: %v", err)

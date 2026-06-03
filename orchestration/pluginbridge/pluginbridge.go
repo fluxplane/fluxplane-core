@@ -10,7 +10,7 @@ import (
 
 	auth "github.com/fluxplane/fluxplane-auth"
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
@@ -31,7 +31,7 @@ const (
 )
 
 // HostCallerFactory builds an SDK host caller for one Core plugin instance.
-type HostCallerFactory func(pluginhost.Context) protocol.HostCaller
+type HostCallerFactory func(contributions.Context) protocol.HostCaller
 
 // Option configures a bridged plugin.
 type Option func(*Plugin)
@@ -44,21 +44,21 @@ func WithHostCallerFactory(factory HostCallerFactory) Option {
 	}
 }
 
-// Plugin is a Core pluginhost plugin backed by one fluxplane-plugin runtime.
+// Plugin is a Core contributions plugin backed by one fluxplane-plugin runtime.
 type Plugin struct {
 	manifest   sdkmanifest.PluginManifest
 	runtime    pluginruntime.Plugin
 	hostCaller HostCallerFactory
 }
 
-var _ pluginhost.Plugin = Plugin{}
-var _ pluginhost.OperationContributor = Plugin{}
-var _ pluginhost.AuthMethodContributor = Plugin{}
-var _ pluginhost.AuthTestContributor = Plugin{}
-var _ pluginhost.DatasourceProviderContributor = Plugin{}
-var _ pluginhost.ContextProviderContributor = Plugin{}
+var _ contributions.Provider = Plugin{}
+var _ contributions.OperationProvider = Plugin{}
+var _ contributions.AuthMethodProvider = Plugin{}
+var _ contributions.AuthTestProvider = Plugin{}
+var _ contributions.DatasourceProviderProvider = Plugin{}
+var _ contributions.ContextProviderProvider = Plugin{}
 
-// New returns a Core pluginhost-compatible adapter for runtime.
+// New returns a Core contributions-compatible adapter for runtime.
 func New(runtime pluginruntime.Plugin, manifest sdkmanifest.PluginManifest, opts ...Option) (Plugin, error) {
 	if runtime == nil {
 		return Plugin{}, fmt.Errorf("pluginbridge: runtime plugin is nil")
@@ -94,9 +94,9 @@ func Load(ctx context.Context, runtime pluginruntime.Plugin, opts ...Option) (Pl
 	return New(runtime, manifest, opts...)
 }
 
-// Manifest returns Core pluginhost metadata.
-func (p Plugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{
+// Manifest returns Core contributions metadata.
+func (p Plugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{
 		Name:        p.manifest.Name,
 		Version:     p.manifest.Version,
 		Description: p.manifest.Description,
@@ -105,7 +105,7 @@ func (p Plugin) Manifest() pluginhost.Manifest {
 
 // Contributions returns inert Core contribution specs derived from the SDK
 // manifest.
-func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (p Plugin) Contributions(context.Context, contributions.Context) (resource.ContributionBundle, error) {
 	ops := make([]operation.Spec, 0, len(p.manifest.Operations))
 	refs := make([]operation.Ref, 0, len(p.manifest.Operations))
 	for _, declared := range p.manifest.Operations {
@@ -130,7 +130,7 @@ func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.Con
 
 // Operations returns executable Core operations backed by plugin protocol
 // operation calls.
-func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {
+func (p Plugin) Operations(_ context.Context, ctx contributions.Context) ([]operation.Operation, error) {
 	instance := ctx.Ref.InstanceName()
 	out := make([]operation.Operation, 0, len(p.manifest.Operations))
 	for _, declared := range p.manifest.Operations {
@@ -144,8 +144,8 @@ func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operati
 	return out, nil
 }
 
-// AuthMethods exposes SDK manifest auth methods to Core pluginhost resolution.
-func (p Plugin) AuthMethods(context.Context, pluginhost.Context) ([]auth.MethodSpec, error) {
+// AuthMethods exposes SDK manifest auth methods to Core contributions resolution.
+func (p Plugin) AuthMethods(context.Context, contributions.Context) ([]auth.MethodSpec, error) {
 	out := make([]auth.MethodSpec, 0, len(p.manifest.Auth))
 	for _, method := range p.manifest.Auth {
 		out = append(out, method.MethodSpec())
@@ -155,7 +155,7 @@ func (p Plugin) AuthMethods(context.Context, pluginhost.Context) ([]auth.MethodS
 
 // TestConnection asks the SDK plugin runtime to test auth for one Core plugin
 // instance.
-func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context, req pluginhost.AuthTestRequest, reports chan<- pluginhost.AuthTestReport) error {
+func (p Plugin) TestConnection(ctx context.Context, pluginCtx contributions.Context, req contributions.AuthTestRequest, reports chan<- contributions.AuthTestReport) error {
 	ref := req.Ref
 	if ref.Name == "" {
 		ref = pluginCtx.Ref
@@ -230,7 +230,7 @@ func (p Plugin) authMaterial(ctx context.Context, instance, method string, resol
 
 // ContextProviders returns runtime context providers backed by plugin protocol
 // context build calls.
-func (p Plugin) ContextProviders(_ context.Context, ctx pluginhost.Context) ([]corecontext.Provider, error) {
+func (p Plugin) ContextProviders(_ context.Context, ctx contributions.Context) ([]corecontext.Provider, error) {
 	out := make([]corecontext.Provider, 0, len(p.manifest.Context))
 	for _, declared := range p.manifest.Context {
 		spec := contextSpec(declared)
@@ -251,7 +251,7 @@ func (p Plugin) ContextProviders(_ context.Context, ctx pluginhost.Context) ([]c
 
 // DatasourceProviders returns runtime datasource providers backed by plugin
 // protocol datasource calls.
-func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) ([]coredatasource.Provider, error) {
+func (p Plugin) DatasourceProviders(_ context.Context, ctx contributions.Context) ([]coredatasource.Provider, error) {
 	if len(p.manifest.Datasources) == 0 {
 		return nil, nil
 	}
@@ -270,7 +270,7 @@ type bridgedOperation struct {
 	instance   string
 	runtime    pluginruntime.Plugin
 	hostCaller HostCallerFactory
-	pluginCtx  pluginhost.Context
+	pluginCtx  contributions.Context
 	spec       operation.Spec
 }
 
@@ -315,7 +315,7 @@ type bridgedContextProvider struct {
 	instance   string
 	runtime    pluginruntime.Plugin
 	hostCaller HostCallerFactory
-	pluginCtx  pluginhost.Context
+	pluginCtx  contributions.Context
 }
 
 func (p bridgedContextProvider) Spec() corecontext.ProviderSpec {
@@ -379,7 +379,7 @@ type bridgedDatasourceProvider struct {
 	instance     string
 	runtime      pluginruntime.Plugin
 	hostCaller   HostCallerFactory
-	pluginCtx    pluginhost.Context
+	pluginCtx    contributions.Context
 	declarations []sdkmanifest.DatasourceSpec
 }
 
@@ -434,7 +434,7 @@ type bridgedDatasourceAccessor struct {
 	instance    string
 	runtime     pluginruntime.Plugin
 	hostCaller  HostCallerFactory
-	pluginCtx   pluginhost.Context
+	pluginCtx   contributions.Context
 	declaration sdkmanifest.DatasourceSpec
 }
 
@@ -791,11 +791,11 @@ func decodeAuthTestResult(raw json.RawMessage) (string, string, map[string]strin
 	return status, message, details
 }
 
-func sendAuthTestReport(reports chan<- pluginhost.AuthTestReport, plugin, instance, method, check, status, message string, details map[string]string) {
+func sendAuthTestReport(reports chan<- contributions.AuthTestReport, plugin, instance, method, check, status, message string, details map[string]string) {
 	if reports == nil {
 		return
 	}
-	reports <- pluginhost.AuthTestReport{
+	reports <- contributions.AuthTestReport{
 		Plugin:   strings.TrimSpace(plugin),
 		Instance: strings.TrimSpace(instance),
 		Method:   strings.TrimSpace(method),

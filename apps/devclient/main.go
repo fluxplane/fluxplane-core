@@ -13,6 +13,8 @@ import (
 	adapterllm "github.com/fluxplane/fluxplane-core/adapters/llm"
 	"github.com/fluxplane/fluxplane-core/adapters/llm/openai"
 	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
+	"github.com/fluxplane/fluxplane-core/contrib/echo"
+	"github.com/fluxplane/fluxplane-core/contrib/text"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	"github.com/fluxplane/fluxplane-core/core/command"
@@ -20,10 +22,8 @@ import (
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	appcomposition "github.com/fluxplane/fluxplane-core/orchestration/app"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
-	"github.com/fluxplane/fluxplane-core/plugins/examples/echo"
-	"github.com/fluxplane/fluxplane-core/plugins/native/text"
 	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
@@ -376,7 +376,7 @@ func newRuntime(ctx context.Context, dev config) (*fluxplane.Service, error) {
 	composition, err := appcomposition.Compose(appcomposition.Config{
 		Agent:      composeAgent,
 		Operations: appOperations(bundle, echoOp),
-		Plugins:    []pluginhost.Plugin{echo.New(), text.New()},
+		Plugins:    []contributions.Provider{echo.New(), text.New()},
 		Bundles:    []fluxplane.ResourceBundle{bundle},
 	})
 	if err != nil {

@@ -30,8 +30,8 @@ orchestration/
 adapters/
   IO, protocol, filesystem, persistence backend, terminal, HTTP, Slack, shell.
 
-plugins/
-  First-party optional contribution bundles.
+contrib/
+  Core-bundled contribution providers.
 
 apps/
   Assembled products and dogfood apps.
@@ -40,12 +40,12 @@ apps/
 Dependency direction:
 
 ```text
-apps -> plugins/adapters -> orchestration -> runtime -> core
+apps -> contrib/adapters -> orchestration -> runtime -> core
 ```
 
-`plugins` may depend on `core`, `runtime`, `orchestration`, and selected
-`adapters` only when the plugin's purpose requires it. Plugin contracts should
-not live in plugin implementation packages.
+`contrib` may depend on `core`, `runtime`, `orchestration`, and selected
+`adapters` only when the provider's purpose requires it. Contribution contracts
+should not live in provider implementation packages.
 
 Codegate makes this dependency direction observable. Use the quality gate for
 hard violations and the review report for recurring refactoring review:
@@ -293,7 +293,7 @@ The exact Go API can change, but the architectural rule is stable:
 - protocol/channel behavior lives in adapters.
 
 Plugin ref `config` is plugin-owned data. Resource adapters may preserve it,
-and pluginhost may pass it through, but only the selected plugin implementation
+and contribution resolver may pass it through, but only the selected plugin implementation
 should interpret it. A plugin should reject unsupported or unsafe config early
 instead of silently broadening its contribution set.
 
@@ -478,7 +478,7 @@ we audit every package in detail.
 | Capabilities | `core/capability` + `runtime/capability` | Capability specs/events in core; state machine implementations in runtime/plugins. |
 | Skills | `core/skill` + `plugins/skills` + resource adapters | Metadata/activation in core; discovery/loading in adapters. |
 | Resources | `core/resource` + `adapters/appconfig`/`adapters/agentdir` + `orchestration/app` | Contribution data is core; loading/parsing is adapter; executable composition is orchestration. |
-| Plugins | `core/plugin` or `orchestration/pluginhost` + `plugins/*` | Keep contracts separate from implementations. |
+| Plugins | `core/plugin` or `orchestration/contributions` + `plugins/*` | Keep contracts separate from implementations. |
 | Datasources | `core/datasource` + `plugins/datasources` | Search contract in core; runtime/provider details outward. |
 | Channels | `core/channel` + `orchestration/client` + `adapters/terminal/http/slack` | Core has normalized envelopes/specs; client defines handle API; adapters implement transports. |
 | Invocation policy | `github.com/fluxplane/fluxplane-policy` | Caller, principal, trust kind/level, scopes, and projection invocation policy. |
@@ -569,7 +569,7 @@ ported.
    proven?
 3. Should `event.Store` grow a query/index port, or should non-stream lookup be
    modeled as separate projections/read models?
-4. Should plugin contracts live in `core/plugin` or `orchestration/pluginhost`?
+4. Should plugin contracts live in `core/plugin` or `orchestration/contributions`?
 5. How much of resource resolution is pure enough for `core/resource` versus
    orchestration/app?
 6. Is model provider transport part of `runtime/model` or `adapters/model/*`?
@@ -666,14 +666,14 @@ Implemented and green:
   app/agent/skill/context-provider/workflow catalogs, command catalog,
   operation catalog, and session catalog. Duplicate short names may coexist
   when canonical resource IDs differ.
-- `orchestration/pluginhost`: minimal plugin contribution contract and plugin
+- `orchestration/contributions`: minimal plugin contribution contract and plugin
   ref resolution into resource bundles plus optional executable operation
   implementations. Plugin bundles now receive plugin source refs when the
   implementation does not provide one.
-- `plugins/echoplugin`: first migrated low-IO plugin, contributing a pure echo
+- `contrib/echo`: low-IO provider contributing a pure echo
   operation and command projection.
-- `plugins/textplugin`: second migrated low-IO plugin, contributing
-  configurable pure text transformation operations and commands.
+- `contrib/text`: low-IO Core text surface contributing configurable
+  pure text transformation operations.
 - `adapters/appconfig`: narrow `fluxplane.yaml` manifest parser for
   app specs, source declarations, discovery policy, model policy, plugin refs,
   and embedded or standalone command, workflow, and operation declarations.

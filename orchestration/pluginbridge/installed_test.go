@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/fluxplane-core/core/resource"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-plugin/management"
 	"github.com/fluxplane/fluxplane-plugin/pluginruntime"
@@ -47,9 +47,9 @@ func TestLoadInstalledPluginsResolveThroughCorePluginHost(t *testing.T) {
 		t.Fatalf("work ref config = %#v", result.Bundle.Plugins[1].Config)
 	}
 
-	host, err := pluginhost.New(result.Plugins...)
+	host, err := contributions.New(result.Plugins...)
 	if err != nil {
-		t.Fatalf("pluginhost.New: %v", err)
+		t.Fatalf("contributions.New: %v", err)
 	}
 	resolution, err := host.Resolve(context.Background(), result.Bundle.Plugins...)
 	if err != nil {

@@ -14,20 +14,20 @@ import (
 
 	"github.com/fluxplane/fluxplane-core/adapters/channels/slack"
 	embedaxon "github.com/fluxplane/fluxplane-core/adapters/embeddings/axon"
+	"github.com/fluxplane/fluxplane-core/contrib/datasource"
+	"github.com/fluxplane/fluxplane-core/contrib/eventcatalog"
+	"github.com/fluxplane/fluxplane-core/contrib/sessionhistory"
+	"github.com/fluxplane/fluxplane-core/contrib/skills"
+	"github.com/fluxplane/fluxplane-core/contrib/task"
+	"github.com/fluxplane/fluxplane-core/contrib/text"
+	usageplugin "github.com/fluxplane/fluxplane-core/contrib/usage"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
 	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
 	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
-	"github.com/fluxplane/fluxplane-core/plugins/native/sessionhistory"
-	"github.com/fluxplane/fluxplane-core/plugins/native/skills"
-	"github.com/fluxplane/fluxplane-core/plugins/native/task"
-	"github.com/fluxplane/fluxplane-core/plugins/native/text"
-	usageplugin "github.com/fluxplane/fluxplane-core/plugins/native/usage"
-	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
 	"github.com/fluxplane/fluxplane-event"
@@ -45,7 +45,7 @@ type DatasourceIndexOptions struct {
 	Provider           string
 	Model              string
 	Dev                bool
-	PluginFactory      func(PluginFactoryContext) []pluginhost.Plugin
+	PluginFactory      func(PluginFactoryContext) []contributions.Provider
 }
 
 // DatasourceIndexRuntime contains the assembled registry and datasource index.
@@ -153,8 +153,8 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	return DatasourceIndexRuntime{Registry: registry, Index: index, Data: dataStore, Sources: dataSources, Config: datasourceIndexFromBundles(bundles), Close: closeFn}, nil
 }
 
-func datasourceIndexPlugins(hostSystem fpsystem.System, dispatcher *slack.Dispatcher, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver) []pluginhost.Plugin {
-	return []pluginhost.Plugin{
+func datasourceIndexPlugins(hostSystem fpsystem.System, dispatcher *slack.Dispatcher, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver) []contributions.Provider {
+	return []contributions.Provider{
 		slack.NewWithBoundariesAndResolver(slack.Boundaries{Network: hostSystem.Network(), Environment: hostSystem.Environment()}, dispatcher, nativeResolver, nativeStore),
 		task.New(),
 		skills.New(),

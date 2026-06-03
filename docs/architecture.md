@@ -2,7 +2,7 @@
 
 Fluxplane core is organized as a layered Go module. The layers keep
 stable domain concepts separate from execution, use-case composition, IO
-adapters, optional plugins, and assembled products.
+adapters, bundled contribution providers, and assembled products.
 
 This document describes the current architecture. Migration history and older
 package disposition notes live in
@@ -16,7 +16,7 @@ The shortest version:
 ```text
 cmd
   -> apps
-     -> plugins
+     -> contrib
      -> adapters
         -> orchestration
            -> runtime
@@ -46,8 +46,8 @@ More detail:
                         |          |
                         v          v
         +-------------------+   +-------------------+
-        | plugins           |   | adapters          |
-        | optional bundles  |   | IO/protocol edges |
+        | contrib           |   | adapters          |
+        | bundled providers |   | IO/protocol edges |
         +---------+---------+   +---------+---------+
                   |                       |
                   +----------+------------+
@@ -93,8 +93,8 @@ orchestration/
 adapters/
   How does the outside world talk to the runtime?
 
-plugins/
-  Which optional first-party capabilities are contributed?
+contrib/
+  Which Core-bundled contribution providers are available?
 
 apps/
   What product or runnable distribution was assembled?
@@ -189,7 +189,7 @@ daemon lifecycle
 distribution loading result contracts
 event registry assembly
 harness channel-to-session boundary
-plugin host and contribution resolution
+contribution resolver and contribution resolution
 projection coordination
 resource cataloging over contribution bundles
 session control-plane helpers
@@ -245,13 +245,13 @@ Adapters may import `core`, `runtime`, and `orchestration` as needed. They must
 not introduce reusable domain concepts that belong in inner layers, and they
 must not import `apps`.
 
-### `plugins`
+### `contrib`
 
-`plugins` are optional first-party capability bundles. They contribute specs,
+`contrib` contains Core-bundled contribution providers. They contribute specs,
 operations, context providers, channels, datasource providers, auth methods,
-and identity providers through core/orchestration contracts.
+and identity providers through `orchestration/contributions`.
 
-Plugin concepts include:
+Bundled provider concepts include:
 
 ```text
 browser operations
@@ -376,7 +376,7 @@ cmd/fluxplane
      -> apps/launch.NewServeCommand
         -> apps/launch.Serve
            -> adapters/resources/appconfig
-           -> plugins selected by the app
+           -> contribution providers selected by the app
            -> orchestration/app.Compose
            -> orchestration/daemon
            -> adapters/control/http
@@ -404,15 +404,16 @@ provide their own product-scoped registries.
 
 ```text
 resource bundles
-  -> orchestration/pluginhost
+  -> orchestration/contributions
      -> selected plugins
         -> specs, operations, channels, datasource providers, auth methods
   -> orchestration/app composition
      -> runtime execution pieces
 ```
 
-The plugin host is the abstract contribution resolver. Concrete plugins remain
-optional capability packages.
+`orchestration/contributions` is the in-process contribution resolver. External
+plugins remain plugin manifest/runtime implementations and are bridged into this
+resolver by adapters such as `orchestration/pluginbridge`.
 
 ## Distribution Concepts
 
@@ -455,8 +456,8 @@ Is it a use-case flow combining runtime pieces?
 Is it filesystem, terminal, HTTP, Slack, provider, SQL, browser, shell, or CLI IO?
   -> adapters
 
-Is it an optional first-party capability bundle?
-  -> plugins
+Is it a Core-bundled contribution provider?
+  -> contrib
 
 Is it a product, distribution, default set, or concrete assembly?
   -> apps
@@ -471,11 +472,11 @@ Is it authoring sugar for inert specs only?
 Avoid these placements:
 
 ```text
-core importing runtime/adapters/plugins/apps
+core importing runtime/adapters/contrib/apps
 runtime knowing about CLI, HTTP, Slack, or products
 orchestration rendering terminal output
 adapters defining reusable domain contracts
-plugins acting as global app assembly
+contrib acting as global app assembly
 apps exporting concepts needed by inner layers
 cmd containing feature logic
 sdk performing IO or execution

@@ -29,9 +29,9 @@ import (
 	"github.com/fluxplane/fluxplane-policy"
 
 	"github.com/fluxplane/fluxplane-core/orchestration/channelruntime"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/daemon"
 	orchestrationdistribution "github.com/fluxplane/fluxplane-core/orchestration/distribution"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	triggerhost "github.com/fluxplane/fluxplane-core/orchestration/trigger"
 
 	"github.com/fluxplane/fluxplane-core/adapters/channels/slack"
@@ -81,8 +81,8 @@ type ServeDistributionOptions struct {
 	InstalledPluginNames   []string
 	InstalledPluginStore   management.Store
 	InstalledRuntime       pluginbridge.InstalledRuntimeFactory
-	Plugins                func(PluginFactoryContext) []pluginhost.Plugin
-	PluginFactory          func(PluginFactoryContext) []pluginhost.Plugin
+	Plugins                func(PluginFactoryContext) []contributions.Provider
+	PluginFactory          func(PluginFactoryContext) []contributions.Provider
 	ToolProjection         fluxplane.ToolProjectionConfig
 	// SessionToolProjection forwards to fluxplane.Config.SessionToolProjection.
 	// Set to session.ToolProjectionContextBlocksOnly so activated operation

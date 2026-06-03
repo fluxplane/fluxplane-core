@@ -11,15 +11,15 @@ import (
 	"github.com/fluxplane/fluxplane-core/adapters/channels/slack"
 	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
 	"github.com/fluxplane/fluxplane-core/apps/launch"
+	datasourceplugin "github.com/fluxplane/fluxplane-core/contrib/datasource"
+	"github.com/fluxplane/fluxplane-core/contrib/identity"
+	"github.com/fluxplane/fluxplane-core/contrib/memory"
+	"github.com/fluxplane/fluxplane-core/contrib/skills"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
 	"github.com/fluxplane/fluxplane-core/core/user"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
-	datasourceplugin "github.com/fluxplane/fluxplane-core/plugins/native/datasource"
-	"github.com/fluxplane/fluxplane-core/plugins/native/identity"
-	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
-	"github.com/fluxplane/fluxplane-core/plugins/native/skills"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	corecontext "github.com/fluxplane/fluxplane-core/runtime/context"
 	system "github.com/fluxplane/fluxplane-core/runtime/workspace"
 	coredatasource "github.com/fluxplane/fluxplane-datasource"
@@ -57,7 +57,7 @@ func run(ctx context.Context) error {
 	static := launch.StaticPluginView(ctx, launch.StaticPluginOptions{
 		Bundles:                          []resource.ContributionBundle{bundle},
 		IncludeConfigSchemaContributions: true,
-		Plugins: func(launch.PluginFactoryContext) []pluginhost.Plugin {
+		Plugins: func(launch.PluginFactoryContext) []contributions.Provider {
 			return appPlugins(sys)
 		},
 	})
@@ -170,8 +170,8 @@ func appBundle() (resource.ContributionBundle, error) {
 		Build()
 }
 
-func appPlugins(sys fpsystem.System) []pluginhost.Plugin {
-	return []pluginhost.Plugin{
+func appPlugins(sys fpsystem.System) []contributions.Provider {
+	return []contributions.Provider{
 		identity.New(),
 		slack.NewWithBoundaries(slack.Boundaries{Network: sys.Network(), Environment: sys.Environment()}, nil),
 		skills.New(),

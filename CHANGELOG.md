@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This frees the canonical `slack` name for the dex marketplace plugin so
   consumers can load both the channel adapter (this plugin) and the
   richer dex slack op surface (slack.message.send, slack.reaction.add,
-  slack.message.edit, …) side by side without a pluginhost
+  slack.message.edit, …) side by side without a contribution resolver
   duplicate-name collision. Plugin refs, bundle wiring, and explicit
   PluginRef literals targeting the native channel adapter must switch to
   `slack.Name` / `slack_channel`. The user-identity Provider value stays
@@ -543,7 +543,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repetitive operation authorization boilerplate.
 - Added `runtime/system` HTTP client and round-tripper helpers so official SDK
   clients can route requests through the runtime network boundary.
-- Added generic typed plugin config decoding in `pluginhost.Context` for
+- Added generic typed plugin config decoding in `contributions.Context` for
   configurable plugin instances.
 - Added initial shared secret/auth primitives for plugin auth
   method declarations, plugin-instance auth requests, env-backed secret
@@ -1121,7 +1121,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runtime implementations for operation execution, event stores, thread stores,
   projections, LLM agents, and usage cost evaluation.
 - Orchestration layer for app composition, configured sessions, channel-facing
-  harness, session execution, tool projection, plugin hosting, daemon status,
+  harness, session execution, tool projection, contribution resolvering, daemon status,
   and client/run handles.
 - Direct and HTTP/SSE channel clients with matching event contracts.
 - OpenAI Responses adapter using `openai-go/v3`, including streaming model

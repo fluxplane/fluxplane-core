@@ -346,7 +346,7 @@ Plugins keep the same lifecycle boundary they have today:
 
 ```text
 app/distribution declares plugin refs
-  -> pluginhost resolves selected plugins
+  -> contribution resolver resolves selected plugins
   -> selected plugins contribute resources and runtime implementations
   -> observations/reactions decide what is active or visible in a session
 ```
@@ -407,7 +407,7 @@ The exact resolution order should be:
 
 ```text
 app/distribution/global config selects plugin refs
-  -> pluginhost instantiates selected plugin refs with their configured instance
+  -> contribution resolver instantiates selected plugin refs with their configured instance
   -> plugin.Contributions returns inert specs into resource.ContributionBundle
   -> optional ObserverContributor returns executable observers
   -> optional SignalDeriverContributor returns executable derivers
@@ -484,7 +484,7 @@ Future Docker, GitHub, or cloud plugins should use the same structure: selected
 plugin first, non-secret observation second, normalized signals third, reaction
 rules last.
 
-The pluginhost contract can grow by adding optional contributor interfaces next
+The contribution resolver contract can grow by adding optional contributor interfaces next
 to the existing operation, context provider, channel, datasource, auth, and
 identity contributors:
 
@@ -496,9 +496,9 @@ ReactionContributor
 
 Inert declarations should live in `core/environment` and `core/reaction`.
 Executable observer and deriver implementations should be resolved by
-`orchestration/pluginhost` and scheduled by orchestration. A plugin contribution
+`orchestration/contributions` and scheduled by orchestration. A plugin contribution
 bundle can carry observer specs and reaction rules for static inspection, while
-the pluginhost resolution carries executable observer and deriver handles for a
+the contribution resolver resolution carries executable observer and deriver handles for a
 live session.
 
 The runtime should reject mismatches early. If a plugin contributes an executable
@@ -1011,7 +1011,7 @@ Already present:
 - `runtime/environment` can adapt inert `SignalDeriverSpec` templates into
   executable pure signal derivers for app/workspace/user-authored derivation
   rules.
-- `orchestration/pluginhost` can resolve selected plugin observer, signal
+- `orchestration/contributions` can resolve selected plugin observer, signal
   deriver, and reaction contributors.
 - app composition carries selected plugin observers, signal derivers, and
   reaction rules in the assembled composition so session wiring can consume
@@ -1140,7 +1140,7 @@ Already present:
   `DetectionInput`/detected-ref context side channel has been removed.
 - context providers already support dynamic blocks through
   `runtime/context.FreshnessDynamic`.
-- pluginhost already resolves selected plugin refs and collects executable
+- contribution resolver already resolves selected plugin refs and collects executable
   operation, context provider, channel, datasource, auth, and
   identity contributions.
 
@@ -1183,7 +1183,7 @@ core/environment
 core/reaction
   Rule, matcher, action specs
 
-orchestration/pluginhost
+orchestration/contributions
   selected plugin observer, deriver, and reaction contributor interfaces
 
 runtime/environment

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	fluxplane "github.com/fluxplane/fluxplane-core"
+	"github.com/fluxplane/fluxplane-core/contrib/echo"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	"github.com/fluxplane/fluxplane-core/core/channel"
@@ -14,9 +15,8 @@ import (
 	coreresource "github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/core/tool"
 	appcomposition "github.com/fluxplane/fluxplane-core/orchestration/app"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
-	"github.com/fluxplane/fluxplane-core/plugins/examples/echo"
 	llmfluxplane "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 	"github.com/fluxplane/fluxplane-operation"
 	"github.com/fluxplane/fluxplane-policy"
@@ -338,7 +338,7 @@ func TestServiceRunsCommandFromPluginResourceComposition(t *testing.T) {
 	}
 	composition, err := appcomposition.Compose(appcomposition.Config{
 		Agent:   echoAgent{},
-		Plugins: []pluginhost.Plugin{echo.New()},
+		Plugins: []contributions.Provider{echo.New()},
 		Bundles: []fluxplane.ResourceBundle{bundle},
 	})
 	if err != nil {
@@ -376,7 +376,7 @@ func TestServiceRunsQualifiedCommandsWithDuplicatePluginOperationNames(t *testin
 	ctx := context.Background()
 	composition, err := appcomposition.Compose(appcomposition.Config{
 		Agent: echoAgent{},
-		Plugins: []pluginhost.Plugin{
+		Plugins: []contributions.Provider{
 			resourceTestPlugin{name: "foo"},
 			resourceTestPlugin{name: "bar"},
 		},
@@ -757,11 +757,11 @@ type resourceTestPlugin struct {
 	name string
 }
 
-func (p resourceTestPlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: p.name}
+func (p resourceTestPlugin) Manifest() contributions.Manifest {
+	return contributions.Manifest{Name: p.name}
 }
 
-func (p resourceTestPlugin) Contributions(context.Context, pluginhost.Context) (fluxplane.ResourceBundle, error) {
+func (p resourceTestPlugin) Contributions(context.Context, contributions.Context) (fluxplane.ResourceBundle, error) {
 	return fluxplane.ResourceBundle{
 		Operations: []operation.Spec{{Ref: operation.Ref{Name: "run"}}},
 		Commands: []command.Spec{{
@@ -778,7 +778,7 @@ func (p resourceTestPlugin) Contributions(context.Context, pluginhost.Context) (
 	}, nil
 }
 
-func (p resourceTestPlugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
+func (p resourceTestPlugin) Operations(context.Context, contributions.Context) ([]operation.Operation, error) {
 	return []operation.Operation{
 		operation.New(operation.Spec{Ref: operation.Ref{Name: "run"}}, func(_ operation.Context, input operation.Value) operation.Result {
 			return operation.OK(map[string]any{"plugin": p.name, "input": input})

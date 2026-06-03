@@ -20,6 +20,16 @@ import (
 	distrun "github.com/fluxplane/fluxplane-core/adapters/distribution/run"
 	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
 	"github.com/fluxplane/fluxplane-core/adapters/ui/terminal"
+	corecontrib "github.com/fluxplane/fluxplane-core/contrib"
+	"github.com/fluxplane/fluxplane-core/contrib/datasource"
+	"github.com/fluxplane/fluxplane-core/contrib/eventcatalog"
+	goalplugin "github.com/fluxplane/fluxplane-core/contrib/goal"
+	"github.com/fluxplane/fluxplane-core/contrib/memory"
+	"github.com/fluxplane/fluxplane-core/contrib/sessionhistory"
+	"github.com/fluxplane/fluxplane-core/contrib/skills"
+	"github.com/fluxplane/fluxplane-core/contrib/task"
+	usageplugin "github.com/fluxplane/fluxplane-core/contrib/usage"
+	"github.com/fluxplane/fluxplane-core/contrib/workspace"
 	coreapp "github.com/fluxplane/fluxplane-core/core/app"
 	"github.com/fluxplane/fluxplane-core/core/channel"
 	coredata "github.com/fluxplane/fluxplane-core/core/data"
@@ -28,28 +38,15 @@ import (
 	"github.com/fluxplane/fluxplane-core/orchestration/agentfactory"
 	"github.com/fluxplane/fluxplane-core/orchestration/app"
 	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/datasourceindex"
 	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
 	orchestrationidentity "github.com/fluxplane/fluxplane-core/orchestration/identity"
 	"github.com/fluxplane/fluxplane-core/orchestration/pluginbridge"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 	security "github.com/fluxplane/fluxplane-core/orchestration/security"
 	"github.com/fluxplane/fluxplane-core/orchestration/session"
 	"github.com/fluxplane/fluxplane-core/orchestration/taskexecutor"
-	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
-	"github.com/fluxplane/fluxplane-core/plugins/native/discovery"
-	goalplugin "github.com/fluxplane/fluxplane-core/plugins/native/goal"
-	"github.com/fluxplane/fluxplane-core/plugins/native/identity"
-	"github.com/fluxplane/fluxplane-core/plugins/native/loop"
-	"github.com/fluxplane/fluxplane-core/plugins/native/memory"
-	"github.com/fluxplane/fluxplane-core/plugins/native/sessionhistory"
-	"github.com/fluxplane/fluxplane-core/plugins/native/skills"
-	"github.com/fluxplane/fluxplane-core/plugins/native/task"
-	"github.com/fluxplane/fluxplane-core/plugins/native/text"
-	usageplugin "github.com/fluxplane/fluxplane-core/plugins/native/usage"
-	"github.com/fluxplane/fluxplane-core/plugins/native/workspace"
-	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
@@ -67,8 +64,8 @@ type LocalRuntimeConfig struct {
 	Root                   string
 	Spec                   coredistribution.Spec
 	Bundles                []resource.ContributionBundle
-	Plugins                func(PluginFactoryContext) []pluginhost.Plugin
-	PluginFactory          func(PluginFactoryContext) []pluginhost.Plugin
+	Plugins                func(PluginFactoryContext) []contributions.Provider
+	PluginFactory          func(PluginFactoryContext) []contributions.Provider
 	ToolProjection         fluxplane.ToolProjectionConfig
 	SessionToolProjection  session.ToolProjectionMode
 	ModelResolver          agentfactory.ModelResolver
@@ -115,8 +112,8 @@ type RuntimeOptions struct {
 	InstalledPluginNames   []string
 	InstalledPluginStore   management.Store
 	InstalledRuntime       pluginbridge.InstalledRuntimeFactory
-	Plugins                func(PluginFactoryContext) []pluginhost.Plugin
-	PluginFactory          func(PluginFactoryContext) []pluginhost.Plugin
+	Plugins                func(PluginFactoryContext) []contributions.Provider
+	PluginFactory          func(PluginFactoryContext) []contributions.Provider
 	ToolProjection         fluxplane.ToolProjectionConfig
 	// SessionToolProjection forwards to fluxplane.Config.SessionToolProjection
 	// so consumers can opt sessions into the cache-stable mode where
@@ -637,7 +634,7 @@ func slackConfigForInstance(bundles []resource.ContributionBundle, instance stri
 			if strings.TrimSpace(ref.Name) != slack.Name || ref.InstanceName() != instance {
 				continue
 			}
-			cfg, err := pluginhost.DecodeConfig[slack.Config](ref.Config)
+			cfg, err := contributions.DecodeConfig[slack.Config](ref.Config)
 			if err != nil {
 				return slack.Config{Auth: slack.AuthConfig{Method: slack.TokenMethod}}
 			}
@@ -647,7 +644,7 @@ func slackConfigForInstance(bundles []resource.ContributionBundle, instance stri
 	return slack.Config{Auth: slack.AuthConfig{Method: slack.TokenMethod}}
 }
 
-func availablePlugins(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, authPath string, allowPluginAuthEnv bool) []pluginhost.Plugin {
+func availablePlugins(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, authPath string, allowPluginAuthEnv bool) []contributions.Provider {
 	auth := NewPluginAuthContext(PluginAuthOptions{
 		Environment:        pluginAuthEnvironment(hostSystem),
 		AuthPath:           authPath,
@@ -656,46 +653,38 @@ func availablePlugins(hostSystem fpsystem.System, ws runtimeworkspace.Workspace,
 	return availablePluginsWithAuth(hostSystem, ws, dispatcher, taskRunner, auth.Store, auth.Resolver)
 }
 
-func availablePluginsWithAuth(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver) []pluginhost.Plugin {
+func availablePluginsWithAuth(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver) []contributions.Provider {
 	return availablePluginsWithOptions(hostSystem, ws, dispatcher, taskRunner, nativeStore, nativeResolver)
 }
 
-func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver) []pluginhost.Plugin {
+func availablePluginsWithOptions(hostSystem fpsystem.System, ws runtimeworkspace.Workspace, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore sharedsecret.FileStore, nativeResolver sharedsecret.Resolver) []contributions.Provider {
 	var environment fpsystem.Environment
 	var network fpsystem.Network
 	if hostSystem != nil {
 		environment = hostSystem.Environment()
 		network = hostSystem.Network()
 	}
-	return []pluginhost.Plugin{
-		workspace.New(ws),
-		discovery.New(),
-		identity.New(),
-		goalplugin.New(),
-		loop.New(),
+	providers := corecontrib.Runtime(corecontrib.RuntimeOptions{Workspace: ws, TaskRunner: taskRunner})
+	return append(providers,
 		slack.NewWithBoundariesAndResolver(slack.Boundaries{Network: network, Environment: environment}, dispatcher, nativeResolver, nativeStore),
-		memory.New(),
-		task.NewWithConfig(task.Config{Runner: taskRunner, Workspace: ws}),
-		skills.New(),
-		text.New(),
-	}
+	)
 }
 
 // AuthPluginRegistry returns first-party plugins that expose auth declarations
 // for distribution-level connect commands.
-func AuthPluginRegistry(context.Context) ([]pluginhost.Plugin, error) {
-	return []pluginhost.Plugin{
+func AuthPluginRegistry(context.Context) ([]contributions.Provider, error) {
+	return []contributions.Provider{
 		slack.NewWithBoundaries(slack.Boundaries{}, nil),
 	}, nil
 }
 
 // ManifestAuthTargetRegistry returns auth targets declared by a local app
 // manifest scope.
-func ManifestAuthTargetRegistry(loader Loader) func(context.Context) ([]pluginhost.AuthTarget, error) {
+func ManifestAuthTargetRegistry(loader Loader) func(context.Context) ([]contributions.AuthTarget, error) {
 	if loader == nil {
 		loader = distlocal.Load
 	}
-	return func(ctx context.Context) ([]pluginhost.AuthTarget, error) {
+	return func(ctx context.Context) ([]contributions.AuthTarget, error) {
 		loaded, err := loader(ctx, ".")
 		if err != nil {
 			return nil, err
@@ -707,11 +696,11 @@ func ManifestAuthTargetRegistry(loader Loader) func(context.Context) ([]pluginho
 		if err != nil {
 			return nil, err
 		}
-		return pluginhost.ResolveAuthTargets(ctx, pluginRefs(loaded.Distribution.Bundles), availablePlugins(hostSystem, hostSystem.Workspace(), nil, nil, "", false))
+		return contributions.ResolveAuthTargets(ctx, pluginRefs(loaded.Distribution.Bundles), availablePlugins(hostSystem, hostSystem.Workspace(), nil, nil, "", false))
 	}
 }
 
-func appendPluginIfMissing(plugins []pluginhost.Plugin, plugin pluginhost.Plugin) []pluginhost.Plugin {
+func appendPluginIfMissing(plugins []contributions.Provider, plugin contributions.Provider) []contributions.Provider {
 	if plugin == nil {
 		return plugins
 	}
@@ -724,7 +713,7 @@ func appendPluginIfMissing(plugins []pluginhost.Plugin, plugin pluginhost.Plugin
 	return append(plugins, plugin)
 }
 
-func mergeInstalledPlugins(available []pluginhost.Plugin, bundles []resource.ContributionBundle, installed pluginbridge.InstalledLoadResult) ([]pluginhost.Plugin, []resource.ContributionBundle) {
+func mergeInstalledPlugins(available []contributions.Provider, bundles []resource.ContributionBundle, installed pluginbridge.InstalledLoadResult) ([]contributions.Provider, []resource.ContributionBundle) {
 	if len(installed.Plugins) == 0 || len(installed.Refs) == 0 {
 		return available, bundles
 	}
@@ -769,14 +758,14 @@ func mergeInstalledPlugins(available []pluginhost.Plugin, bundles []resource.Con
 	return available, bundles
 }
 
-func replacePlugin(plugins []pluginhost.Plugin, plugin pluginhost.Plugin) []pluginhost.Plugin {
+func replacePlugin(plugins []contributions.Provider, plugin contributions.Provider) []contributions.Provider {
 	if plugin == nil {
 		return plugins
 	}
 	name := strings.TrimSpace(plugin.Manifest().Name)
 	for i, existing := range plugins {
 		if existing != nil && strings.TrimSpace(existing.Manifest().Name) == name {
-			out := append([]pluginhost.Plugin(nil), plugins...)
+			out := append([]contributions.Provider(nil), plugins...)
 			out[i] = plugin
 			return out
 		}
@@ -815,8 +804,8 @@ func launchIdentityResolver(ctx context.Context, sys fpsystem.System, auth Plugi
 	}
 }
 
-func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []pluginhost.Plugin) ([]pluginhost.Plugin, error) {
-	byName := map[string]pluginhost.Plugin{}
+func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []contributions.Provider) ([]contributions.Provider, error) {
+	byName := map[string]contributions.Provider{}
 	for _, plugin := range available {
 		if plugin == nil {
 			continue
@@ -837,7 +826,7 @@ func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []pl
 		}
 	}
 	refs = append([]resource.PluginRef{{Name: workspace.Name}}, refs...)
-	plugins := make([]pluginhost.Plugin, 0, len(refs))
+	plugins := make([]contributions.Provider, 0, len(refs))
 	selected := map[string]bool{}
 	for _, ref := range refs {
 		plugin, ok := byName[ref.Name]
@@ -853,7 +842,7 @@ func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []pl
 	return plugins, nil
 }
 
-func authEnvironmentContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, auth PluginAuthContext) ([]runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, error) {
+func authEnvironmentContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []contributions.Provider, auth PluginAuthContext) ([]runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, error) {
 	targets, err := authTargets(ctx, bundles, plugins)
 	if err != nil {
 		return nil, nil, err
@@ -864,8 +853,8 @@ func authEnvironmentContributions(ctx context.Context, bundles []resource.Contri
 	return []runtimeevidence.Observer{newAuthStatusObserver(targets, auth.Resolver)}, []runtimeevidence.AssertionDeriver{newAuthStatusAssertionDeriver()}, nil
 }
 
-func authTargets(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]sharedauthstatus.Target, error) {
-	targets, err := pluginhost.ResolveAuthTargets(ctx, pluginRefs(bundles), plugins)
+func authTargets(ctx context.Context, bundles []resource.ContributionBundle, plugins []contributions.Provider) ([]sharedauthstatus.Target, error) {
+	targets, err := contributions.ResolveAuthTargets(ctx, pluginRefs(bundles), plugins)
 	if err != nil {
 		return nil, err
 	}
@@ -876,12 +865,12 @@ func authTargets(ctx context.Context, bundles []resource.ContributionBundle, plu
 	return out, nil
 }
 
-func datasourceRegistry(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string) (*coredatasource.Registry, error) {
+func datasourceRegistry(ctx context.Context, bundles []resource.ContributionBundle, plugins []contributions.Provider, root string) (*coredatasource.Registry, error) {
 	return datasourceRegistryWithOptions(ctx, bundles, plugins, root, nil, nil, nil, nil, nil, datasource.RegistryOptions{})
 }
 
-func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string, eventStore event.Store, dataStore coredata.Store, discoveryRegistry *fpendpoint.DiscoveryRegistry, discoverer *fpendpoint.Runner, endpointRegistry *fpendpoint.Registry, opts datasource.RegistryOptions) (*coredatasource.Registry, error) {
-	host, err := pluginhost.New(plugins...)
+func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.ContributionBundle, plugins []contributions.Provider, root string, eventStore event.Store, dataStore coredata.Store, discoveryRegistry *fpendpoint.DiscoveryRegistry, discoverer *fpendpoint.Runner, endpointRegistry *fpendpoint.Registry, opts datasource.RegistryOptions) (*coredatasource.Registry, error) {
+	host, err := contributions.New(plugins...)
 	if err != nil {
 		return nil, err
 	}
@@ -912,8 +901,8 @@ func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.Contr
 	return datasource.BuildRegistryWithOptions(ctx, specs, providers, opts)
 }
 
-func resolvedPluginDataSources(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store) ([]coredata.SourceSpec, error) {
-	host, err := pluginhost.New(plugins...)
+func resolvedPluginDataSources(ctx context.Context, bundles []resource.ContributionBundle, plugins []contributions.Provider, eventStore event.Store, dataStore coredata.Store) ([]coredata.SourceSpec, error) {
+	host, err := contributions.New(plugins...)
 	if err != nil {
 		return nil, err
 	}

@@ -11,7 +11,7 @@ import (
 	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
 	coreagent "github.com/fluxplane/fluxplane-core/core/agent"
 	coresession "github.com/fluxplane/fluxplane-core/core/session"
-	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/contributions"
 	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
 	"github.com/fluxplane/fluxplane-event"
 	"github.com/fluxplane/fluxplane-operation"
@@ -25,7 +25,7 @@ type operationRunOptions struct {
 	privateNet    bool
 	yolo          bool
 	dev           bool
-	pluginFactory func(PluginFactoryContext) []pluginhost.Plugin
+	pluginFactory func(PluginFactoryContext) []contributions.Provider
 	loader        Loader
 }
 
@@ -36,7 +36,7 @@ func NewOperationCommand() *cobra.Command {
 
 // NewOperationCommandWithLoader returns the operation utility command group
 // with injectable app loading and plugin factory hooks for tests.
-func NewOperationCommandWithLoader(loader Loader, pluginFactory func(PluginFactoryContext) []pluginhost.Plugin) *cobra.Command {
+func NewOperationCommandWithLoader(loader Loader, pluginFactory func(PluginFactoryContext) []contributions.Provider) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "op",
 		Short: "Run configured operations",
@@ -45,7 +45,7 @@ func NewOperationCommandWithLoader(loader Loader, pluginFactory func(PluginFacto
 	return cmd
 }
 
-func newOperationRunCommand(loader Loader, pluginFactory func(PluginFactoryContext) []pluginhost.Plugin) *cobra.Command {
+func newOperationRunCommand(loader Loader, pluginFactory func(PluginFactoryContext) []contributions.Provider) *cobra.Command {
 	opts := operationRunOptions{appDir: ".", loader: loader, pluginFactory: pluginFactory}
 	cmd := &cobra.Command{
 		Use:   "run NAME [JSON]",
