@@ -3685,6 +3685,49 @@ rg "github.com/fluxplane/fluxplane-core" ../fluxplane-plugin ../fluxplane-plugin
 
 Result: tests passed. The import scans returned no matches.
 
+### Progress Update: Final Dex Feature Comparison And Fanout Commands
+
+Completed in this batch:
+
+- Compared Dex's remaining CLI feature surface against the reusable
+  `fluxplane-plugin` CLI.
+- Confirmed reusable coverage for the plugin primitives Dex previously owned:
+  - install/list/status/update/enable/disable/remove/search;
+  - manifest inspection;
+  - auth methods/connect/auto/test/status/disconnect;
+  - operation list/invoke/batch;
+  - datasource list/search/get/records/batch-get/lookup;
+  - context provider list/build;
+  - index build/status plus local indexed datasource search/get/lookup;
+  - endpoint discover/import/save/list/get/test/doctor/remove;
+  - direct stdio runtime execution.
+- Added reusable fanout convenience commands for the useful Dex shortcuts that
+  were still missing:
+
+  ```sh
+  fluxplane-plugin datasource search-all QUERY
+  fluxplane-plugin lookup TEXT
+  fluxplane-plugin datasource lookup-all TEXT
+  fluxplane-plugin context build-all QUERY
+  ```
+
+- Left Dex-generated integration command shortcuts out of the reusable CLI.
+  They are product/convenience wrappers over plugin manifests and operations,
+  not a separate end-state plugin-management primitive.
+
+Validation completed:
+
+```sh
+cd ../fluxplane-plugin && go test ./cli
+cd ../fluxplane-plugin && go test ./...
+cd ../fluxplane-plugin && go run ./cmd/fluxplane-plugin lookup --help
+cd ../fluxplane-plugin && go run ./cmd/fluxplane-plugin datasource --help
+cd ../fluxplane-plugin && go run ./cmd/fluxplane-plugin context --help
+```
+
+Result: the reusable plugin CLI now has a scriptable equivalent for the
+remaining useful Dex search/lookup/context fanout behavior.
+
 ### Current Next Large Steps
 
 1. Expand concrete product/plugin wiring beyond system, sleep, clock, Slack,
@@ -3696,10 +3739,9 @@ Result: tests passed. The import scans returned no matches.
      operations/datasources in `fluxplane-plugins/slack`;
    - keep products free of Dex imports.
 2. Drain remaining Dex-only feature surface:
-   - compare Dex commands/features against `fluxplane-plugin` CLI;
-   - move remaining reusable plugin management/auth/secret/manifest/datasource/
-     operation/index behavior out;
-   - delete or shrink Dex once no unique end-user value remains.
+   - delete, archive, or shrink Dex now that reusable end-user plugin behavior
+     lives in `fluxplane-plugin`; keep it out of all product dependencies until
+     that repository-level decision is made.
 3. Continue core extraction:
    - keep the Core integration tree limited to explicit runtime/evidence
      surfaces: Slack channel adapter and AWS evidence observation;
