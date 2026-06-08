@@ -12,17 +12,17 @@ require (
 	github.com/codewandler/modeldb v0.15.1
 	github.com/containerd/errdefs v1.0.0
 	github.com/containerd/platforms v0.2.1
-	github.com/fluxplane/fluxplane-auth v0.3.0
-	github.com/fluxplane/fluxplane-context v0.0.0
-	github.com/fluxplane/fluxplane-datasource v0.1.0
-	github.com/fluxplane/fluxplane-endpoint v0.2.0
-	github.com/fluxplane/fluxplane-event v0.2.0
-	github.com/fluxplane/fluxplane-operation v0.1.0
-	github.com/fluxplane/fluxplane-plugin v0.0.0
-	github.com/fluxplane/fluxplane-policy v0.1.1
+	github.com/fluxplane/fluxplane-auth v0.5.0
+	github.com/fluxplane/fluxplane-context v0.1.0
+	github.com/fluxplane/fluxplane-datasource v0.2.0
+	github.com/fluxplane/fluxplane-endpoint v0.3.0
+	github.com/fluxplane/fluxplane-event v0.1.0
+	github.com/fluxplane/fluxplane-operation v0.2.0
+	github.com/fluxplane/fluxplane-plugin v0.1.0
+	github.com/fluxplane/fluxplane-policy v0.2.0
 	github.com/fluxplane/fluxplane-secret v0.2.0
-	github.com/fluxplane/fluxplane-system v0.1.6
-	github.com/fluxplane/fluxplane-workspace v0.0.0
+	github.com/fluxplane/fluxplane-system v0.2.0
+	github.com/fluxplane/fluxplane-workspace v0.1.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/invopop/jsonschema v0.14.0
@@ -208,8 +208,8 @@ require (
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fluxplane/fluxplane-evidence v0.1.0
-	github.com/fluxplane/fluxplane-reaction v0.1.0
-	github.com/fluxplane/fluxplane-skill v0.1.0
+	github.com/fluxplane/fluxplane-reaction v0.2.0
+	github.com/fluxplane/fluxplane-skill v0.2.0
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
@@ -229,18 +229,3 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	mvdan.cc/sh/v3 v3.13.1 // indirect
 )
-
-replace github.com/fluxplane/fluxplane-plugin => ../fluxplane-plugin
-
-replace github.com/fluxplane/fluxplane-operation v0.1.0 => ../fluxplane-operation
-
-replace github.com/fluxplane/fluxplane-context v0.0.0 => ../fluxplane-context
-
-replace (
-	github.com/fluxplane/fluxplane-evidence v0.0.0 => ../fluxplane-evidence
-	github.com/fluxplane/fluxplane-evidence v0.1.0 => ../fluxplane-evidence
-)
-
-replace github.com/fluxplane/fluxplane-workspace v0.0.0 => ../fluxplane-workspace
-
-replace github.com/fluxplane/fluxplane-skill v0.1.0 => ../fluxplane-skill
